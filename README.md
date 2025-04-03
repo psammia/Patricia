@@ -1,16 +1,66 @@
-# Patricia
-/****** Script for SelectTopNRows command from SSMS  ******/
-SELECT TOP (1000) [Id]
-      ,[GivenNames]
-      ,[FamilyName]
-      ,[AutoNextKycReviewDate],
-	  sOURCE
-  FROM [Alterna_KYC].[dbo].[t_AuditT24CustomerTemp]
-  where id = 17 AND AutoNextKycReviewDate = @DATE
 
- -- 1 get from t_T24Customer Table all the customer Ids with their AutoNextKycReviewDate THat are included in table t_T24CustomerTep
- --2  Get the SOurce field from t_AuditT24CustomerTemp table for all customers in step 1 (USE THE FETCHED AutoNextKycReviewDate FROM STEP 1)
- -- 3 CHECK IF ALL SOURCE IS = ALT OR ALT_BRANCH
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Invoice Details</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+</head>
+<body>
 
+<div class="container">
+    <h2 class="text-right">INVOICE DETAILS</h2>
 
- i am in .net 8, using mvc, i want to create a controller that does not need a view, just an action to archive customer. what type should it be?
+    <div class="row">
+        <div class="col-md-6">
+            <h4>DETAILS:</h4>
+            <table class="table table-bordered">
+                <tr><th>BILL ID:</th><td>2016-2</td></tr>
+                <tr><th>BILL TYPE:</th><td>A</td></tr>
+                <tr><th>DATE:</th><td>17.02.2016</td></tr>
+                <tr><th>DUE DATE:</th><td>12.12.2099</td></tr>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h4>CLIENT DETAILS:</h4>
+            <table class="table table-bordered">
+                <tr><th>CLIENT NUMBER:</th><td>2016-2</td></tr>
+                <tr><th>CLIENT NAME:</th><td>KAAKI</td></tr>
+                <tr><th>DEPARTURE DATE:</th><td>12.12.2019</td></tr>
+                <tr><th>SHIP NAME:</th><td>-</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h4>BILL DETAILS:</h4>
+            <table class="table table-bordered">
+                <tr><th>BILL CURRENCY:</th><td>150.00 USD</td></tr>
+                <tr><th>BILL AMOUNT:</th><td>0.00 USD</td></tr>
+                <tr><th>CTO AMOUNT:</th><td>-</td></tr>
+                <tr><th>PENALTY CTO:</th><td>-</td></tr>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h4>FRESH CURRENCY:</h4>
+            <table class="table table-bordered">
+                <tr><th>AMOUNT:</th><td>150.00 USD</td></tr>
+                <tr><th>PENALTY:</th><td>0.00 USD</td></tr>
+            </table>
+
+            <h4>LOCAL CURRENCY:</h4>
+            <table class="table table-bordered">
+                <tr><th>AMOUNT:</th><td>100,000,000,000,000,000.00 LBP</td></tr>
+                <tr><th>PENALTY:</th><td>0.00 USD</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+
+</body>
+</html>
