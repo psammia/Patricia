@@ -58,3 +58,26 @@
     });
 
 </script>
+            const getPendingInvoicesByChannel = {
+                channelCode: selected
+            }
+
+            if (selected) {
+                $.ajax({
+                    url: '@Url.Action("GetPendingInvoicesByChannel", "Invoice")',
+                    type: 'POST',
+                    data: getPendingInvoicesByChannel,
+                    success: function (result) {
+
+                        
+
+                        $('#partialContainer').html(result);
+                        $("#table-pending-invoices").DataTable({});
+                    }
+                });
+
+            }
+        })
+    });
+
+</script>
