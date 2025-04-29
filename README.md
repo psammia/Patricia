@@ -1,106 +1,72 @@
-USE [Alterna_Port]
-GO
-/****** Object:  StoredProcedure [dbo].[usp_Cancel_Pending_Invoices_From_Branch]    Script Date: 28/04/2025 11:58:34 AM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
+@model Alterna_Port_Frontend.Models.CustomModels.PendingInvoicesByChannelModel
+@using Alterna_Port_Frontend.Models
 
-ALTER PROCEDURE [dbo].[usp_Cancel_Pending_Invoices_From_Branch] 
-AS
-BEGIN
-	SET NOCOUNT ON;
-	
-	DECLARE @Invoices TABLE (
-	   InvoiceRef NVARCHAR(13) PRIMARY KEY
-	);
+@if (Model.PendingInvoicesList != null && Model.PendingInvoicesList.Any())
+{
+    <table class="table table-bordered table-striped" style="width:100%" id="table-pending-invoices">
+        <thead>
+            <tr>
+                <th></th>
+                <th>Invoice Ref</th>
+                <th>Client No</th>
+                <th>Client Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var invoice in Model.PendingInvoicesList)
+            {
+                <tr>
+                    <td class="td-icons-wrapper">
+                        @*                         <a href="/Invoice/CancelPendingInvoiceFromBranch?InvoiceRef=@invoice.InvoiceRef" class="no-underline"> *@
+                        <i class="fa-solid fa-xmark fa text-danger td-icon pr-3" onClick="CancelInvoice(@invoice.InvoiceRef)" aria-hidden="true" title="Cancel Transaction"></i>
+                        @* /a> *@
+                        <a href="/Invoice/Search?InvoiceRef=@invoice.InvoiceRef" class="no-underline">
+                            <i class="fa-solid fa-file-lines fa text-info td-icon" aria-hidden="true" title="View Invoice"></i>
+                        </a>
+                    </td>
+                    <td>@invoice.InvoiceRef </td>
+                    <td>@invoice.ClientNumber</td>
+                    <td>@invoice.ClientName</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="alert alert-danger" role="alert">
+        <div class="">
+            <span>No pending invoices found for the selected channel.</span>
+        </div>
+    </div>
+}
 
-	INSERT INTO @Invoices
-	SELECT InvoiceRef FROM t_Invoice
-	WHERE StatusId = 6
+<script>
+    function CancelInvoice(invoiceRef) {
+        swal.fire({
+            title: '',
+            text: "Do you really want to delete this invoice?",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor:'#d33',
+            cancelButtonColor:'#3085d6',
+            confirmButtonText: 'Yes'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $ajax.({
+                    url: '/Invoice/CancelPendingInvoiceFromBranch?InvoiceRef=invoiceRef',
+                    type:'POST',
+                        data: {
+                        invoiceRef: invoiceRef
+                    },
+                    success: function (invoiceRef) {
+                        swal.fire('Deleted!', 'Record deleted.', 'succes').then(() => {
+                            location.reload();
+                        });
+                    }, error: function () { swal.fire('Error!', 'There was a problem deleting the record.', 'error'); }
+                });
+            }
+        });
+    }
 
-	UPDATE t_Invoice 
-	SET 
-	StatusId=5,
-	LastModifiedBy='AlternaSysUser',
-	LastModifiedDate=GETDATE()
-	WHERE StatusId = 6
-
-	UPDATE t_Invoice_Transaction
-	SET 
-	StatusId=5,
-	LastModifiedBy='AlternaSysUser',
-	LastModifiedDate=GETDATE()
-	WHERE StatusId = 6
-
-	BEGIN --Audit Records
-	INSERT INTO [dbo].[t_Invoice_Audit]
-           ([InvoiceRef]
-		   ,[ChannelCode]
-           ,[ClientNumber]
-           ,[BillId]
-           ,[BillType]
-           ,[BillDate]
-           ,[BillLastPaymentDate]
-           ,[DepartureDate]
-           ,[Currency]
-           ,[BillAmount]
-           ,[CTOAmount]
-           ,[Check]
-           ,[ClientName]
-           ,[ShipName]
-           ,[LocalAmount]
-           ,[FreshAmount]
-           ,[LocalCurrency]
-           ,[FreshCurrency]
-           ,[PenaltyLocalAmount]
-           ,[PenaltyFreshAmount]
-           ,[PenaltyCTO]
-           ,[CorrelationId]
-           ,[CustomerId]
-           ,[BbUsername]
-           ,[Action]
-           ,[BankAction]
-           ,[PaymentDate]
-           ,[StatusId]
-           ,[CreatedDate]
-           ,[CreatedBy]
-           ,[LastModifiedDate]
-           ,[LastModifiedBy])
-	SELECT 
-		   t_Invoice.[InvoiceRef]
-		  ,[ChannelCode]
-		  ,[ClientNumber]
-		  ,[BillId]
-		  ,[BillType]
-		  ,[BillDate]
-		  ,[BillLastPaymentDate]
-		  ,[DepartureDate]
-		  ,[Currency]
-		  ,[BillAmount]
-		  ,[CtoAmount]
-		  ,[Check]
-		  ,[ClientName]
-		  ,[ShipName]
-		  ,[LocalAmount]
-		  ,[FreshAmount]
-		  ,[LocalCurrency]
-		  ,[FreshCurrency]
-		  ,[PenaltyLocalAmount]
-		  ,[PenaltyFreshAmount]
-		  ,[PenaltyCto]
-		  ,[CorrelationId]
-		  ,[CustomerId]
-		  ,[BbUsername]
-		  ,[Action]
-		  ,[BankAction]
-		  ,[PaymentDate]
-		  ,[StatusId]
-		  ,[CreatedDate]
-		  ,[CreatedBy]
-		  ,[LastModifiedDate]
-		  ,[LastModifiedBy]
-	FROM [dbo].[t_Invoice] INNER JOIN @Invoices t ON t.InvoiceRef = [dbo].[t_Invoice].InvoiceRef
-	END
-END
-
+</script>
