@@ -1,3 +1,10 @@
+PendingInvoices:1 Uncaught ReferenceError: B2017 is not defined
+    at SVGSVGElement.onclick (PendingInvoices:1:15)
+
+
+
+
+
 <script>
     function CancelInvoice(invoiceRef) {
         Swal.fire({
