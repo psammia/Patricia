@@ -1,3 +1,39 @@
+<script>
+    function CancelInvoice(invoiceRef) {
+        Swal.fire({
+            title: '',
+            text: "Do you really want to delete this invoice?",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.ajax({
+                    url: '/Invoice/CancelPendingInvoiceFromBranch',
+                    type: 'POST',
+                    data: {
+                        invoiceRef: invoiceRef
+                    },
+                    success: function () {
+                        Swal.fire('Deleted!', 'Record deleted.', 'success').then(() => {
+                            location.reload();
+                        });
+                    },
+                    error: function () {
+                        Swal.fire('Error!', 'There was a problem deleting the record.', 'error');
+                    }
+                });
+            }
+        });
+    }
+</script>
+
+
+
+
+
 @model Alterna_Port_Frontend.Models.CustomModels.PendingInvoicesByChannelModel
 @using Alterna_Port_Frontend.Models
 
