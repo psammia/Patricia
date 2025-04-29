@@ -1,3 +1,9 @@
+VM27:3 Uncaught ReferenceError: Swal is not defined
+    at CancelInvoice (<anonymous>:3:9)
+    at SVGSVGElement.onclick (PendingInvoices:1:1)
+
+
+
 PendingInvoices:1 Uncaught ReferenceError: B2017 is not defined
     at SVGSVGElement.onclick (PendingInvoices:1:15)
 
