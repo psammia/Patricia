@@ -1,3 +1,18 @@
+public class DatabaseHelper
+{
+    private readonly string _connectionString;
+
+    public DatabaseHelper(IConfiguration configuration)
+    {
+        _connectionString = configuration.GetConnectionString("DefaultConnection");
+    }
+
+    public SqlConnection GetConnection() => new SqlConnection(_connectionString);
+}
+
+
+
+
 <script>
     function CancelInvoice(invoiceRef) {
         swal({
