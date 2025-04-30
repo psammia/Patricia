@@ -1,241 +1,123 @@
-// Project Structure Hierarchy
+ASP.NET Core MVC ADO.NET Order Tracking System
 
-// Models Folder
+Project Structure
 
-Models/
-
-Customer.cs
-
-Order.cs
-
-OrderItem.cs
-
-Payment.cs
-
-
-
-// Data Access Helper
-
-Helpers/
-
-DatabaseHelper.cs
-
-
-
-// Repositories Folder
-
-Repositories/
-
-CustomerRepository.cs
-
-OrderRepository.cs
-
-OrderItemRepository.cs
-
-PaymentRepository.cs
+OrderTrackingSystem/
+├── Controllers/
+│   ├── CustomerController.cs
+│   ├── OrderController.cs
+│   ├── OrderItemController.cs
+│   └── PaymentController.cs
+├── Models/
+│   ├── Customer.cs
+│   ├── Order.cs
+│   ├── OrderItem.cs
+│   └── Payment.cs
+├── Repositories/
+│   ├── DatabaseHelper.cs
+│   ├── CustomerRepository.cs
+│   ├── OrderRepository.cs
+│   ├── OrderItemRepository.cs
+│   └── PaymentRepository.cs
+├── Views/
+│   ├── Customer/
+│   ├── Order/
+│   ├── OrderItem/
+│   └── Payment/
+├── appsettings.json
+├── Program.cs
+└── Startup.cs
 
 
-
-// Controllers Folder
-
-Controllers/
-
-CustomerController.cs
-
-OrderController.cs
-
-OrderItemController.cs
-
-PaymentController.cs
-
-
-
-// Views Folder
-
-Views/
-
-Customer/
-
-Index.cshtml
-
-Create.cshtml
-
-
-Order/
-
-Index.cshtml
-
-Create.cshtml
-
-
-OrderItem/
-
-Index.cshtml
-
-Create.cshtml
-
-
-Payment/
-
-Index.cshtml
-
-Create.cshtml
-
-
-
-
-// Configuration Files
-
-appsettings.json
-
-
-// Entry Point
+---
 
 Program.cs
 
+var builder = WebApplication.CreateBuilder(args);
 
-// MVC Model Definitions
+// Add services to the container.
+builder.Services.AddControllersWithViews();
 
-// Customer.cs public class Customer { public int CustomerId { get; set; } public string Name { get; set; } public string Email { get; set; } public string Phone { get; set; } }
+var app = builder.Build();
 
-// Order.cs public class Order { public int OrderId { get; set; } public int CustomerId { get; set; } public DateTime OrderDate { get; set; } public decimal TotalCost { get; set; } public decimal Profit { get; set; } public bool IsPaid { get; set; } }
-
-// OrderItem.cs public class OrderItem { public int OrderItemId { get; set; } public int OrderId { get; set; } public string ItemName { get; set; } public int Quantity { get; set; } public decimal UnitPrice { get; set; } public decimal UnitCost { get; set; } }
-
-// Payment.cs public class Payment { public int PaymentId { get; set; } public int OrderId { get; set; } public DateTime PaymentDate { get; set; } public decimal AmountPaid { get; set; } }
-
-// OrderRepository.cs public class OrderRepository { private readonly string _connectionString;
-
-public OrderRepository(IConfiguration configuration)
+// Configure the HTTP request pipeline.
+if (!app.Environment.IsDevelopment())
 {
-    _connectionString = configuration.GetConnectionString("DefaultConnection");
+    app.UseExceptionHandler("/Home/Error");
+    app.UseHsts();
 }
 
-public void AddOrder(Order order)
-{
-    using (SqlConnection conn = new SqlConnection(_connectionString))
-    using (SqlCommand cmd = new SqlCommand("sp_AddOrder", conn))
-    {
-        cmd.CommandType = CommandType.StoredProcedure;
-        cmd.Parameters.AddWithValue("@CustomerId", order.CustomerId);
-        cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-        cmd.Parameters.AddWithValue("@TotalCost", order.TotalCost);
-        cmd.Parameters.AddWithValue("@Profit", order.Profit);
-        cmd.Parameters.AddWithValue("@IsPaid", order.IsPaid);
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseRouting();
+app.UseAuthorization();
 
-        conn.Open();
-        cmd.ExecuteNonQuery();
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Customer}/{action=Index}/{id?}");
+
+app.Run();
+
+
+---
+
+appsettings.json
+
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=YOUR_SERVER_NAME;Database=OrderTrackingDB;Trusted_Connection=True;"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
     }
+  },
+  "AllowedHosts": "*"
 }
 
-public List<Order> GetAllOrders()
-{
-    List<Order> orders = new List<Order>();
 
-    using (SqlConnection conn = new SqlConnection(_connectionString))
-    using (SqlCommand cmd = new SqlCommand("sp_GetAllOrders", conn))
-    {
-        cmd.CommandType = CommandType.StoredProcedure;
-        conn.Open();
+---
 
-        using (SqlDataReader reader = cmd.ExecuteReader())
-        {
-            while (reader.Read())
-            {
-                orders.Add(new Order
-                {
-                    OrderId = Convert.ToInt32(reader["OrderId"]),
-                    CustomerId = Convert.ToInt32(reader["CustomerId"]),
-                    OrderDate = Convert.ToDateTime(reader["OrderDate"]),
-                    TotalCost = Convert.ToDecimal(reader["TotalCost"]),
-                    Profit = Convert.ToDecimal(reader["Profit"]),
-                    IsPaid = Convert.ToBoolean(reader["IsPaid"])
-                });
-            }
-        }
-    }
+Models
 
-    return orders;
+// Customer.cs
+public class Customer {
+    public int CustomerId { get; set; }
+    public string Name { get; set; }
+    public string Email { get; set; }
 }
 
+// Order.cs
+public class Order {
+    public int OrderId { get; set; }
+    public int CustomerId { get; set; }
+    public DateTime OrderDate { get; set; }
+    public decimal TotalCost { get; set; }
+    public decimal Profit { get; set; }
+    public bool IsPaid { get; set; }
 }
 
-// OrderController.cs public class OrderController : Controller { private readonly OrderRepository _orderRepo;
-
-public OrderController(IConfiguration config)
-{
-    _orderRepo = new OrderRepository(config);
+// OrderItem.cs
+public class OrderItem {
+    public int OrderItemId { get; set; }
+    public int OrderId { get; set; }
+    public string Description { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal CostPrice { get; set; }
 }
 
-public IActionResult Index()
-{
-    var orders = _orderRepo.GetAllOrders();
-    return View(orders);
+// Payment.cs
+public class Payment {
+    public int PaymentId { get; set; }
+    public int OrderId { get; set; }
+    public decimal AmountPaid { get; set; }
+    public DateTime PaymentDate { get; set; }
 }
 
-public IActionResult Create()
-{
-    return View();
-}
 
-[HttpPost]
-public IActionResult Create(Order order)
-{
-    if (ModelState.IsValid)
-    {
-        _orderRepo.AddOrder(order);
-        return RedirectToAction("Index");
-    }
-    return View(order);
-}
+---
 
-}
-
-// Views/Order/Index.cshtml @model IEnumerable<Order>
-
-<h2>Orders</h2>
-<table>
-    <tr>
-        <th>ID</th>
-        <th>Date</th>
-        <th>Total</th>
-        <th>Profit</th>
-        <th>Paid</th>
-    </tr>
-    @foreach (var item in Model)
-    {
-        <tr>
-            <td>@item.OrderId</td>
-            <td>@item.OrderDate</td>
-            <td>@item.TotalCost</td>
-            <td>@item.Profit</td>
-            <td>@item.IsPaid</td>
-        </tr>
-    }
-</table>// Views/Order/Create.cshtml @model Order
-
-<h2>Create Order</h2>
-<form asp-action="Create">
-    <div>
-        <label>Customer ID</label>
-        <input asp-for="CustomerId" />
-    </div>
-    <div>
-        <label>Order Date</label>
-        <input asp-for="OrderDate" type="date" />
-    </div>
-    <div>
-        <label>Total Cost</label>
-        <input asp-for="TotalCost" />
-    </div>
-    <div>
-        <label>Profit</label>
-        <input asp-for="Profit" />
-    </div>
-    <div>
-        <label>Is Paid</label>
-        <input asp-for="IsPaid" type="checkbox" />
-    </div>
-    <button type="submit">Save</button>
-</form>// Next step: OrderItem and Payment code and stored procedures
+Would you like me to continue by adding full Customer controller, views, and repository with ADO.NET using stored procedures?
 
