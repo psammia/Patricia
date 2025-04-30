@@ -1,3 +1,15 @@
+public class OrderSummaryViewModel {
+    public int OrderId { get; set; }
+    public string CustomerName { get; set; }
+    public DateTime OrderDate { get; set; }
+    public decimal TotalCost { get; set; }
+    public decimal TotalPrice { get; set; }
+    public decimal Profit => TotalPrice - TotalCost;
+    public bool IsPaid { get; set; }
+    public DateTime? PaidDate { get; set; }
+}
+
+
 // CONTINUATION: Add Excel Export and Cash Flow Summary
 
 // In OrdersController.cs public ActionResult ExportToExcel() { var orders = _orderRepo.GetOrders(); using (var package = new OfficeOpenXml.ExcelPackage()) { var worksheet = package.Workbook.Worksheets.Add("Orders"); worksheet.Cells[1, 1].Value = "Customer"; worksheet.Cells[1, 2].Value = "Total Cost"; worksheet.Cells[1, 3].Value = "Total Paid"; worksheet.Cells[1, 4].Value = "Profit"; worksheet.Cells[1, 5].Value = "Status";
