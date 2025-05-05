@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Data;
 using System.Data.SqlClient;
-using OrderTracking.Models;
-using System;
+using OrdersTracking.Models;
 
 public class OrderController : Controller
 {
@@ -77,7 +76,5 @@ public class OrderController : Controller
         using (SqlConnection conn = new SqlConnection(_connectionString))
         {
             SqlCommand cmd = new Sql
-::contentReference[oaicite:0]{ index = 0}
-        }
-    }
-}
+::contentReference[oaicite:0]{index=0}
+ 
