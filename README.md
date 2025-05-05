@@ -1,93 +1,83 @@
-Index.cshtml – List all customers
+using Microsoft.AspNetCore.Mvc;
+using System.Data;
+using System.Data.SqlClient;
+using OrderTracking.Models;
+using System;
 
-@model IEnumerable<OrdersTracking.Models.Customer>
-@{
-    ViewData["Title"] = "Customers";
-}
+public class OrderController : Controller
+{
+    private readonly IConfiguration _configuration;
+    private readonly string _connectionString;
 
-<h2>Customer List</h2>
+    public OrderController(IConfiguration configuration)
+    {
+        _configuration = configuration;
+        _connectionString = _configuration.GetConnectionString("DefaultConnection");
+    }
 
-<a asp-action="Create" class="btn btn-primary mb-2">Add New Customer</a>
+    public IActionResult Index()
+    {
+        List<Order> orders = new List<Order>();
 
-<table class="table table-bordered">
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var customer in Model)
+        using (SqlConnection conn = new SqlConnection(_connectionString))
         {
-            <tr>
-                <td>@customer.Name</td>
-                <td>@customer.Email</td>
-                <td>@customer.Phon Create.cshtml – Create a customer</td>
-                <td>
-                    <a asp-action="Edit" asp-route-id="@customer.CustomerId" class="btn btn-sm btn-warning">Edit</a>
-                </td>
-            </tr>
+            SqlCommand cmd = new SqlCommand("SELECT * FROM Orders", conn);
+            conn.Open();
+            SqlDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                orders.Add(new Order
+                {
+                    OrderId = (int)reader["OrderId"],
+                    OrderDate = (DateTime)reader["OrderDate"],
+                    Cost = (decimal)reader["Cost"],
+                    Profit = (decimal)reader["Profit"],
+                    IsPaid = (bool)reader["IsPaid"]
+                });
+            }
         }
-    </tbody>
-</table>
 
+        return View(orders);
+    }
 
+    public IActionResult Create()
+    {
+        return View();
+    }
 
- Create.cshtml – Create a customer
+    [HttpPost]
+    public IActionResult Create(Order order)
+    {
+        using (SqlConnection conn = new SqlConnection(_connectionString))
+        {
+            SqlCommand cmd = new SqlCommand("UpsertOrder", conn);
+            cmd.CommandType = CommandType.StoredProcedure;
 
-@model OrdersTracking.Models.Customer
-@{
-    ViewData["Title"] = "Add Customer";
+            SqlParameter idParam = new SqlParameter("@OrderId", SqlDbType.Int)
+            {
+                Direction = ParameterDirection.Output
+            };
+            cmd.Parameters.Add(idParam);
+            cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
+            cmd.Parameters.AddWithValue("@Cost", order.Cost);
+            cmd.Parameters.AddWithValue("@Profit", order.Profit);
+            cmd.Parameters.AddWithValue("@IsPaid", order.IsPaid);
+
+            conn.Open();
+            cmd.ExecuteNonQuery();
+        }
+
+        return RedirectToAction("Index");
+    }
+
+    public IActionResult Edit(int id)
+    {
+        Order order = new Order();
+
+        using (SqlConnection conn = new SqlConnection(_connectionString))
+        {
+            SqlCommand cmd = new Sql
+::contentReference[oaicite:0]{ index = 0}
+        }
+    }
 }
-
-<h2>Create Customer</h2>
-
-<form asp-action="Create" method="post" class="form">
-    <div class="form-group">
-        <label asp-for="Name"></label>
-        <input asp-for="Name" class="form-control" required />
-    </div>
-    <div class="form-group">
-        <label asp-for="Email"></label>
-        <input asp-for="Email" class="form-control" />
-    </div>
-    <div class="form-group">
-        <label asp-for="Phone"></label>
-        <input asp-for="Phone" class="form-control" />
-    </div>
-    <button type="submit" class="btn btn-success mt-2">Save</button>
-    <a asp-action="Index" class="btn btn-secondary mt-2">Cancel</a>
-</form>
-
-
-Edit.cshtml – Edit an existing customer
-@model OrdersTracking.Models.Customer
-@{
-    ViewData["Title"] = "Edit Customer";
-}
-
-<h2>Edit Customer</h2>
-
-<form asp-action="Edit" method="post" class="form">
-    <input type="hidden" asp-for="CustomerId" />
-    <div class="form-group">
-        <label asp-for="Name"></label>
-        <input asp-for="Name" class="form-control" required />
-    </div>
-    <div class="form-group">
-        <label asp-for="Email"></label>
-        <input asp-for="Email" class="form-control" />
-    </div>
-    <div class="form-group">
-        <label asp-for="Phone"></label>
-        <input asp-for="Phone" class="form-control" />
-    </div>
-    <button type="submit" class="btn btn-success mt-2">Update</button>
-    <a asp-action="Index" class="btn btn-secondary mt-2">Cancel</a>
-</form>
-
-
-
-
