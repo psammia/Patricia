@@ -1,118 +1,97 @@
-using System;
-using System.Collections.Generic;
-using System.Data;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Data.SqlClient;
-using OrdersTracking.Models;
+index:
+@model IEnumerable<OrdersTracking.Models.Order>
 
-namespace OrdersTracking.Controllers
-{
-    public class OrderController : Controller
-    {
-        private readonly IConfiguration _config;
-        private readonly string _connectionString;
-
-        public OrderController(IConfiguration config)
-        {
-            _config = config;
-            _connectionString = _config.GetConnectionString("DefaultConnection");
-        }
-
-        public IActionResult Index()
-        {
-            var orders = new List<Order>();
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders", con))
-                {
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            orders.Add(new Order
-                            {
-                                OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
-                                CustomerName = reader.GetString(reader.GetOrdinal("CustomerName")),
-                                OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate")),
-                                TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount"))
-                            });
-                        }
-                    }
-                }
-            }
-            return View(orders);
-        }
-
-        public IActionResult Create()
-        {
-            return View();
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public IActionResult Create(Order order)
-        {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    // Pass 0 (or null) for new Order to let the stored procedure insert it
-                    cmd.Parameters.AddWithValue("@OrderId", 0);
-                    cmd.Parameters.AddWithValue("@CustomerName", order.CustomerName);
-                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-            return RedirectToAction("Index");
-        }
-
-        public IActionResult Edit(int id)
-        {
-            var order = new Order();
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders WHERE OrderId = @OrderId", con))
-                {
-                    cmd.Parameters.AddWithValue("@OrderId", id);
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        if (reader.Read())
-                        {
-                            order.OrderId = reader.GetInt32(reader.GetOrdinal("OrderId"));
-                            order.CustomerName = reader.GetString(reader.GetOrdinal("CustomerName"));
-                            order.OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate"));
-                            order.TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount"));
-                        }
-                    }
-                }
-            }
-            return View(order);
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public IActionResult Edit(Order order)
-        {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    cmd.Parameters.AddWithValue("@OrderId", order.OrderId);
-                    cmd.Parameters.AddWithValue("@CustomerName", order.CustomerName);
-                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-            return RedirectToAction("Index");
-        }
-    }
+@{
+    ViewData["Title"] = "Orders List";
 }
+
+<h2>Orders List</h2>
+
+<a asp-action="Create" class="btn btn-primary mb-3">Create New Order</a>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Order ID</th>
+            <th>Customer Name</th>
+            <th>Order Date</th>
+            <th>Total Amount</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var order in Model)
+        {
+            <tr>
+                <td>@order.OrderId</td>
+                <td>@order.CustomerName</td>
+                <td>@order.OrderDate.ToShortDateString()</td>
+                <td>@order.TotalAmount.ToString("C")</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@order.OrderId" class="btn btn-sm btn-warning">Edit</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+
+Create:
+@model OrdersTracking.Models.Order
+
+@{
+    ViewData["Title"] = "Create Order";
+}
+
+<h2>Create New Order</h2>
+
+<form asp-action="Create" method="post">
+    <div class="form-group mb-3">
+        <label asp-for="CustomerName" class="form-label"></label>
+        <input asp-for="CustomerName" class="form-control" />
+        <span asp-validation-for="CustomerName" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-3">
+        <label asp-for="OrderDate" class="form-label"></label>
+        <input asp-for="OrderDate" type="date" class="form-control" />
+        <span asp-validation-for="OrderDate" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-3">
+        <label asp-for="TotalAmount" class="form-label"></label>
+        <input asp-for="TotalAmount" class="form-control" />
+        <span asp-validation-for="TotalAmount" class="text-danger"></span>
+    </div>
+    <button type="submit" class="btn btn-success">Save</button>
+    <a asp-action="Index" class="btn btn-secondary">Cancel</a>
+</form>
+
+
+Index:
+@model OrdersTracking.Models.Order
+
+@{
+    ViewData["Title"] = "Edit Order";
+}
+
+<h2>Edit Order</h2>
+
+<form asp-action="Edit" method="post">
+    <input type="hidden" asp-for="OrderId" />
+    <div class="form-group mb-3">
+        <label asp-for="CustomerName" class="form-label"></label>
+        <input asp-for="CustomerName" class="form-control" />
+        <span asp-validation-for="CustomerName" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-3">
+        <label asp-for="OrderDate" class="form-label"></label>
+        <input asp-for="OrderDate" type="date" class="form-control" />
+        <span asp-validation-for="OrderDate" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-3">
+        <label asp-for="TotalAmount" class="form-label"></label>
+        <input asp-for="TotalAmount" class="form-control" />
+        <span asp-validation-for="TotalAmount" class="text-danger"></span>
+    </div>
+    <button type="submit" class="btn btn-primary">Update</button>
+    <a asp-action="Index" class="btn btn-secondary">Cancel</a>
+</form>
