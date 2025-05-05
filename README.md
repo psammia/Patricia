@@ -1,80 +1,118 @@
-using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Collections.Generic;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Data.SqlClient;
 using OrdersTracking.Models;
 
-public class OrderController : Controller
+namespace OrdersTracking.Controllers
 {
-    private readonly IConfiguration _configuration;
-    private readonly string _connectionString;
-
-    public OrderController(IConfiguration configuration)
+    public class OrderController : Controller
     {
-        _configuration = configuration;
-        _connectionString = _configuration.GetConnectionString("DefaultConnection");
-    }
+        private readonly IConfiguration _config;
+        private readonly string _connectionString;
 
-    public IActionResult Index()
-    {
-        List<Order> orders = new List<Order>();
-
-        using (SqlConnection conn = new SqlConnection(_connectionString))
+        public OrderController(IConfiguration config)
         {
-            SqlCommand cmd = new SqlCommand("SELECT * FROM Orders", conn);
-            conn.Open();
-            SqlDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
+            _config = config;
+            _connectionString = _config.GetConnectionString("DefaultConnection");
+        }
+
+        public IActionResult Index()
+        {
+            var orders = new List<Order>();
+            using (SqlConnection con = new SqlConnection(_connectionString))
             {
-                orders.Add(new Order
+                con.Open();
+                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders", con))
                 {
-                    OrderId = (int)reader["OrderId"],
-                    OrderDate = (DateTime)reader["OrderDate"],
-                    Cost = (decimal)reader["Cost"],
-                    Profit = (decimal)reader["Profit"],
-                    IsPaid = (bool)reader["IsPaid"]
-                });
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            orders.Add(new Order
+                            {
+                                OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
+                                CustomerName = reader.GetString(reader.GetOrdinal("CustomerName")),
+                                OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate")),
+                                TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount"))
+                            });
+                        }
+                    }
+                }
             }
+            return View(orders);
         }
 
-        return View(orders);
-    }
-
-    public IActionResult Create()
-    {
-        return View();
-    }
-
-    [HttpPost]
-    public IActionResult Create(Order order)
-    {
-        using (SqlConnection conn = new SqlConnection(_connectionString))
+        public IActionResult Create()
         {
-            SqlCommand cmd = new SqlCommand("UpsertOrder", conn);
-            cmd.CommandType = CommandType.StoredProcedure;
+            return View();
+        }
 
-            SqlParameter idParam = new SqlParameter("@OrderId", SqlDbType.Int)
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult Create(Order order)
+        {
+            using (SqlConnection con = new SqlConnection(_connectionString))
             {
-                Direction = ParameterDirection.Output
-            };
-            cmd.Parameters.Add(idParam);
-            cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-            cmd.Parameters.AddWithValue("@Cost", order.Cost);
-            cmd.Parameters.AddWithValue("@Profit", order.Profit);
-            cmd.Parameters.AddWithValue("@IsPaid", order.IsPaid);
-
-            conn.Open();
-            cmd.ExecuteNonQuery();
+                con.Open();
+                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    // Pass 0 (or null) for new Order to let the stored procedure insert it
+                    cmd.Parameters.AddWithValue("@OrderId", 0);
+                    cmd.Parameters.AddWithValue("@CustomerName", order.CustomerName);
+                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
+                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            return RedirectToAction("Index");
         }
 
-        return RedirectToAction("Index");
-    }
-
-    public IActionResult Edit(int id)
-    {
-        Order order = new Order();
-
-        using (SqlConnection conn = new SqlConnection(_connectionString))
+        public IActionResult Edit(int id)
         {
-            SqlCommand cmd = new Sql
-::contentReference[oaicite:0]{index=0}
- 
+            var order = new Order();
+            using (SqlConnection con = new SqlConnection(_connectionString))
+            {
+                con.Open();
+                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders WHERE OrderId = @OrderId", con))
+                {
+                    cmd.Parameters.AddWithValue("@OrderId", id);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            order.OrderId = reader.GetInt32(reader.GetOrdinal("OrderId"));
+                            order.CustomerName = reader.GetString(reader.GetOrdinal("CustomerName"));
+                            order.OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate"));
+                            order.TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount"));
+                        }
+                    }
+                }
+            }
+            return View(order);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult Edit(Order order)
+        {
+            using (SqlConnection con = new SqlConnection(_connectionString))
+            {
+                con.Open();
+                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@OrderId", order.OrderId);
+                    cmd.Parameters.AddWithValue("@CustomerName", order.CustomerName);
+                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
+                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            return RedirectToAction("Index");
+        }
+    }
+}
