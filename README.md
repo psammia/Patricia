@@ -1,3 +1,5 @@
+_Layout.cshtml
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -48,3 +50,61 @@
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
+
+
+Index.chtml
+@model IEnumerable<OrderTracking.Models.Order>
+
+@{
+    ViewData["Title"] = "Orders List";
+}
+
+
+
+@section Scripts{
+<script>
+    $(document).ready(function () {
+        $('#ordersTable').DataTable();
+    });
+</script>
+}
+
+<h2>Orders List</h2>
+
+<a asp-action="Create" class="btn btn-primary mb-3">Create New Order</a>
+
+<table id="ordersTable" class="table table-striped">
+    <thead>
+        <tr>
+            <th>Order ID</th>
+            <th>Order Date</th>
+            <th>Total Amount</th>
+            <th>No of Products</th>
+            <th>Cost</th>
+            <th>Profit</th>.
+            <th>StatusCode</th>
+            <th></th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var order in Model)
+        {
+            <tr>
+                <td>@order.OrderId</td>
+                <td>@order.OrderDate.ToShortDateString()</td>
+                <td>@order.TotalAmount?.ToString("C")</td>
+                <td>@order.NoOfProduct</td>
+                <td>@order.Cost?.ToString("C")</td>
+                <td>@order.Profit?.ToString("C")</td>
+                <td>@order.StatusCode</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@order.OrderId" class="btn btn-sm btn-warning">Edit</a>
+                </td>
+                <td>
+                    <a asp-action="AssignCustomersToOrder" asp-route-id="@order.OrderId" class="btn btn-sm btn-success">Assign Customers</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
