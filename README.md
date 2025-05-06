@@ -1,142 +1,51 @@
-using System.Data;
-using Microsoft.AspNetCore.Mvc;
-using OrderTracking.Models;
-using System.Data.SqlClient;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - OrderTracking</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/lib/DataTables/datatables.min.css" />
+    <link rel="stylesheet" href="~/OrderTracking.styles.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
+            <div class="container-fluid">
+                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">OrderTracking</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
+    <div class="container">
+        <main role="main" class="pb-3">
+            @RenderBody()
+        </main>
+    </div>
 
-namespace OrdersTracking.Controllers
-{
-    public class OrderController : Controller
-    {
-        private readonly IConfiguration _config;
-        private readonly string _connectionString;
-
-        public OrderController(IConfiguration config)
-        {
-            _config = config;
-            _connectionString = _config.GetConnectionString("DefaultConnection")!;
-        }
-
-        [Obsolete]
-        public IActionResult Index()
-        {
-            var orders = new List<Order>();
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders", con))
-                {
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            orders.Add(new Order
-                            {
-                                OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
-                                OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate")),
-                                Cost = reader.GetDecimal(reader.GetOrdinal("Cost")),
-                                Profit = reader.GetDecimal(reader.GetOrdinal("Profit")),
-                                NoOfProduct = reader.GetInt32(reader.GetOrdinal("NoOfProduct")),
-                                TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount")),
-                                Status = reader.GetString(reader.GetOrdinal("Status"))
-                            });
-                        }
-                    }
-                }
-            }
-            return View(orders);
-        }
-
-        // GET: Order/Create
-        public IActionResult Create()
-        {
-            // Pre-fill OrderDate with today's date
-            var order = new Order
-            {
-                OrderDate = DateTime.Today
-            };
-            return View(order);
-        }
-
-        // POST: Order/Create
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        [Obsolete]
-        public IActionResult Create(Order order)
-        {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    cmd.Parameters.AddWithValue("@OrderId", 0); // for insert
-                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-                    cmd.Parameters.AddWithValue("@Cost", order.Cost);
-                    cmd.Parameters.AddWithValue("@Profit", order.Profit);
-                    cmd.Parameters.AddWithValue("@NoOfProduct", order.NoOfProduct);
-                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
-                    cmd.Parameters.AddWithValue("@Status", order.Status);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-            return RedirectToAction("Index");
-        }
-
-        // GET: Order/Edit/5
-        [Obsolete]
-        public IActionResult Edit(int id)
-        {
-            Order order = null!;
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Orders WHERE OrderId = @OrderId", con))
-                {
-                    cmd.Parameters.AddWithValue("@OrderId", id);
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        if (reader.Read())
-                        {
-                            order = new Order
-                            {
-                                OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
-                                OrderDate = reader.GetDateTime(reader.GetOrdinal("OrderDate")),
-                                Cost = reader.GetDecimal(reader.GetOrdinal("Cost")),
-                                Profit = reader.GetDecimal(reader.GetOrdinal("Profit")),
-                                NoOfProduct = reader.GetInt32(reader.GetOrdinal("NoOfProduct")),
-                                TotalAmount = reader.GetDecimal(reader.GetOrdinal("TotalAmount")),
-                                Status = reader.GetString(reader.GetOrdinal("Status"))
-                            };
-                        }
-                    }
-                }
-            }
-            return View(order);
-        }
-
-        // POST: Order/Edit
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        [Obsolete]
-        public IActionResult Edit(Order order)
-        {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                con.Open();
-                using (SqlCommand cmd = new SqlCommand("UpsertOrder", con))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    cmd.Parameters.AddWithValue("@OrderId", order.OrderId); // use actual ID
-                    cmd.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-                    cmd.Parameters.AddWithValue("@Cost", order.Cost);
-                    cmd.Parameters.AddWithValue("@Profit", order.Profit);
-                    cmd.Parameters.AddWithValue("@NoOfProduct", order.NoOfProduct);
-                    cmd.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
-                    cmd.Parameters.AddWithValue("@Status", order.Status);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-            return RedirectToAction("Index");
-        }
-    }
-}
+    <footer class="border-top footer text-muted">
+        <div class="container">
+            &copy; 2025 - OrderTracking - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+        </div>
+    </footer>
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/js/bootstrap.js"></script>
+    <script src="~/lib/DataTables/datatables.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
