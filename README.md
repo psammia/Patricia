@@ -1,3 +1,13 @@
+<!-- CSS -->
+<link rel="stylesheet" href="~/lib/datatables.net-dt/css/jquery.dataTables.min.css" />
+
+<!-- JS -->
+<script src="~/lib/datatables.net/js/jquery.dataTables.min.js"></script>
+
+
+
+
+
 _Layout.cshtml
 
 <!DOCTYPE html>
