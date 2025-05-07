@@ -1,11 +1,13 @@
-Dear,
+Subject: Clarification Regarding CC Recipient for AUDITProOM Data Retrieval
 
-Kindly note that SGBL-SDMA-DEVE is set as email address CC instead of the Branch Manager, if when fetching data from the t_tech_Users in AUDITProOM database, one of the 2 conditions below are met:
+Dear [Recipient Name],
 
-1)	The email address of the BMAN user is not correct
-2)	Or the user is disabled
+This email clarifies the CC recipient logic for data retrieval from the t_tech_Users table in the AUDITProOM database. Please note that SGBL-SDMA-DEVE will be set as the email address in the CC field instead of the Branch Manager when either of the following conditions is met:
 
-After investigations, we found out that some of the users in AUDITProOM db where newly set to disabled, which has led to the issue.
+The Branch Manager's email address in the database is incorrect.
+The Branch Manager's user account is disabled.
+Our recent investigation identified that newly disabled user accounts within the AUDITProOM database have triggered this behavior, resulting in SGBL-SDMA-DEVE being CC'd.
 
-Remaining at your disposal for any other information.
-Regards
+Please let us know if you require any further information.
+
+Regards,
