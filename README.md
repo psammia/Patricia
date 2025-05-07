@@ -1,3 +1,12 @@
+For .NET 6+ (Program.cs):
+builder.Services.AddDbContext<YourDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+
+
+
+
+
 🔹 Controller: CustomerOrdersController.cs
 public class CustomerOrdersController : Controller
 {
