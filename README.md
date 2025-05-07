@@ -1,10 +1,46 @@
+🔸 1. Inject Your DbContext
+At the top of your CustomerOrdersController, add:
+
+csharp
+Copy
+Edit
+private readonly YourDbContext _context;
+
+public CustomerOrdersController(YourDbContext context)
+{
+    _context = context;
+}
+🔁 Replace YourDbContext with the actual name of your DbContext class (e.g., ApplicationDbContext, MyDbContext, etc.).
+
+🔸 2. Create DbSets (if not yet created)
+In your DbContext class (usually found in Data folder), open YourDbContext.cs and add the DbSet for CustomerOrder (and others if needed):
+
+csharp
+Copy
+Edit
+public class YourDbContext : DbContext
+{
+    public YourDbContext(DbContextOptions<YourDbContext> options)
+        : base(options)
+    {
+    }
+
+    public DbSet<CustomerOrder> CustomerOrders { get; set; }
+    public DbSet<Customer> Customers { get; set; }
+    public DbSet<Order> Orders { get; set; }
+
+    // Any other DbSets...
+}
+Make sure the class is inheriting from DbContext.
+
+🔸 3. Register DbContext in Startup.cs (for .NET Core < 6) or Program.cs (for .NET 6+)
 For .NET 6+ (Program.cs):
+
+csharp
+Copy
+Edit
 builder.Services.AddDbContext<YourDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-
-
-
 
 
 🔹 Controller: CustomerOrdersController.cs
