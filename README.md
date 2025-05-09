@@ -1,13 +1,28 @@
-Subject: Clarification Regarding CC Recipient for AUDITProOM Data Retrieval
+DECLARE @SearchValue NVARCHAR(100) = 'Value1';
 
-Dear [Recipient Name],
+DECLARE @TableName NVARCHAR(256), @ColumnName NVARCHAR(128), @DataType NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
 
-This email clarifies the CC recipient logic for data retrieval from the t_tech_Users table in the AUDITProOM database. Please note that SGBL-SDMA-DEVE will be set as the email address in the CC field instead of the Branch Manager when either of the following conditions is met:
+DECLARE cur CURSOR FOR
+SELECT t.name, c.name, ty.name
+FROM sys.tables t
+JOIN sys.columns c ON t.object_id = c.object_id
+JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+WHERE ty.name IN ('char', 'nchar', 'varchar', 'nvarchar', 'text', 'ntext');
 
-The Branch Manager's email address in the database is incorrect.
-The Branch Manager's user account is disabled.
-Our recent investigation identified that newly disabled user accounts within the AUDITProOM database have triggered this behavior, resulting in SGBL-SDMA-DEVE being CC'd.
+OPEN cur;
+FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
 
-Please let us know if you require any further information.
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @sql = 
+        'IF EXISTS (SELECT 1 FROM [' + @TableName + '] WHERE [' + @ColumnName + '] LIKE ''%' + @SearchValue + '%'') 
+         PRINT ''Found in table: ' + @TableName + ', column: ' + @ColumnName + '''';
 
-Regards,
+    EXEC sp_executesql @sql;
+
+    FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
+END
+
+CLOSE cur;
+DEALLOCATE cur;
