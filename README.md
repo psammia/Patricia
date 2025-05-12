@@ -1,3 +1,7 @@
+Msg 102, Level 15, State 1, Line 33
+Incorrect syntax near '+'.
+
+
 DECLARE @SearchValue NVARCHAR(100) = 'YourSearchValue';
 DECLARE @TableName NVARCHAR(256);
 DECLARE @ColumnName NVARCHAR(128);
