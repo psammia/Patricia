@@ -21,15 +21,12 @@ FETCH NEXT FROM cur INTO @TableName, @ColumnName;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    SET @SQL = N'
-    IF EXISTS (
-        SELECT 1 
-        FROM ' + QUOTENAME(@TableName) + N' 
+    SET @SQL = N'IF EXISTS (
+        SELECT 1 FROM ' + QUOTENAME(@TableName) + N'
         WHERE ' + QUOTENAME(@ColumnName) + N' LIKE @SearchValue)
     BEGIN
-        PRINT ''Found in Table: ' + REPLACE(@TableName, '''', '''''') + ', Column: ' + REPLACE(@ColumnName, '''', '''''') + ''';
-    END
-    ';
+        PRINT N''Found in Table: [' + @TableName + N'], Column: [' + @ColumnName + N']'';
+    END';
 
     EXEC sp_executesql @SQL, N'@SearchValue NVARCHAR(100)', @SearchValue = N'%' + @SearchValue + N'%';
 
