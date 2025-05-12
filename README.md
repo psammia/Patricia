@@ -1,35 +1,10 @@
-DECLARE @SearchValue NVARCHAR(100) = 'YourSearchValue';
-DECLARE @TableName NVARCHAR(256);
-DECLARE @ColumnName NVARCHAR(128);
-DECLARE @SQL NVARCHAR(MAX);
+Msg 102, Level 15, State 1, Line 7
+Incorrect syntax near ']'.
+Msg 105, Level 15, State 1, Line 7
+Unclosed quotation mark after the character string '; EXEC sp_executesql @SQL;
 
-DECLARE cur CURSOR FOR
-SELECT 
-    t.name AS TableName,
-    c.name AS ColumnName
-FROM 
-    sys.tables t
-JOIN 
-    sys.columns c ON t.object_id = c.object_id
-JOIN 
-    sys.types ty ON c.user_type_id = ty.user_type_id
-WHERE 
-    ty.name IN ('varchar', 'nvarchar', 'char', 'nchar', 'text');
-
-OPEN cur;
 FETCH NEXT FROM cur INTO @TableName, @ColumnName;
-
-WHILE @@FETCH_STATUS = 0
-BEGIN
-    SET @SQL = '
-    IF EXISTS (SELECT 1 FROM [' + @TableName + '] 
-               WHERE [' + @ColumnName + '] LIKE ''%' + @SearchValue + '%'')
-        PRINT ''Found in Table: [' + @TableName + '], Column: [' + @ColumnName + '']'';
-    ';
-    EXEC sp_executesql @SQL;
-
-    FETCH NEXT FROM cur INTO @TableName, @ColumnName;
 END
 
-CLOSE cur;
-DEALLOCATE cur;
+CLOSE cur; DEALLOCATE cur;
+'.
