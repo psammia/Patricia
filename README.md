@@ -1,58 +1,34 @@
-DECLARE @SearchValue NVARCHAR(100) = 'Value1';
-
-DECLARE @TableName NVARCHAR(256), @ColumnName NVARCHAR(128), @DataType NVARCHAR(128);
-DECLARE @sql NVARCHAR(MAX);
+DECLARE @SearchValue NVARCHAR(100) = 'YourSearchValue';
+DECLARE @TableName NVARCHAR(256);
+DECLARE @ColumnName NVARCHAR(128);
+DECLARE @SQL NVARCHAR(MAX);
 
 DECLARE cur CURSOR FOR
-SELECT t.name, c.name, ty.name
-FROM sys.tables t
-JOIN sys.columns c ON t.object_id = c.object_id
-JOIN sys.types ty ON c.user_type_id = ty.user_type_id
-WHERE ty.name IN ('char', 'nchar', 'varchar', 'nvarchar', 'text', 'ntext');
+SELECT 
+    t.name AS TableName,
+    c.name AS ColumnName
+FROM 
+    sys.tables t
+JOIN 
+    sys.columns c ON t.object_id = c.object_id
+JOIN 
+    sys.types ty ON c.user_type_id = ty.user_type_id
+WHERE 
+    ty.name IN ('varchar', 'nvarchar', 'char', 'nchar', 'text');
 
 OPEN cur;
-FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
+FETCH NEXT FROM cur INTO @TableName, @ColumnName;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    SET @sql = 
-        'IF EXISTS (SELECT 1 FROM [' + @TableName + '] WHERE [' + @ColumnName + '] LIKE ''%' + @SearchValue + '%'') 
-         PRINT ''Found in table: ' + @TableName + ', column: ' + @ColumnName + '''';
+    SET @SQL = '
+    IF EXISTS (SELECT 1 FROM [' + @TableName + '] 
+               WHERE [' + @ColumnName + '] LIKE ''%' + @SearchValue + '%'')
+        PRINT ''Found in Table: [' + @TableName + '], Column: [' + @ColumnName + '']'';
+    ';
+    EXEC sp_executesql @SQL;
 
-    EXEC sp_executesql @sql;
-
-    FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
-END
-
-CLOSE cur;
-DEALLOCATE cur;
-
-
-
-DECLARE @SearchValue NVARCHAR(100) = 'Value1';
-
-DECLARE @TableName NVARCHAR(256), @ColumnName NVARCHAR(128), @DataType NVARCHAR(128);
-DECLARE @sql NVARCHAR(MAX);
-
-DECLARE cur CURSOR FOR
-SELECT t.name, c.name, ty.name
-FROM sys.tables t
-JOIN sys.columns c ON t.object_id = c.object_id
-JOIN sys.types ty ON c.user_type_id = ty.user_type_id
-WHERE ty.name IN ('char', 'nchar', 'varchar', 'nvarchar', 'text', 'ntext');
-
-OPEN cur;
-FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
-
-WHILE @@FETCH_STATUS = 0
-BEGIN
-    SET @sql = 
-        'IF EXISTS (SELECT 1 FROM [' + @TableName + '] WHERE [' + @ColumnName + '] LIKE ''%' + @SearchValue + '%'') 
-         PRINT ''Found in table: ' + @TableName + ', column: ' + @ColumnName + '''';
-
-    EXEC sp_executesql @sql;
-
-    FETCH NEXT FROM cur INTO @TableName, @ColumnName, @DataType;
+    FETCH NEXT FROM cur INTO @TableName, @ColumnName;
 END
 
 CLOSE cur;
