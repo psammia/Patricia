@@ -1,7 +1,3 @@
-Msg 102, Level 15, State 1, Line 33
-Incorrect syntax near '+'.
-
-
 DECLARE @SearchValue NVARCHAR(100) = 'YourSearchValue';
 DECLARE @TableName NVARCHAR(256);
 DECLARE @ColumnName NVARCHAR(128);
@@ -25,15 +21,11 @@ FETCH NEXT FROM cur INTO @TableName, @ColumnName;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    SET @SQL = '
-    IF EXISTS (
-        SELECT 1 
-        FROM ' + QUOTENAME(@TableName) + '
-        WHERE ' + QUOTENAME(@ColumnName) + ' LIKE @SearchValue)
-    BEGIN
-        PRINT ''Found in Table: ' + @TableName + ', Column: ' + @ColumnName + ''';
-    END;
-    ';
+    SET @SQL = 
+    'IF EXISTS (SELECT 1 FROM ' + QUOTENAME(@TableName) + 
+    ' WHERE ' + QUOTENAME(@ColumnName) + ' LIKE @SearchValue) ' +
+    'PRINT ''Found in Table: ' + @TableName + ', Column: ' + @ColumnName + ''';';
+
     EXEC sp_executesql @SQL, N'@SearchValue NVARCHAR(100)', @SearchValue = '%' + @SearchValue + '%';
 
     FETCH NEXT FROM cur INTO @TableName, @ColumnName;
