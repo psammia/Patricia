@@ -1,3 +1,3 @@
-[DataType(DataType.Date)]
-[DisplayFormat(DataFormatString = "{0:yyyy-MM-dd}", ApplyFormatInEditMode = true)]
-public DateTime OrderDate { get; set; }
+<label>Order Date</label>
+<input asp-for="OrderDate" type="date" class="form-control" value="@DateTime.Today.ToString("yyyy-MM-dd")" /><br />
+<span asp-validation-for="OrderDate" class="text-danger"></span>
