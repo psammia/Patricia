@@ -1,119 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>@ViewData["Title"] - OrdersTracking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
 
-OrderController.cs
-using Microsoft.AspNetCore.Mvc;
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" rel="stylesheet" />
 
-using OrdersTracking.Models;
-using OrdersTracking.Repositories;
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
 
-namespace OrdersTracking.Controllers
-{
-    public class OrderController : Controller
-    {
-        private readonly IOrderRepository _repo;
-        private readonly ICustomerRepository _customerRepo;
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-        public OrderController(IOrderRepository repo, ICustomerRepository customerRepo)
-        {
-            _repo = repo;
-            _customerRepo = customerRepo;
-        }
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 
-        public async Task<IActionResult> Index()
-        {
-            var orders = await _repo.GetAllOrdersAsync();
-            return View(orders);
-        }
+    <!-- jQuery Validation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.19.5/jquery.validate.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validation-unobtrusive/4.0.0/jquery.validate.unobtrusive.min.js"></script>
 
-        public async Task<IActionResult> Create()
-        {
-
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
-            return View();
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Create(Order order, int[] selectedCustomers)
-        {
-            if (ModelState.IsValid)
-            {
-                await _repo.AddOrderWithCustomersAsync(order, selectedCustomers);
-                return RedirectToAction("Index");
-            }
-
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
-            return View(order);
-        }
-
-        public async Task<IActionResult> Edit(int id)
-        {
-            var order = await _repo.GetOrderByIdAsync(id);
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
-            return View(order);
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Edit(Order order, int[] selectedCustomers)
-        {
-            await _repo.UpdateOrderWithCustomersAsync(order, selectedCustomers);
-            return RedirectToAction("Index");
-        }
-
-        public async Task<IActionResult> Delete(int id)
-        {
-            await _repo.DeleteOrderAsync(id);
-            return RedirectToAction("Index");
-        }
-    }
-}
-
-
-Create.Cshtml
-@model Order
-@{
-    var customers = ViewBag.Customers as List<Customer>;
-}
-<form asp-action="@(Model.OrderId == 0 ? "Create" : "Edit")">
-
-    <label>Order Date</label>
-    <input asp-for="OrderDate" /><br />
-
-    <label>Cost</label>
-    <input asp-for="Cost" /><br />
-
-    <label>Profit</label>
-    <input asp-for="Profit" /><br />
-
-    <label>NoOfProduct</label>
-    <input asp-for="NoOfProduct" /><br />
-
-    <label>Total Amount</label>
-    <input asp-for="TotalAmount" /><br />
-
-    <label>Status</label>
-    <input asp-for="StatusCode" /><br />
-
-    <label>Select Customers</label><br />
-    @foreach (var customer in customers)
-    {
-        <input type="checkbox" name="selectedCustomers" value="@customer.CustomerId" /> @customer.Name <br />
-    }
-
-    <button type="submit">Save</button>
-</form>
-
-Order.cs model
-namespace OrdersTracking.Models
-{
-    public class Order
-    {
-        public int OrderId { get; set; }
-        public DateTime OrderDate { get; set; }
-        public decimal Cost { get; set; }
-        public decimal Profit { get; set; }
-        public Int32? NoOfProduct { get; set; }
-        public decimal? TotalAmount { get; set; }
-        public List<CustomerOrder>? CustomerOrders { get; set; }
-        public string StatusCode { get; set; } = string.Empty;
-    }
-}
-
+    @RenderSection("Scripts", required: false)
+</head>
+<body>
+    <div class="container mt-4">
+        @RenderBody()
+    </div>
+</body>
+</html>
