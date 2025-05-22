@@ -1,2 +1,6 @@
-Severity	Code	Description	Project	File	Line	Suppression State
-Error	CS1069	The type name 'SqlConnection' could not be found in the namespace 'System.Data.SqlClient'. This type has been forwarded to assembly 'System.Data.SqlClient, Version=0.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a' Consider adding a reference to that assembly.	OrdersTracking	D:\@Workspace\deve-repo\OrdersTracking\Repositories\StatusRepository.cs	16	Active
+<label for="StatusCode">Status</label>
+<select asp-for="StatusCode" class="form-control" asp-items="@(new SelectList(ViewBag.Statuses, "StatusCode", "StatusCode"))">
+    <option value="">-- Select Status --</option>
+</select>
+<br />
+
