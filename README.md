@@ -1,50 +1,29 @@
-        public async Task<IActionResult> Index()
-        {
-            var orders = await _repo.GetAllOrdersAsync();
-            return View(orders);
-        }
+using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 
-        public async Task<IActionResult> Create()
-        {
+using Microsoft.VisualBasic;
 
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
-            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
-            return View(new Order());
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Create(Order order)
-        {
-            if (ModelState.IsValid)
-            {
-                await _repo.AddOrderWithCustomersAsync(order);
-                return RedirectToAction("Index");
-            }
-
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync(); 
-            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
-            return View(order);
-        }
-
-        public async Task<IActionResult> Edit(int id)
-        {
-            var order = await _repo.GetOrderByIdAsync(id);
-            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
-            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
-            return View(order);
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Edit(Order order, int[] selectedCustomers)
-        {
-            await _repo.UpdateOrderWithCustomersAsync(order, selectedCustomers);
-            return RedirectToAction("Index");
-        }
-
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            await _repo.DeleteOrderAsync(id);
-            return RedirectToAction("Index");
-        }
+namespace OrdersTracking.Models
+{
+    public class Order
+    {
+        public int OrderId { get; set; }
+        [Required]
+        [DataType(DataType.Date)]
+        [DisplayFormat(DataFormatString = "{0:yyyy-MM-dd}", ApplyFormatInEditMode = true)]
+        public DateTime OrderDate { get; set; }
+        [Required]
+        public decimal? Cost { get; set; }
+        [Required]
+        public decimal? Profit { get; set; }
+        [Required]
+        public Int32? NoOfProduct { get; set; }
+        [Required]
+        public decimal? TotalAmount { get; set; }
+      
+        [Required]
+        public string StatusCode { get; set; } = string.Empty;
+        
+        public List<CustomerOrder>? CustomerOrders { get; set; }
     }
 }
