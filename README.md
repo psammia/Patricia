@@ -2,36 +2,57 @@
 
 @{
     ViewData["Title"] = "Create Order";
-    var customers = ViewBag.Customers as List<SelectListItem>;
+    var customers = ViewBag.Customers as List<Customer> ?? new List<Customer>();
+    var statuses = ViewBag.Orders as List<Order> ?? new List<Order>();
     var customerOptionsHtml = new System.Text.StringBuilder();
     foreach (var customer in customers)
     {
-        customerOptionsHtml.Append($"<option value=\"{customer.Value}\">{customer.Text}</option>");
+        customerOptionsHtml.Append($"<option value=\"{customer.CustomerId}\">{customer.Name}</option>");
     }
 }
 
 <h2>Create Order</h2>
 
 <form asp-action="Create" method="post">
-    <div class="mb-3">
+@*     <div class="mb-3">
         <label asp-for="Description" class="form-label"></label>
         <input asp-for="Description" class="form-control" />
         <span asp-validation-for="Description" class="text-danger"></span>
-    </div>
+    </div> *@
     <div class="mb-3">
         <label asp-for="OrderDate" class="form-label"></label>
-        <input asp-for="OrderDate" class="form-control" type="datetime-local" />
+        <input asp-for="OrderDate" class="form-control" type="date" value="@DateTime.Today.ToString("yyyy-MM-dd")"/>
         <span asp-validation-for="OrderDate" class="text-danger"></span>
     </div>
+
     <div class="mb-3">
-        <label asp-for="Cost" class="form-label"></label>
-        <input asp-for="Cost" class="form-control" type="number" step="0.01" />
-        <span asp-validation-for="Cost" class="text-danger"></span>
+        <label asp-for="TotalAmount" class="form-label"></label>
+        <input asp-for="TotalAmount" class="form-control" />
+        <span asp-validation-for="TotalAmount" class="text-danger"></span>
     </div>
+
     <div class="mb-3">
         <label asp-for="Profit" class="form-label"></label>
-        <input asp-for="Profit" class="form-control" type="number" step="0.01" />
+        <input asp-for="Profit" class="form-control" />
         <span asp-validation-for="Profit" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="NoOfProduct" class="form-label"></label>
+        <input asp-for="NoOfProduct" class="form-control" />
+        <span asp-validation-for="NoOfProduct" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label>Status</label>
+        <select asp-for="StatusCode" class="form-select">
+        <option value="" >Not Delivered</option>
+        @foreach(var status in (IEnumerable<Status>)ViewBag.Statuses)
+        {
+                <option value="@status.StatusCode">@status.StatusCode</option>
+            }
+        </select>
+        <span asp-validation-for="StatusCode" class="text-danger"></span>
     </div>
 
     <h4>Customers</h4>
@@ -54,25 +75,25 @@
 
         function getCustomerEntryHtml(i) {
             return `
-                <div class="customer-entry mb-3 border p-3 rounded">
-                    <label>Customer</label>
-                    <select class="form-select customer-select" name="CustomerOrders[${i}].CustomerId" required>
-                        <option value="">-- Select Customer --</option>
-                        ${customerOptionsHtml}
-                    </select>
+                        <div class="customer-entry mb-3 border p-3 rounded">
+                            <label>Customer</label>
+                            <select class="form-select customer-select" name="CustomerOrders[${i}].CustomerId" required>
+                                <option value="">-- Select Customer --</option>
+                                ${customerOptionsHtml}
+                            </select>
 
-                    <label class="mt-2">Amount</label>
-                    <input name="CustomerOrders[${i}].Amount" type="number" step="0.01" class="form-control" required />
+                            <label class="mt-2">Amount</label>
+                            <input name="CustomerOrders[${i}].Amount" class="form-control" required />
 
-                    <div class="form-check mt-2">
-                        <input type="hidden" name="CustomerOrders[${i}].IsPaid" value="false" />
-                        <input name="CustomerOrders[${i}].IsPaid" type="checkbox" value="true" class="form-check-input" />
-                        <label class="form-check-label">Is Paid</label>
-                    </div>
+                            <div class="form-check mt-2">
+                                <input type="hidden" name="CustomerOrders[${i}].IsPaid" value="false" />
+                                <input name="CustomerOrders[${i}].IsPaid" type="checkbox" value="true" class="form-check-input" />
+                                <label class="form-check-label">Is Paid</label>
+                            </div>
 
-                    <button type="button" class="btn btn-danger btn-sm mt-2 remove-entry">Remove</button>
-                </div>
-            `;
+                            <button type="button" class="btn btn-danger btn-sm mt-2 remove-entry">Remove</button>
+                        </div>
+                    `;
         }
 
         $(document).ready(function () {
@@ -102,7 +123,7 @@
             });
 
             // Optional: If using Select2
-            // $('.customer-select').select2();
+            $('.customer-select').select2();
         });
     </script>
 }
