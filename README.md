@@ -12,46 +12,44 @@
     <div class="card-content collapse show">
         <div class="card-body">
             <form asp-action="@(Model.OrderId == 0 ? "Create" : "Edit")" method="post" class="needs-validation" novalidate>
+                @* Date *@
                 <div class="mb-3">
-                    <input asp-for="OrderDate" type="date" class="form-control" value="@DateTime.Today.ToString("yyyy-MM-dd")" /><br />
+                    <label asp-for="OrderDate" class="form-label"></label>
+                    <input asp-for="OrderDate" type="date" class="form-control" value="@DateTime.Today.ToString("yyyy-MM-dd")" />
                     <span asp-validation-for="OrderDate" class="text-danger"></span>
                 </div>
 
+                @* TotalAmount *@
                 <div class="mb-3">
                     <label asp-for="TotalAmount" class="form-label"></label>
                     <input asp-for="TotalAmount" class="form-control" />
                     <span asp-validation-for="TotalAmount" class="text-danger"></span>
                 </div>
 
-               @* <div class="mb-3">
-                    <label asp-for="Cost" class="form-label"></label>
-                    <input asp-for="Cost" class="form-control" />
-                    <span asp-validation-for="Cost" class="text-danger"></span>
-                </div>*@
-
+                @* NoOfProduct *@
                 <div class="mb-3">
                     <label asp-for="NoOfProduct" class="form-label"></label>
                     <input asp-for="NoOfProduct" class="form-control" />
                     <span asp-validation-for="NoOfProduct" class="text-danger"></span>
                 </div>
 
+                @* Profit *@
                 <div class="mb-3">
                     <label asp-for="Profit" class="form-label"></label>
                     <input asp-for="Profit" class="form-control" />
                     <span asp-validation-for="Profit" class="text-danger"></span>
                 </div>
 
+                @* Status dropdown *@
                 <div class="mb-3">
-                    <label asp-for="StatusCode">Status</label>
-                    <select asp-for="StatusCode"
-                            class="form-control"
-                            asp-items="@(new SelectList(ViewBag.Statuses, "StatusCode", "StatusCode"))">
+                    <label asp-for="StatusCode" class="form-label">Status</label>
+                    <select asp-for="StatusCode" class="form-control" asp-items="@(new SelectList(statuses, "StatusCode", "StatusCode"))">
                         <option value="">-- Select Status --</option>
                     </select>
                     <span asp-validation-for="StatusCode" class="text-danger"></span>
                 </div>
 
-                <!-- Customer + Amount + Paid Repeater -->
+                @* Customer/Amount/IsPaid Repeater *@
                 <div id="customerRepeater">
                     <div class="customer-entry mb-2">
                         <select class="form-select customer-select" name="CustomerOrders[0].CustomerId">
@@ -61,15 +59,23 @@
                                 <option value="@c.CustomerId">@c.Name</option>
                             }
                         </select>
+
                         <input name="CustomerOrders[0].Amount" type="number" placeholder="Amount" class="form-control d-inline-block mx-1 mt-3" style="width: 600px;" />
-                        <label for="isPaidCheckbox"> Is Paid</label>
-                        <input name="CustomerOrders[0].IsPaid" type="checkbox" class="form-check-input mt-4 m-2" id="isPaidCheckbox" />
-                        <button type="button" class="btn btn-danger btn-sm remove-entry">x</button>
+
+                        <label class="form-check-label mt-3">
+                            <input name="CustomerOrders[0].IsPaid" type="checkbox" class="form-check-input" />
+                            Is Paid
+                        </label>
+
+                        <button type="button" class="btn btn-danger btn-sm remove-entry">×</button>
                     </div>
                 </div>
+
                 <button type="button" class="btn btn-secondary mt-2" id="addCustomer">+ Add Customer</button>
 
-                <button type="submit" class="btn btn-success mt-2">Save Order</button>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-success">Save Order</button>
+                </div>
             </form>
         </div>
     </div>
@@ -79,24 +85,27 @@
     <script>
         let index = 1;
 
-        // Render options once
-        const customerOptions = `@foreach (var c in customers)
-        {
-            <text><option value="@c.CustomerId">@c.Name</option></text>
-        }`.trim();
+        const customerOptionsHtml = `@Html.Raw(string.Join("", customers.Select(c => $"<option value='{c.CustomerId}'>{c.Name}</option>")))`;
 
         $('#addCustomer').on('click', function () {
-            let newEntry = `
-                                               <div class="customer-entry mb-2">
-                                                   <select class="form-select customer-select" name="CustomerOrders[${index}].CustomerId">
-                                                       <option value="">-- Select Customer --</option>
-                                                       ${customerOptions}
-                                                   </select>
-                                                   <input name="CustomerOrders[${index}].Amount" type="number" placeholder="Amount" class="form-control d-inline-block mx-1" style="width: 150px;" />
-                                                   <input name="CustomerOrders[${index}].IsPaid" type="checkbox" class="form-check-input" />
-                                                   <button type="button" class="btn btn-danger btn-sm remove-entry">×</button>
-                                               </div>`;
-            $('#customerRepeater').append(newEntry);
+            const entryHtml = `
+                <div class="customer-entry mb-2">
+                    <select class="form-select customer-select" name="CustomerOrders[${index}].CustomerId">
+                        <option value="">-- Select Customer --</option>
+                        ${customerOptionsHtml}
+                    </select>
+
+                    <input name="CustomerOrders[${index}].Amount" type="number" placeholder="Amount" class="form-control d-inline-block mx-1 mt-3" style="width: 600px;" />
+
+                    <label class="form-check-label mt-3">
+                        <input name="CustomerOrders[${index}].IsPaid" type="checkbox" class="form-check-input" />
+                        Is Paid
+                    </label>
+
+                    <button type="button" class="btn btn-danger btn-sm remove-entry">×</button>
+                </div>
+            `;
+            $('#customerRepeater').append(entryHtml);
             index++;
         });
 
@@ -105,7 +114,7 @@
         });
 
         $(document).ready(function () {
-            $('.customer-select').select2();
+            $('.customer-select').select2(); // if using select2
         });
     </script>
 }
