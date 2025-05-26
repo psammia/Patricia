@@ -1,56 +1,50 @@
-        public async Task AddOrderWithCustomersAsync(Order order)
+        public async Task<IActionResult> Index()
         {
-            using var conn = Connection;
-            conn.Open();
-            using var tran = conn.BeginTransaction();
-
-            try
-            {
-                var orderId = await conn.ExecuteScalarAsync<int>(
-                    "INSERT INTO Orders (OrderDate, Cost, Profit, NoOfProduct, TotalAmount, StatusCode) OUTPUT INSERTED.OrderId VALUES (@OrderDate, @Cost, @Profit, @NoOfProduct, @TotalAmount, @StatusCode)",
-                    order, tran);
-
-                foreach (var co in order.CustomerOrders)
-                {
-                    await conn.ExecuteAsync(
-                        "INSERT INTO CustomerOrders (OrderId, CustomerId, Amount, IsPaid) VALUES (@OrderId, @CustomerId, @Amount, @IsPaid)",
-                        new { OrderId = orderId, CustomerId = co.CustomerId, Amount = co.Amount, IsPaid = co.IsPaid }, tran);
-                }
-
-                tran.Commit();
-            }
-            catch
-            {
-                tran.Rollback();
-                throw;
-            }
+            var orders = await _repo.GetAllOrdersAsync();
+            return View(orders);
         }
 
-        public async Task UpdateOrderWithCustomersAsync(Order order, int[] customerIds)
+        public async Task<IActionResult> Create()
         {
-            using var conn = Connection;
-            conn.Open();
-            using var tran = conn.BeginTransaction();
 
-            try
-            {
-                await conn.ExecuteAsync("UPDATE Orders SET OrderDate = @OrderDate, Cost = @Cost, Profit = @Profit, NoOfProduct=@NoOfProduct, TotalAmount=@TotalAmount, StatusCode=@StatusCode WHERE OrderId = @OrderId", order, tran);
-
-                // Delete previous customer associations
-                await conn.ExecuteAsync("DELETE FROM CustomerOrders WHERE OrderId = @OrderId", new { order.OrderId }, tran);
-
-                // Reinsert
-                foreach (var customerId in customerIds)
-                {
-                    await conn.ExecuteAsync("INSERT INTO CustomerOrders (OrderId, CustomerId, IsPaid) VALUES (@OrderId, @CustomerId, 0)",
-                        new { OrderId = order.OrderId, CustomerId = customerId }, tran);
-                }
-
-                tran.Commit();
-            }
-            catch
-            {
-                tran.Rollback();
-                throw;
-            }
+            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
+            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
+            return View(new Order());
         }
+
+        [HttpPost]
+        public async Task<IActionResult> Create(Order order)
+        {
+            if (ModelState.IsValid)
+            {
+                await _repo.AddOrderWithCustomersAsync(order);
+                return RedirectToAction("Index");
+            }
+
+            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync(); 
+            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
+            return View(order);
+        }
+
+        public async Task<IActionResult> Edit(int id)
+        {
+            var order = await _repo.GetOrderByIdAsync(id);
+            ViewBag.Customers = await _customerRepo.GetAllCustomersAsync();
+            ViewBag.Statuses = await _statusRepo.GetAllStatusesAsync();
+            return View(order);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Edit(Order order, int[] selectedCustomers)
+        {
+            await _repo.UpdateOrderWithCustomersAsync(order, selectedCustomers);
+            return RedirectToAction("Index");
+        }
+
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            await _repo.DeleteOrderAsync(id);
+            return RedirectToAction("Index");
+        }
+    }
+}
