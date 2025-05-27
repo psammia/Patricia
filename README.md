@@ -1,125 +1,157 @@
-@model OrdersTracking.Models.Order
-@{
-    var customers = ViewBag.Customers as List<Customer> ?? new();
-    var statuses = ViewBag.Statuses as List<Status> ?? new();
-}
+USE [OrderTracking]
+GO
+/****** Object:  User [sgbl\scomr2admin]    Script Date: 27/05/2025 4:08:44 PM ******/
+CREATE USER [sgbl\scomr2admin] FOR LOGIN [sgbl\scomr2admin] WITH DEFAULT_SCHEMA=[dbo]
+GO
+/****** Object:  Table [dbo].[CustomerOrders]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CustomerOrders](
+	[CustomerId] [int] NOT NULL,
+	[OrderId] [int] NOT NULL,
+	[NoOfProductperCustomer] [int] NULL,
+	[IsPaid] [bit] NOT NULL,
+	[Amount] [decimal](18, 0) NULL,
+	[CustomerName] [nchar](100) NULL,
+ CONSTRAINT [PK__Customer__489761644479D49F] PRIMARY KEY CLUSTERED 
+(
+	[CustomerId] ASC,
+	[OrderId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-<h2>Edit Order</h2>
+GO
+/****** Object:  Table [dbo].[Customers]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Customers](
+	[CustomerId] [int] IDENTITY(1,1) NOT NULL,
+	[Name] [nvarchar](100) NOT NULL,
+	[Phone] [nvarchar](20) NULL,
+	[Address] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[CustomerId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 
-<form asp-action="Edit" method="post">
-    @Html.AntiForgeryToken()
+GO
+/****** Object:  Table [dbo].[Orders]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Orders](
+	[OrderId] [int] IDENTITY(1,1) NOT NULL,
+	[OrderDate] [datetime] NOT NULL,
+	[Profit] [decimal](18, 2) NULL,
+	[NoOfProduct] [int] NULL,
+	[TotalAmount] [decimal](18, 0) NULL,
+	[StatusCode] [nvarchar](100) NULL,
+ CONSTRAINT [PK__Orders__C3905BCF9BF4991D] PRIMARY KEY CLUSTERED 
+(
+	[OrderId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-    <input asp-for="OrderId" type="hidden" />
-    <input type="hidden" name="CustomerOrders.Count" value="@Model.CustomerOrders.Count" />
+GO
+/****** Object:  Table [dbo].[Status]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Status](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[StatusCode] [nvarchar](50) NULL,
+	[StatusDescription] [nvarchar](250) NULL,
+ CONSTRAINT [PK_Status] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-    <div class="mb-3">
-        <label asp-for="OrderDate" class="form-label"></label>
-        <input asp-for="OrderDate" class="form-control" type="date" />
-    </div>
-
-    <div class="mb-3">
-        <label asp-for="TotalAmount" class="form-label"></label>
-        <input asp-for="TotalAmount" class="form-control" />
-    </div>
-
-    <div class="mb-3">
-        <label asp-for="Profit" class="form-label"></label>
-        <input asp-for="Profit" class="form-control" />
-    </div>
-
-    <div class="mb-3">
-        <label asp-for="NoOfProduct" class="form-label"></label>
-        <input asp-for="NoOfProduct" class="form-control" />
-    </div>
-
-    <div class="mb-3">
-        <label>Status</label>
-        <select asp-for="StatusCode" class="form-select" asp-items="@(new SelectList(statuses, "StatusCode", "StatusCode"))">
-            <option value="">-- Select Status --</option>
-        </select>
-    </div>
-
-    <h4>Customer Orders</h4>
-    <div id="customerRepeater">
-        @for (int i = 0; i < Model.CustomerOrders.Count; i++)
-        {
-            <div class="border p-3 mb-2 rounded customer-entry">
-                <div class="mb-2">
-                    <label>Customer</label>
-                    <select asp-for="CustomerOrders[@i].CustomerId" class="form-select"
-                            asp-items="@(new SelectList(customers, "CustomerId", "Name", Model.CustomerOrders[i].CustomerId))">
-                        <option value="">-- Select Customer --</option>
-                    </select>
-                </div>
-
-                <div class="mb-2">
-                    <label>Amount</label>
-                    <input asp-for="CustomerOrders[@i].Amount" class="form-control" />
-                </div>
-
-                <div class="mb-2">
-                    <label>No. of Products</label>
-                    <input asp-for="CustomerOrders[@i].NoOfProductperCustomer" class="form-control" type="number" />
-                </div>
-
-                <div class="form-check mb-2">
-                    <input type="hidden" name="CustomerOrders[@i].IsPaid" value="false" />
-                    <input asp-for="CustomerOrders[@i].IsPaid" type="checkbox" class="form-check-input" />
-                    <label class="form-check-label" asp-for="CustomerOrders[@i].IsPaid">Is Paid</label>
-                </div>
-
-                <button type="button" class="btn btn-danger btn-sm remove-entry">Remove</button>
-            </div>
-        }
-    </div>
-
-    <button type="button" id="addCustomer" class="btn btn-success mb-3">Add Customer</button>
-
-    <input type="submit" value="Save" class="btn btn-primary" />
-</form>
-
-@section Scripts {
-    <partial name="_ValidationScriptsPartial" />
-    <script>
-        let index = @Model.CustomerOrders.Count;
-        const customerOptions = `@Html.Raw(string.Join("", customers.Select(c => $"<option value='{c.CustomerId}'>{c.Name}</option>")))`;
-
-        function getCustomerHtml(i) {
-            return `
-                <div class="border p-3 mb-2 rounded customer-entry">
-                    <div>
-                        <label>Customer</label>
-                        <select class="form-select" name="CustomerOrders[${i}].CustomerId" required>
-                            <option value="">-- Select Customer --</option>
-                            ${customerOptions}
-                        </select>
-                    </div>
-                    <div>
-                        <label>Amount</label>
-                        <input class="form-control" name="CustomerOrders[${i}].Amount" required />
-                    </div>
-                    <div>
-                        <label>No. of Products</label>
-                        <input class="form-control" name="CustomerOrders[${i}].NoOfProductperCustomer" type="number" required />
-                    </div>
-                    <div class="form-check">
-                        <input type="hidden" name="CustomerOrders[${i}].IsPaid" value="false" />
-                        <input type="checkbox" class="form-check-input" name="CustomerOrders[${i}].IsPaid" value="true" />
-                        <label class="form-check-label">Is Paid</label>
-                    </div>
-                    <button type="button" class="btn btn-danger btn-sm remove-entry">Remove</button>
-                </div>`;
-        }
-
-        document.getElementById("addCustomer").addEventListener("click", () => {
-            document.getElementById("customerRepeater").insertAdjacentHTML("beforeend", getCustomerHtml(index));
-            index++;
-        });
-
-        document.getElementById("customerRepeater").addEventListener("click", function (e) {
-            if (e.target.classList.contains("remove-entry")) {
-                e.target.closest(".customer-entry").remove();
-            }
-        });
-    </script>
-}
+GO
+ALTER TABLE [dbo].[CustomerOrders]  WITH CHECK ADD  CONSTRAINT [FK__CustomerO__Custo__2C3393D0] FOREIGN KEY([CustomerId])
+REFERENCES [dbo].[Customers] ([CustomerId])
+GO
+ALTER TABLE [dbo].[CustomerOrders] CHECK CONSTRAINT [FK__CustomerO__Custo__2C3393D0]
+GO
+ALTER TABLE [dbo].[CustomerOrders]  WITH CHECK ADD  CONSTRAINT [FK__CustomerO__Order__2D27B809] FOREIGN KEY([OrderId])
+REFERENCES [dbo].[Orders] ([OrderId])
+GO
+ALTER TABLE [dbo].[CustomerOrders] CHECK CONSTRAINT [FK__CustomerO__Order__2D27B809]
+GO
+/****** Object:  StoredProcedure [dbo].[GetCustomersWithOrders]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[GetCustomersWithOrders]
+AS
+BEGIN
+    SELECT c.CustomerId, c.Name, c.Address, c.Phone,
+           o.OrderId, o.OrderDate, o.Cost, o.Profit, o.NoOfProduct, o.TotalAmount, o.StatusCode
+    FROM Customers c
+    INNER JOIN CustomerOrder co ON c.CustomerId = co.CustomerId
+    INNER JOIN Orders o ON co.OrderId = o.OrderId;
+END
+GO
+/****** Object:  StoredProcedure [dbo].[UpsertCustomer]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[UpsertCustomer]
+    @CustomerId INT OUTPUT,
+    @Name NVARCHAR(100),
+    @Address NVARCHAR(100),
+    @Phone NVARCHAR(20)
+AS
+BEGIN
+    IF EXISTS (SELECT 1 FROM Customers WHERE CustomerId = @CustomerId)
+    BEGIN
+        UPDATE Customers
+        SET Name = @Name, Address = @Address, Phone = @Phone
+        WHERE CustomerId = @CustomerId;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO Customers (Name, Address, Phone)
+        VALUES (@Name, @Address, @Phone);
+        SET @CustomerId = SCOPE_IDENTITY();
+    END
+END
+GO
+/****** Object:  StoredProcedure [dbo].[UpsertOrder]    Script Date: 27/05/2025 4:08:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[UpsertOrder]
+    @OrderId INT OUTPUT,
+    @OrderDate DATETIME,
+    @Cost DECIMAL(18,2),
+    @Profit DECIMAL(18,2),
+	@NoOfProduct INT,
+	@TotalAmount DECIMAL(18,2),
+    @StatusCode NVARCHAR(50)
+AS
+BEGIN
+    IF EXISTS (SELECT 1 FROM Orders WHERE OrderId = @OrderId)
+    BEGIN
+        UPDATE Orders
+        SET OrderDate = @OrderDate, Cost = @Cost, Profit = @Profit,NoOfProduct = @NoOfProduct, TotalAmount = @TotalAmount, StatusCode = @StatusCode
+        WHERE OrderId = @OrderId;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO Orders (OrderDate, Cost, Profit,NoOfProduct,TotalAmount, StatusCode)
+        VALUES (@OrderDate, @Cost, @Profit,@NoOfProduct,@TotalAmount,@StatusCode);
+        SET @OrderId = SCOPE_IDENTITY();
+    END
+END
+GO
