@@ -184,3 +184,32 @@ Edit
 ✅ Debug order.CustomerOrders in the controller to verify correct binding.
 
 Let me know if you want a Dapper or EF Core insert logic for this structure.
+
+
+        public async Task AddOrderWithCustomersAsync(Order order)
+        {
+            using var conn = Connection;
+            conn.Open();
+            using var tran = conn.BeginTransaction();
+
+            try
+            {
+                var orderId = await conn.ExecuteScalarAsync<int>(
+                    "INSERT INTO Orders (OrderDate, Cost, Profit, NoOfProduct, TotalAmount, StatusCode) OUTPUT INSERTED.OrderId VALUES (@OrderDate, @Cost, @Profit, @NoOfProduct, @TotalAmount, @StatusCode)",
+                    order, tran);
+
+                foreach (var co in order.CustomerOrders)
+                {
+                    await conn.ExecuteAsync(
+                        "INSERT INTO CustomerOrders (OrderId, CustomerId, Amount, IsPaid, NoOfProduct) VALUES (@OrderId, @CustomerId, @Amount, @IsPaid,@NoOfProduct)",
+                        new { OrderId = orderId, CustomerId = co.CustomerId, Amount = co.Amount, IsPaid = co.IsPaid, NoOfProduct = co.NoOfProduct, CustomerName = co.CustomerName }, tran);
+                }
+
+                tran.Commit();
+            }
+            catch
+            {
+                tran.Rollback();
+                throw;
+            }
+        }
