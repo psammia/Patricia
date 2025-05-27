@@ -1,3 +1,66 @@
+@model OrdersTracking.Models.Order
+
+@{
+    ViewData["Title"] = "Create Order";
+    var customers = ViewBag.Customers as List<Customer> ?? new List<Customer>();
+    var statuses = ViewBag.Orders as List<Order> ?? new List<Order>();
+    var customerOptionsHtml = new System.Text.StringBuilder();
+    foreach (var customer in customers)
+    {
+        customerOptionsHtml.Append($"<option value=\"{customer.CustomerId}\">{customer.Name}</option>");
+    }
+}
+
+<h2>Create Order</h2>
+
+<form asp-action="Create" method="post">
+    <div class="mb-3">
+        <label asp-for="OrderDate" class="form-label"></label>
+        <input asp-for="OrderDate" class="form-control" type="date" value="@DateTime.Today.ToString("yyyy-MM-dd")"/>
+        <span asp-validation-for="OrderDate" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="TotalAmount" class="form-label"></label>
+        <input asp-for="TotalAmount" class="form-control" />
+        <span asp-validation-for="TotalAmount" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Profit" class="form-label"></label>
+        <input asp-for="Profit" class="form-control" />
+        <span asp-validation-for="Profit" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="NoOfProduct" class="form-label"></label>
+        <input asp-for="NoOfProduct" class="form-control" />
+        <span asp-validation-for="NoOfProduct" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label>Status</label>
+        <select asp-for="StatusCode" class="form-select">
+        <option value="" >-- Select Status --</option>
+        @foreach(var status in (IEnumerable<Status>)ViewBag.Statuses)
+        {
+                <option value="@status.StatusCode">@status.StatusCode</option>
+            }
+        </select>
+        <span asp-validation-for="StatusCode" class="text-danger"></span>
+    </div>
+
+    <h4>Customers</h4>
+    <div id="customerRepeater" class="mb-3">
+        <!-- JavaScript will populate this section -->
+    </div>
+    <button type="button" id="addCustomer" class="btn btn-success mb-3">Add Customer</button>
+
+    <div class="form-group">
+        <input type="submit" value="Create" class="btn btn-primary" />
+    </div>
+</form>
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script>
@@ -20,7 +83,6 @@
                                     <input name="CustomerOrders[${i}].NoOfProductperCustomer" type="number" class="form-control" required />
 
                             <div class="form-check mt-2">
-                                <input type="hidden" name="CustomerOrders[${i}].IsPaid" value="false" />
                                 <input name="CustomerOrders[${i}].IsPaid" type="checkbox" value="true" class="form-check-input" />
                                 <label class="form-check-label">Is Paid</label>
                             </div>
@@ -52,37 +114,5 @@
             });
         });
     </script>
+}
 
-    orderRepository
-            public async Task AddOrderWithCustomersAsync(Order order)
-        {
-            using var conn = Connection;
-            conn.Open();
-            using var tran = conn.BeginTransaction();
-
-            try
-            {
-                var orderId = await conn.ExecuteScalarAsync<int>(
-                    "INSERT INTO Orders (OrderDate, Profit, NoOfProduct, TotalAmount, StatusCode) OUTPUT INSERTED.OrderId VALUES (@OrderDate, @Profit, @NoOfProduct, @TotalAmount, @StatusCode)",
-                    order, tran);
-
-                //foreach (var coo in order.CustomerOrders)
-                //{
-                //    Console.WriteLine($"CustomerId: {coo.CustomerId},Amount: {coo.Amount}, IsPaid: {coo.IsPaid}, NoOfProductPerclient:{coo.NoOfProductperCustomer}");
-                //}
-
-                foreach (CustomerOrder co in order.CustomerOrders)
-                {
-                    await conn.ExecuteAsync(
-                        "INSERT INTO CustomerOrders (OrderId, CustomerId, Amount, IsPaid, NoOfProductperCustomer) VALUES (@OrderId, @CustomerId, @Amount, @IsPaid,@NoOfProductperCustomer)",
-                        new { OrderId = orderId, CustomerId = co.CustomerId, Amount = co.Amount, IsPaid = co.IsPaid, NoOfProductperCustomer = co.NoOfProductperCustomer }, tran);
-                }
-
-                tran.Commit();
-            }
-            catch
-            {
-                tran.Rollback();
-                throw;
-            }
-        }
