@@ -1,50 +1,46 @@
-@using Alterna.Archive.Core.Models
-@model Alterna.Archive.Core.Models.TableModel.ContainerToNotifyWarehouseTableModel
+@{
+    ViewBag.Title = "Notify Warehouse";
+}
 
-<table id="TblContainertoNotifyWarehouseTable" class="table table-striped table-bordered" style="width:100%;">
-    <thead>
-        <tr>
-            <th></th>
-            <th>Box Ref</th>
-            <th>Box Type</th>
-            <th>Status Code</th>
-            <th>Last Modified By</th>
-            <th>Last Modified Date</th>
-        </tr>
-    </thead>
-    <tbody>
-        @if (Model.ContainersToNotifyWarehouseList.Count > 0)
-        {
-            foreach (Container container in Model.ContainersToNotifyWarehouseList)
-            {
-                var iconId = container.Id;
-                var trId = "Row" + container.Id;
+<div class="row">
+    <div class="col-md-12">
+        <h3>Notify Warehouse</h3>
+    </div>
+    <div class="col-md-12">
+        <ol class="breadcrumb sgbl-breadcrumb">
+            <li><a href="~/Home/Index/Redirect">Home</a></li>
+            <li class="active">List of Boxes to Sent to Warehouse</li>
+        </ol>
+    </div>
+</div>
 
-                <tr id="@trId">
-                    <td class="text-center">
-                        @* <i id="@iconId" class="fa-regular fa-pen-to-square icon-edit" title="Edit Box Details" style="cursor: pointer;" onclick="onEdit('@container.Id', '@container.Code')"></i> *@
-                    </td>
-                    <td>@container.Code</td>
-                    <td>@container.ContainerType</td>
-                    <td>@container.StatusCode</td>
-                    <td>@container.LastModifiedBy</td>
-                    <td>@container.LastModifiedDate.ToString("dd/MM/yyyy")</td>
-                </tr>
-            }
-        }
-    </tbody>
-</table>
+<div class="card">
+    <div class="card-header"></div>
+    <div class="card-content collapse show">
+        <div class="card-body card-dashboard">
+            <div id="TableDisplay" class="table-spacer">
+            </div>
+            <br />
+        </div>
+    </div>
+</div>
 
 <script>
     $(document).ready(() => {
+        $.ajax({
 
-        $("#TblContainertoNotifyWarehouseTable").DataTable(
-            {
-                pagingType: 'full_numbers',
-                "scrollX": true
-            });
-    })
+            type: 'POST',
+            url: '/BoxRCA/GetContainerToNotifyWarehouse/',
+            data: {
+            },
+            dataType: 'html',
+            success: function (response) {
+                $('#TableDisplay').html(response);
+            },
+            error: function (xhr) {
+                $('#MainRenderLocation').html(xhr.responseText);
+            }
+        });
+        return false;
+    });
 </script>
-
-
-
