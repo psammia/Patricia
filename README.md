@@ -1,46 +1,59 @@
-@{
-    ViewBag.Title = "Notify Warehouse";
-}
+🧠 3. JavaScript: DataTables + Checkbox Handling
+Inside the partial view (or better: move to layout if reused), update your script:
 
-<div class="row">
-    <div class="col-md-12">
-        <h3>Notify Warehouse</h3>
-    </div>
-    <div class="col-md-12">
-        <ol class="breadcrumb sgbl-breadcrumb">
-            <li><a href="~/Home/Index/Redirect">Home</a></li>
-            <li class="active">List of Boxes to Sent to Warehouse</li>
-        </ol>
-    </div>
-</div>
-
-<div class="card">
-    <div class="card-header"></div>
-    <div class="card-content collapse show">
-        <div class="card-body card-dashboard">
-            <div id="TableDisplay" class="table-spacer">
-            </div>
-            <br />
-        </div>
-    </div>
-</div>
-
+html
+Copy
+Edit
 <script>
     $(document).ready(() => {
-        $.ajax({
-
-            type: 'POST',
-            url: '/BoxRCA/GetContainerToNotifyWarehouse/',
-            data: {
-            },
-            dataType: 'html',
-            success: function (response) {
-                $('#TableDisplay').html(response);
-            },
-            error: function (xhr) {
-                $('#MainRenderLocation').html(xhr.responseText);
-            }
+        const table = $("#TblContainertoNotifyWarehouseTable").DataTable({
+            pagingType: 'full_numbers',
+            scrollX: true
         });
-        return false;
+
+        // Check all functionality
+        $('#checkAllBoxes').on('change', function () {
+            $('.row-checkbox').prop('checked', this.checked);
+            toggleNotifyButton();
+        });
+
+        // Individual checkbox toggle
+        $(document).on('change', '.row-checkbox', function () {
+            const allChecked = $('.row-checkbox').length === $('.row-checkbox:checked').length;
+            $('#checkAllBoxes').prop('checked', allChecked);
+            toggleNotifyButton();
+        });
+
+        // Enable/Disable Notify button
+        function toggleNotifyButton() {
+            const selectedCount = $('.row-checkbox:checked').length;
+            $('#notifyButton').prop('disabled', selectedCount === 0);
+        }
     });
 </script>
+✅ Optional: Get selected IDs on button click
+Add this if you want to collect checked IDs when clicking "Notify":
+
+html
+Copy
+Edit
+<script>
+    $('#notifyButton').on('click', function () {
+        const selectedIds = $('.row-checkbox:checked').map(function () {
+            return $(this).val();
+        }).get();
+
+        console.log("Selected IDs:", selectedIds);
+        // Submit via AJAX or redirect as needed
+    });
+</script>
+🧪 Result
+Checkbox in each row and a header "Select All" checkbox.
+
+Notify button stays disabled until at least one box is checked.
+
+Button is placed top-right as requested.
+
+Fully compatible with Bootstrap 5.3.6 and DataTables v2.3.1.
+
+Would you like the Notify button to trigger an AJAX POST with the selected box IDs?
