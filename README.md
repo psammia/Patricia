@@ -1,9 +1,42 @@
-🧠 3. JavaScript: DataTables + Checkbox Handling
-Inside the partial view (or better: move to layout if reused), update your script:
+@using Alterna.Archive.Core.Models
+@model Alterna.Archive.Core.Models.TableModel.ContainerToNotifyWarehouseTableModel
 
-html
-Copy
-Edit
+<table id="TblContainertoNotifyWarehouseTable" class="table table-striped table-bordered" style="width:100%;">
+    <thead>
+        <tr>
+            <th >
+                <input type="checkbox" id="checkAllBoxes" />
+            </th>
+            <th>Box Ref</th>
+            <th>Box Type</th>
+            <th>Status Code</th>
+            <th>Last Modified By</th>
+            <th>Last Modified Date</th>
+        </tr>
+    </thead>
+    <tbody>
+        @if (Model.ContainersToNotifyWarehouseList.Count > 0)
+        {
+            foreach (Container container in Model.ContainersToNotifyWarehouseList)
+            {
+                var iconId = container.Id;
+                var trId = "Row" + container.Id;
+
+                <tr id="@trId">
+                    <td class="text-center">
+                        <input type="checkbox" class="row-checkbox" value="@container.Id" />
+                    </td>
+                    <td>@container.Code</td>
+                    <td>@container.ContainerType</td>
+                    <td>@container.StatusCode</td>
+                    <td>@container.LastModifiedBy</td>
+                    <td>@container.LastModifiedDate.ToString("dd/MM/yyyy")</td>
+                </tr>
+            }
+        }
+    </tbody>
+</table>
+
 <script>
     $(document).ready(() => {
         const table = $("#TblContainertoNotifyWarehouseTable").DataTable({
@@ -29,31 +62,17 @@ Edit
             const selectedCount = $('.row-checkbox:checked').length;
             $('#notifyButton').prop('disabled', selectedCount === 0);
         }
+        $('#notifyButton').on('click', function () {
+            const selectedIds = $('.row-checkbox:checked').map(function () {
+                return $(this).val();
+            }).get();
+
+            console.log("Selected IDs:", selectedIds);
+            // Submit via AJAX or redirect as needed
+        });
     });
 </script>
-✅ Optional: Get selected IDs on button click
-Add this if you want to collect checked IDs when clicking "Notify":
 
-html
-Copy
-Edit
-<script>
-    $('#notifyButton').on('click', function () {
-        const selectedIds = $('.row-checkbox:checked').map(function () {
-            return $(this).val();
-        }).get();
 
-        console.log("Selected IDs:", selectedIds);
-        // Submit via AJAX or redirect as needed
-    });
-</script>
-🧪 Result
-Checkbox in each row and a header "Select All" checkbox.
 
-Notify button stays disabled until at least one box is checked.
 
-Button is placed top-right as requested.
-
-Fully compatible with Bootstrap 5.3.6 and DataTables v2.3.1.
-
-Would you like the Notify button to trigger an AJAX POST with the selected box IDs?
