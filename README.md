@@ -22,7 +22,7 @@
 
                 <tr id="@trId">
                     <td class="text-center">
-                        <i id="@iconId" class="fa-regular fa-pen-to-square icon-edit" title="Edit Box Details" style="cursor: pointer;" onclick="onEdit('@container.Id', '@container.Code')"></i>
+                        @* <i id="@iconId" class="fa-regular fa-pen-to-square icon-edit" title="Edit Box Details" style="cursor: pointer;" onclick="onEdit('@container.Id', '@container.Code')"></i> *@
                     </td>
                     <td>@container.Code</td>
                     <td>@container.ContainerType</td>
@@ -34,3 +34,17 @@
         }
     </tbody>
 </table>
+
+<script>
+    $(document).ready(() => {
+
+        $("#TblContainertoNotifyWarehouseTable").DataTable(
+            {
+                pagingType: 'full_numbers',
+                "scrollX": true
+            });
+    })
+</script>
+
+
+
