@@ -1,17 +1,9 @@
-$(document).ready(function () {
-  const table = $('#myTable').DataTable(); // initialize DataTable
+                            table.rows().every(function () {
+                                const row = this.node(); // get the actual DOM node of the row
 
-  $('#deleteRows').on('click', function () {
-    // Loop through all rows (including non-visible ones, if needed)
-    table.rows().every(function () {
-      const row = this.node(); // get the actual DOM node of the row
-      const checkbox = $(row).find('.row-check');
+                                const checkbox = $(row).find('#' + row.attributes.id.nodeValue + '.row-checkbox');
 
-      if (checkbox.is(':checked')) {
-        this.remove(); // use DataTables API to remove the row
-      }
-    });
-
-    table.draw(); // redraw the table to update the UI
-  });
-});
+                                if (checkbox.is('.row-checkbox:checked')) {
+                                    this.remove(); // use DataTables API to remove the row
+                                }
+                            });
