@@ -1,71 +1,22 @@
- Final JavaScript for #notifyButton:
-js
+🧱 Requirements:
+Make sure you include the SweetAlert2 and a spinner overlay.
+
+👉 1. Add SweetAlert2 (in layout or main view)
+html
 Copy
 Edit
-$(document).on('click', '#notifyButton', function () {
-    const selectedCheckboxes = $('.row-checkbox:checked');
-
-    const selectedIds = selectedCheckboxes.map(function () {
-        return $(this).val();
-    }).get();
-
-    if (selectedIds.length === 0) return;
-
-    Swal.fire({
-        title: 'Are you sure?',
-        text: `You are about to notify ${selectedIds.length} box(es) to the warehouse.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Yes, notify',
-        cancelButtonText: 'Cancel',
-        reverseButtons: true
-    }).then((result) => {
-        if (result.isConfirmed) {
-            $('#loadingOverlay').show(); // Show spinner
-
-            $.ajax({
-                type: 'POST',
-                url: '/BoxRCA/NotifyWareHouse/',
-                data: { containerIds: selectedIds.join(',') },
-                success: function () {
-                    // Re-fetch the table data from the server
-                    getContainerToNotifyWarehouseData();
-
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Notified!',
-                        text: 'Selected boxes were successfully notified.'
-                    });
-                },
-                error: function (xhr) {
-                    $('#MainRenderLocation').html(xhr.responseText);
-                    Swal.fire('Error', 'Something went wrong while notifying the warehouse.', 'error');
-                },
-                complete: function () {
-                    $('#loadingOverlay').hide(); // Hide spinner
-                }
-            });
-        }
-    });
-});
-🔁 Update Your getContainerToNotifyWarehouseData to Rebind Table
-Make sure after reload, the table is reinitialized:
-
-js
+<link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+👉 2. Add loading spinner overlay (in main view)
+html
 Copy
 Edit
-function getContainerToNotifyWarehouseData() {
-    $.ajax({
-        type: 'POST',
-        url: '/BoxRCA/GetContainerToNotifyWarehouse/',
-        data: {},
-        dataType: 'html',
-        success: function (response) {
-            $('#TableDisplay').html(response);
-            initNotifyWarehouseTable(); // Re-init your DataTable and checkbox bindings
-        },
-        error: function (xhr) {
-            $('#MainRenderLocation').html(xhr.responseText);
-        }
-    });
-}
+<div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(255,255,255,0.7); z-index:9999; text-align:center;">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p>Processing...</p>
+    </div>
+</div>
+✅
