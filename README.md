@@ -1,114 +1,177 @@
-✅ Adjusted NotifyWarehouse.cshtml (Main View)
-cs
-Copy
-Edit
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+@using Alterna.Archive.Core.Models.SearchModel
+@model Alterna.Archive.Core.Models.SearchModel.WarehouseContainerSearchModel
+@{
+    ViewBag.Title = "Warehouse Search Boxes";
+}
+
+<div class="row">
+    <div class="col-md-12">
+        <h3>Warehouse Management</h3>
+    </div>
+    <div class="col-md-12">
+        <ol class="breadcrumb sgbl-breadcrumb">
+            <li><a href="~/Home/Index/Redirect">Home</a></li>
+            <li class="active">Search Box</li>
+        </ol>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"></div>
+    <div class="card-content collapse show">
+        <div class="card-body card-dashboard">
+            <div class="row" id="WarehouseContainersFilterOptions">
+
+                @{
+                    var currentFormattedDate = "Today " + @DateTime.Now.ToString("dd MMMM, yyyy");
+                }
+
+                <div class="form-group col-md-4">
+                    <label>From Date </label>
+                    <input id="dpFromDate" class="datepicker form-control" placeholder="Select A Date" />
+                </div>
+
+                <div class="form-group col-md-4">
+                    <label>To Date </label>
+                    <input id="dpToDate" class="datepicker form-control" placeholder="Select A Date" />
+                </div>
+
+                <div class="form-group col-md-4">
+                    <label>Box Ref </label>
+                    <input id="IContainerCode" type="text" class="form-control">
+                </div>
+
+                <div class="form-group col-md-4">
+                    <label>Branch </label>
+                    <select class="form-control selectpicker" id="SCompanyCode" data-live-search="true">
+                        <option value="">No Branch Selected</option>
+                        @{
+                            foreach ((String companyCode, String companyName) in Model.CompaniesDict)
+                            {
+                                <option value="@companyCode">@companyCode - @companyName</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group col-md-4">
+                    <label>Box Status</label>
+                    <select class="form-control selectpicker" id="StatusCode" data-live-search="true">
+                        <option value="">All</option>
+                        <option value="SENT">SENT</option>
+                        <option value="RECEIVED">RECEIVED</option>
+                        <option value="TOBEDESTR">TOBEDESTR</option>
+                        <option value="DESTROYED">DESTROYED</option>
+                    </select>
+                </div>
+                @*
+                <div class="form-group col-md-4">
+                </div> *@@*
+                <div class="form-group col-md-4">
+                </div> *@
+                
+                <div class="col-md-4">
+                    <div>&#8291;</div>
+                    <button type="button" class="btn btn-primary" style="margin-top: 6px" onclick="showData()">Search</button>
+                    <button type="button" class="btn btn-success" style="margin-top: 6px" onclick="GenerateReport()">Generate Report</button>
+                </div>
+
+
+            </div>
+
+            <div id="TableDisplay" class="table-spacer"></div>
+        </div>
+    </div>
+</div>
 
 <script>
-    let table;
-
-    $(document).ready(() => {
-        loadTable();
-
-        $('#notifyButton').on('click', function () {
-            const selectedIds = $('.row-checkbox:checked').map(function () {
-                return $(this).val();
-            }).get();
-
-            if (selectedIds.length === 0) return;
-
-            Swal.fire({
-                title: 'Confirm Notification',
-                text: `Notify warehouse for ${selectedIds.length} box(es)?`,
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: 'Yes, notify',
-                cancelButtonText: 'Cancel'
-            }).then(result => {
-                if (result.isConfirmed) {
-                    $('#notifyButton').prop('disabled', true); // optional UX
-                    $.post('/BoxRCA/NotifyWareHouse/', { containerIds: selectedIds.join(',') })
-                        .done(() => {
-                            Swal.fire('Success', 'Warehouse has been notified.', 'success');
-                            loadTable();
-                        })
-                        .fail(xhr => {
-                            Swal.fire('Error', 'Something went wrong.', 'error');
-                            $('#MainRenderLocation').html(xhr.responseText);
-                        });
-                }
-            });
-        });
+    $('.datepicker').pickadate({
+        labelMonthNext: 'Go to the next month',
+        labelMonthPrev: 'Go to the previous month',
+        labelMonthSelect: 'Pick a month from the dropdown',
+        labelYearSelect: 'Pick a year from the dropdown',
+        selectMonths: true,
+        selectYears: 20,
+        closeOnClear: false,
+        firstDay: 1
     });
 
-    function loadTable() {
-        $.post('/BoxRCA/GetContainerToNotifyWarehouse/', {}, function (html) {
-            $('#TableDisplay').html(html);
-            bindCheckboxHandlers();
-            initDataTable();
+    function showData() {
+
+        $.ajax({
+            type: 'POST',
+            url: '/Warehouse/GetWarehouseContainer/',
+            data: {
+                searchModel:
+                {
+                    CompanyCode: $('#SCompanyCode').find(":selected").val(),
+                    Code: $('#IContainerCode').val(),
+                    FromDate: $('#dpFromDate').val(),
+                    ToDate: $('#dpToDate').val(),
+                    StatusCode: $('#StatusCode').val()
+                }
+            },
+            dataType: 'html',
+            success: function (response) {
+                if (!ValidationBetweenDates()) {
+                    return;
+                }
+                $("#WarehouseContainersFilterOptions").hide();
+                $('#TableDisplay').html(response);
+            },
+            error: function (xhr) {
+                $('#MainRenderLocation').html(xhr.responseText);
+            }
         });
+        return false;
     }
 
-    function initDataTable() {
-        if ($.fn.DataTable.isDataTable('#TblContainertoNotifyWarehouseTable')) {
-            $('#TblContainertoNotifyWarehouseTable').DataTable().destroy();
-        }
-        table = $('#TblContainertoNotifyWarehouseTable').DataTable({
-            pagingType: 'full_numbers',
-            scrollX: true
+
+    function GenerateReport() {
+
+        $.ajax({
+            type: 'POST',
+            url: '/Warehouse/GetWarehouseContainer/',
+            data: {
+                searchModel:
+                {
+                    CompanyCode: $('#SCompanyCode').find(":selected").val(),
+                    Code: $('#IContainerCode').val(),
+                    FromDate: $('#dpFromDate').val(),
+                    ToDate: $('#dpToDate').val(),
+                    StatusCode: $('#StatusCode').val()
+                }
+            },
+            dataType: 'html',
+            success: function (response) {
+                if (!ValidationBetweenDates()) {
+                    return;
+                }
+                $("#WarehouseContainersFilterOptions").hide();
+                $('#TableDisplay').html(response);
+            },
+            error: function (xhr) {
+                $('#MainRenderLocation').html(xhr.responseText);
+            }
         });
+        return false;
     }
 
-    function bindCheckboxHandlers() {
-        $('#checkAllBoxes').on('change', function () {
-            $('.row-checkbox').prop('checked', this.checked);
-            toggleNotifyButton();
-        });
+    function ValidationBetweenDates() {
+        var from = $("#dpFromDate").val();
+        var to = $("#dpToDate").val();
 
-        $(document).on('change', '.row-checkbox', function () {
-            const allChecked = $('.row-checkbox').length === $('.row-checkbox:checked').length;
-            $('#checkAllBoxes').prop('checked', allChecked);
-            toggleNotifyButton();
-        });
-
-        function toggleNotifyButton() {
-            const anyChecked = $('.row-checkbox:checked').length > 0;
-            $('#notifyButton').prop('disabled', !anyChecked);
+        if (Date.parse(from) > Date.parse(to)) {
+            swal("Invalid Date Range", "End Date must be greater than Start Date", "error");
+            return false;
+        }
+        else {
+            return true;
         }
 
-        toggleNotifyButton();
+        function downloadPDF() {
+            window.open('@Url.Action("DownloadPDF", "Configuration")?boxReference=' + $('#boxReference').val(), '_blank').focus();
+        }
+
     }
 </script>
-✅ Your Partial View Should Only Contain the Table
-Remove all <script> tags from the partial view.
-
-cshtml
-Copy
-Edit
-<table id="TblContainertoNotifyWarehouseTable" class="table table-striped table-bordered" style="width:100%;">
-    <thead>
-        <tr>
-            <th class="text-center"><input type="checkbox" id="checkAllBoxes" /></th>
-            <th>Box Ref</th>
-            <th>Box Type</th>
-            <th>Status Code</th>
-            <th>Last Modified By</th>
-            <th>Last Modified Date</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var container in Model.ContainersToNotifyWarehouseList)
-        {
-            <tr>
-                <td class="text-center">
-                    <input type="checkbox" class="row-checkbox" value="@container.Id" />
-                </td>
-                <td>@container.Code</td>
-                <td>@container.ContainerType</td>
-                <td>@container.StatusCode</td>
-                <td>@container.LastModifiedBy</td>
-                <td>@container.LastModifiedDate.ToString("dd/MM/yyyy")</td>
-            </tr>
-        }
-    </tbody>
-</table>
