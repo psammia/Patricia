@@ -1,128 +1,135 @@
-// ===========================
-// 1. VIEW (Search.cshtml)
-// ===========================
-<script>
-    function GenerateReport() {
-        var request = {
-            BaseReq: {
-                CurrentBranch: $('#SCompanyCode').val(),
-                CurrentEntity: 'YourEntityHere', // Replace with actual entity
-                CurrentUser: 'YourUsernameHere'   // Replace with actual username
-            },
-            FromDate: $('#dpFromDate').val(),
-            ToDate: $('#dpToDate').val(),
-            Code: $('#IContainerCode').val(),
-            CompanyCode: $('#SCompanyCode').val(),
-            StatusCode: $('#StatusCode').val()
-        };
+        [HttpPost]
+        [Route("GetWarehouseContainers")]
+        public GetWarehouseContainersRes GetWarehouseContainers(GetWarehouseContainersReq req)
+        {
+            GetWarehouseContainersRes response = new()
+            {
+                Req = req
+            };
 
-        $.ajax({
-            url: '/Warehouse/GeneratePDFReport',
-            type: 'POST',
-            data: JSON.stringify(request),
-            contentType: 'application/json',
-            xhrFields: { responseType: 'blob' },
-            success: function (data, status, xhr) {
-                var blob = new Blob([data], { type: "application/pdf" });
-                var downloadUrl = URL.createObjectURL(blob);
-                var a = document.createElement("a");
-                a.href = downloadUrl;
-                a.download = "WarehouseReport.pdf";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            },
-            error: function (xhr) {
-                alert("Failed to generate PDF. " + xhr.responseText);
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = req.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "GetWarehouseContainers",
+                UserName = req.BaseReq.CurrentUser
+            };
+
+            try
+            {
+                String CorrelationId = String.IsNullOrEmpty(req.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : req.BaseReq.CorrelationId;
+                String CurrentUser = String.IsNullOrEmpty(req.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : req.BaseReq.CurrentUser;
+
+                if (String.IsNullOrEmpty(req.BaseReq.CurrentEntity) && String.IsNullOrEmpty(req.BaseReq.CurrentBranch))
+                {
+                    throw new SGBLBadRequestException($"{nameof(req.BaseReq.CurrentEntity)} and {nameof(req.BaseReq.CurrentBranch)} Cannot Be null or empty");
+                }
+
+                String CurrentEntity = String.IsNullOrEmpty(req.BaseReq.CurrentEntity) ? String.Empty : req.BaseReq.CurrentEntity;
+                String CurrentBranch = String.IsNullOrEmpty(req.BaseReq.CurrentBranch) ? String.Empty : req.BaseReq.CurrentBranch;
+
+                LogInfo("GetWarehouseContainers Has been called with the following Request", correlationInfo);
+                LogInfoJson(req, correlationInfo);
+
+                correlationInfo.RDirection = RequestDirection.Processing;
+
+                #region Data Guard Check
+                using (BLL.BLL oBLL = new(CurrentUser))
+                {
+                    LogInfo("Data guard checks have started", correlationInfo);
+
+                    Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
+                    {
+                        { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(req) },
+                    };
+
+                    oBLL.DataIntegrityCheck(DataGuardDictionnary);
+
+                    LogInfo("Data guard check successful", correlationInfo);
+
+                    LogInfo("Start of GetWarehouseContainers call", correlationInfo);
+
+                    response.Resp = oBLL.GetWarehouseContainers(req);
+
+                    if (response.Resp == null || response.Resp.Count == 0)
+                    {
+                        throw new SGBLNotFoundException($"No Container have been found in our sytems");
+                    }
+
+                    response.WebResp.CorrelationId = CorrelationId;
+                    response.WebResp.User = CurrentUser;
+                    response.WebResp.Entity = CurrentEntity;
+                    response.WebResp.Branch = CurrentBranch;
+                    response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+
+                    correlationInfo.RDirection = RequestDirection.Response;
+
+                    LogInfo("GetWarehouseContainers Has Replied with the Following response", correlationInfo);
+                    LogInfoJson(response, correlationInfo);
+                    LogInfo("Calling the GetWarehouseContainers is completed", correlationInfo);
+                }
+
+                return response;
+                #endregion
             }
-        });
-    }
-</script>
+            catch (SGBLBadRequestException ex)
+            {
+                response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : req.BaseReq.CorrelationId!;
+                response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : req.BaseReq.CurrentUser!;
+                response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : req.BaseReq.CurrentEntity!;
+                response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : req.BaseReq.CurrentBranch!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = [];
 
-// ===========================
-// 2. CONTROLLER METHOD
-// ===========================
-[HttpPost]
-public IActionResult GeneratePDFReport([FromBody] ExportWarehouseContainersReq req)
-{
-    ExportWarehouseContainersViewModel vm = new ExportWarehouseContainersViewModel
-    {
-        Req = req,
-        WarehouseContainersList = new BLL.BLL().GetWarehouseContainers(req)
-    };
+                //this was added in case correlation Id was invalid(null or Empty)
+                correlationInfo.CorrelationId = response.WebResp.CorrelationId;
+                //this was added in case Username was invalid(null or Empty)
+                correlationInfo.UserName = response.WebResp.User;
 
-    byte[] pdfBytes = new BLL.BLL().GenerateWarehouseContainersReport(vm);
+                //don't forget to change status code in case of exception
+                correlationInfo.StatusCode = HttpStatusCode.BadRequest;
+                correlationInfo.RDirection = RequestDirection.Response;
 
-    return File(pdfBytes, "application/pdf", "WarehouseReport.pdf");
-}
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
 
-// ===========================
-// 3. BLL Method to get containers
-// ===========================
-public List<Container> GetWarehouseContainers(ExportWarehouseContainersReq req)
-{
-    DAL.DAL iDAL = new DAL.DAL();
-    DynamicParameters param = new();
+                return response;
+            }
+            catch (SGBLNotFoundException ex)
+            {
+                response.WebResp.CorrelationId = req.BaseReq.CorrelationId!;
+                response.WebResp.User = req.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.NoContent;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = [];
 
-    param.Add("FromDate", req.FromDate);
-    param.Add("ToDate", req.ToDate);
-    param.Add("Code", req.Code);
-    param.Add("CompanyCode", req.CompanyCode);
-    param.Add("StatusCode", req.StatusCode);
+                correlationInfo.StatusCode = HttpStatusCode.NoContent;
+                correlationInfo.RDirection = RequestDirection.Response;
 
-    return iDAL.ExecuteQuery<Container>("usp_GetWarehouseContainers", param, CommandType.StoredProcedure, CommandDirection.Select);
-}
+                LogInfo(ex.Message, correlationInfo);
 
-// ===========================
-// 4. BLL Method to generate PDF
-// ===========================
-public byte[] GenerateWarehouseContainersReport(ExportWarehouseContainersViewModel vm)
-{
-    string json = JsonConvert.SerializeObject(vm);
-    HttpContent content = new StringContent(json, Encoding.UTF8, "application/json");
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.WebResp.CorrelationId = req.BaseReq.CorrelationId!;
+                response.WebResp.User = req.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = [];
 
-    HttpClient client = new();
-    string pdfServiceUrl = ConfigurationManager.AppSettings["PDFService"];
-    if (string.IsNullOrWhiteSpace(pdfServiceUrl))
-        throw new Exception("PDF Service URL is missing");
+                correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
+                correlationInfo.RDirection = RequestDirection.Response;
 
-    var response = client.PostAsync($"{pdfServiceUrl}ExportWarehouseContainers", content).Result;
-    var hexResult = response.Content.ReadAsStringAsync().Result;
+                LogError(ex.StackTrace, correlationInfo);
+                LogErrorJson(response, correlationInfo, ex);
 
-    byte[] byteArray = new byte[hexResult.Length / 2];
-    for (int i = 0; i < hexResult.Length; i += 2)
-    {
-        byteArray[i / 2] = Convert.ToByte(hexResult.Substring(i, 2), 16);
-    }
+                return response;
+            }
+        }
 
-    return byteArray;
-}
 
-// ===========================
-// 5. ViewModel
-// ===========================
-public class ExportWarehouseContainersViewModel
-{
-    public ExportWarehouseContainersReq Req { get; set; }
-    public List<Container> WarehouseContainersList { get; set; }
-}
-
-// ===========================
-// 6. Request DTO
-// ===========================
-public class ExportWarehouseContainersReq
-{
-    public BaseRequest BaseReq { get; set; }
-    public string FromDate { get; set; }
-    public string ToDate { get; set; }
-    public string Code { get; set; }
-    public string CompanyCode { get; set; }
-    public string StatusCode { get; set; }
-}
-
-public class BaseRequest
-{
-    public string CurrentUser { get; set; }
-    public string CurrentEntity { get; set; }
-    public string CurrentBranch { get; set; }
-}
+        Severity	Code	Description	Project	File	Line	Suppression State
+Error	CS1503	Argument 1: cannot convert from 'ALTERNA.ARCHIVING.BLL.GetWarehouseContainersReq' to 'ALTERNA.ARCHIVING.BLL.ExportWarehouseContainersReq'	ALTERNA.ARCHIVING.API	D:\@Workspace\deve-repo\alterna-archive\002 - APP\ALTERNA.ARCHIVING\ALTERNA.ARCHIVING.API\Controllers\ArchivingController.cs	7317	Active
+How to fix it, based on the previous 
