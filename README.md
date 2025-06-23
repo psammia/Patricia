@@ -1,3 +1,5 @@
+I've created a function that remve and item from the table but when i run table.draw() the items is recovered again how can remove it using datatable.
+
 $('#notifyButton').on('click', function () {
     const selectedIds = $('.row-checkbox:checked').map(function () {
         return $(this).val();
