@@ -1,31 +1,21 @@
-I've created a function that remve and item from the table but when i run table.draw() the items is recovered again how can remove it using datatable.
-
 $('#notifyButton').on('click', function () {
     const selectedIds = $('.row-checkbox:checked').map(function () {
         return $(this).val();
     }).get();
 
-
-
-    const data = 
-    {
+    const data = {
         containerIds: selectedIds.join(',')
-    }
-    console.log(data)
+    };
+    console.log(data);
 
-    table.rows().every(function (){
-        const row = this.node();
+    table.rows().every(function () {
+        const rowData = this.data(); // get row data
 
-        const isChecked = $('.row-checkbox:checked').closest('#'+ row.id );
-        console.log(isChecked[0])
-        
-        if (isChecked[0]) isChecked[0].remove()
+        // Assuming your checkbox value matches something in the rowData
+        if (selectedIds.includes(rowData.id.toString())) {
+            this.remove(); // This is the correct way to remove the row
+        }
+    });
 
-        setTimeout(() => {
-            table.draw()
-
-
-
-        }, 1000);
-
-    })
+    table.draw(false); // false means don't reset the paging
+});
