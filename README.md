@@ -1,85 +1,58 @@
-<script>
-    let table;
-
-    $(document).ready(() => {
-        getContainerToNotifyWarehouseData();
-
-        // Bind click event for notify button here
-        $('#notifyButton').on('click', function () {
-            const selectedIds = $('.row-checkbox:checked').map(function () {
-                return $(this).val();
-            }).get();
-
-            if (selectedIds.length === 0) return;
-
-            const data = {
-                containerIds: selectedIds.join(',')
-            };
-
-            $.ajax({
-                type: 'POST',
-                url: '/BoxEntity/NotifyWareHouse/',
-                data: data,
-                success: function (notifyResponse) {
-                    if (notifyResponse) {
-                        getContainerToNotifyWarehouseData(); // Reload table after notify
-                    }
-                },
-                error: function (xhr) {
-                    $('#MainRenderLocation').html(xhr.responseText);
-                }
-            });
-        });
-    });
-
-    function getContainerToNotifyWarehouseData() {
-        $.ajax({
-            type: 'POST',
-            url: '/BoxEntity/GetContainerToNotifyWarehouse/',
-            dataType: 'html',
-            success: function (response) {
-                $('#TableDisplay').html(response);
-
-                // Re-initialize the DataTable
-                if ($.fn.DataTable.isDataTable('#TblContainertoNotifyWarehouseTable')) {
-                    $('#TblContainertoNotifyWarehouseTable').DataTable().destroy();
-                }
-
-                table = $('#TblContainertoNotifyWarehouseTable').DataTable({
-                    pagingType: 'full_numbers',
-                    scrollX: true
+        void ComposeTable(IContainer container)
+        {
+            container.Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
+                    columns.RelativeColumn(1);
                 });
 
-                bindCheckboxLogic(); // Rebind checkbox logic every time table is reloaded
-            },
-            error: function (xhr) {
-                $('#MainRenderLocation').html(xhr.responseText);
-            }
-        });
-    }
+                table.Header(header =>
+                {
+                    header.Cell().Element(CellStyle).Text("Box Ref");
+                    header.Cell().Element(CellStyle).Text("Branch");
+                    header.Cell().Element(CellStyle).Text("Status");
+                    header.Cell().Element(CellStyle).Text("Archiving Date");
+                    header.Cell().Element(CellStyle).Text("Destruction Date");
+                    header.Cell().Element(CellStyle).Text("Archive Period");
+                    header.Cell().Element(CellStyle).Text("Sent By");
 
-    function bindCheckboxLogic() {
-        // Enable/disable Notify button based on checkbox selection
-        function toggleNotifyButton() {
-            const selectedCount = $('.row-checkbox:checked').length;
-            $('#notifyButton').prop('disabled', selectedCount === 0);
+
+                    static IContainer CellStyle(IContainer container)
+                    {
+                        return container
+                            .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                            .Border(1)
+                            .BorderColor(Colors.Grey.Lighten1)
+                            .Padding(2);
+                    }
+                });
+
+
+                foreach (ExportWareouseContainersDto item in ExportWarehouseContainersRes.WarehouseContainersList)
+                {
+                    table.Cell().Element(CellStyle).Text(item.ContainerCode.ToString());
+                    table.Cell().Element(CellStyle).Text(item.Branch);
+                    table.Cell().Element(CellStyle).Text(item.StatusCode);
+                    table.Cell().Element(CellStyle).Text(item.ArchivingDate.ToString());
+                    table.Cell().Element(CellStyle).Text(item.DestructionDate.ToString());
+                    table.Cell().Element(CellStyle).Text(item.ArchivingPeriod.ToString());
+                    table.Cell().Element(CellStyle).Text(item.SentBy);
+
+                    static IContainer CellStyle(IContainer container)
+                    {
+                        return container
+                            .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                            .Border(1)
+                            .BorderColor(Colors.Grey.Lighten1)
+                            .Padding(5);
+                    }
+                }
+            });
         }
-
-        // Handle Check All
-        $(document).off('change', '#checkAllBoxes').on('change', '#checkAllBoxes', function () {
-            const isChecked = $(this).is(':checked');
-            $('.row-checkbox').prop('checked', isChecked);
-            toggleNotifyButton();
-        });
-
-        // Handle individual checkbox
-        $(document).off('change', '.row-checkbox').on('change', '.row-checkbox', function () {
-            const allChecked = $('.row-checkbox').length === $('.row-checkbox:checked').length;
-            $('#checkAllBoxes').prop('checked', allChecked);
-            toggleNotifyButton();
-        });
-
-        // Initial state check
-        toggleNotifyButton();
-    }
-</script>
