@@ -1,107 +1,122 @@
-   Certainly! Here's a professional and diplomatic email template you can use to express concerns about the training quality, while maintaining a respectful tone:
+USE [Alterna.Loyalty]
+GO
+/****** Object:  Table [dbo].[t_Config]    Script Date: 10/07/2025 1:41:37 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[t_Config](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[SettingName] [nvarchar](50) NOT NULL,
+	[SettingValue] [nchar](10) NOT NULL,
+	[SettingDescription] [nvarchar](500) NULL,
+	[IsActive] [bit] NOT NULL,
+	[CreatedBy] [nvarchar](250) NOT NULL,
+	[CreatedDate] [datetime] NOT NULL,
+	[LastModifiedBy] [nvarchar](250) NOT NULL,
+	[LastModifiedDate] [datetime] NOT NULL,
+ CONSTRAINT [PK_t_Config] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
+GO
+/****** Object:  Table [dbo].[t_Customer_Points]    Script Date: 10/07/2025 1:41:37 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[t_Customer_Points](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[Customer_Id] [int] NOT NULL,
+	[External_Id] [nvarchar](10) NULL,
+	[Total_Points] [decimal](18, 4) NOT NULL,
+	[CreatedDate] [datetime] NOT NULL,
+	[CreatedBy] [nvarchar](250) NOT NULL,
+	[LastModifiedDate] [datetime] NOT NULL,
+	[LastModifiedBy] [nvarchar](250) NOT NULL,
+ CONSTRAINT [PK_t_Customer_Points] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
----
+GO
+/****** Object:  Table [dbo].[t_Operation_Type]    Script Date: 10/07/2025 1:41:37 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[t_Operation_Type](
+	[Operation_Id] [int] IDENTITY(1,1) NOT NULL,
+	[Code] [nvarchar](50) NOT NULL,
+	[Description] [nvarchar](250) NOT NULL,
+	[CreatedDate] [datetime] NOT NULL,
+	[CreatedBy] [nvarchar](250) NOT NULL,
+	[LastModifiedDate] [datetime] NOT NULL,
+	[LastModifiedBy] [nvarchar](250) NOT NULL,
+ CONSTRAINT [PK_t_Operation_Type] PRIMARY KEY CLUSTERED 
+(
+	[Operation_Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-Subject: Feedback on the Ongoing Training for [Module Name]
+GO
+/****** Object:  Table [dbo].[t_Transactions]    Script Date: 10/07/2025 1:41:37 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[t_Transactions](
+	[Transaction_Id] [int] IDENTITY(1,1) NOT NULL,
+	[Customer_Id] [int] NOT NULL,
+	[Card_Number] [nvarchar](50) NULL,
+	[External_Id] [nvarchar](10) NULL,
+	[Points] [decimal](10, 4) NULL,
+	[Operation_Type_Id] [int] NOT NULL,
+	[CreatedDate] [datetime] NOT NULL,
+	[CreatedBy] [nvarchar](250) NOT NULL,
+	[LastModifiedDate] [datetime] NOT NULL,
+	[LastModifiedBy] [nvarchar](250) NOT NULL,
+ CONSTRAINT [PK_t_Transactions] PRIMARY KEY CLUSTERED 
+(
+	[Transaction_Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-Dear [Trainer's Company Name / Contact Person’s Name],
+GO
+SET IDENTITY_INSERT [dbo].[t_Config] ON 
 
-I hope this message finds you well.
-
-On behalf of [Your Organization’s Name], I would like to thank you for the training sessions provided so far on the [X Module]. We value your collaboration and the time invested in supporting our team's development.
-
-However, we would like to share some constructive feedback regarding the training delivery. We have observed that:
-
-The objectives and learning outcomes of the training are not clearly communicated;
-
-The content has been somewhat confusing and has not met our expectations in terms of clarity and relevance;
-
-The sessions do not appear to be aligned with the level of expertise we require, nor do they fully address the practical use cases we anticipated.
-
-
-Given these concerns, we would appreciate the opportunity to discuss how we might realign the training approach to ensure it meets the intended goals. Our aim is to ensure a productive learning experience for all participants, and we are confident that, with some adjustments, this can be achieved.
-
-We kindly request a meeting at your earliest convenience to address this matter and define a clearer, more effective path forward.
-
-Thank you for your attention and understanding. We look forward to your feedback.
-
-Warm regards,
-[Your Full Name]
-[Your Job Title]
-[Your Organization]
-[Your Email]
-[Your Phone Number]
-
-
----
-
-Let me know if you'd like to customize it with the names, module title, or more technical details.
-
-
-
-
-
-
-
-
-
-
-     void ComposeTable(IContainer container)
-        {
-            container.Table(table =>
-            {
-                table.ColumnsDefinition(columns =>
-                {
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                    columns.RelativeColumn(1);
-                });
-
-                table.Header(header =>
-                {
-                    header.Cell().Element(CellStyle).Text("Box Ref");
-                    header.Cell().Element(CellStyle).Text("Branch");
-                    header.Cell().Element(CellStyle).Text("Status");
-                    header.Cell().Element(CellStyle).Text("Archiving Date");
-                    header.Cell().Element(CellStyle).Text("Destruction Date");
-                    header.Cell().Element(CellStyle).Text("Archive Period");
-                    header.Cell().Element(CellStyle).Text("Sent By");
-
-
-                    static IContainer CellStyle(IContainer container)
-                    {
-                        return container
-                            .DefaultTextStyle(x => x.SemiBold().FontSize(9))
-                            .Border(1)
-                            .BorderColor(Colors.Grey.Lighten1)
-                            .Padding(2);
-                    }
-                });
-
-
-                foreach (ExportWareouseContainersDto item in ExportWarehouseContainersRes.WarehouseContainersList)
-                {
-                    table.Cell().Element(CellStyle).Text(item.ContainerCode.ToString());
-                    table.Cell().Element(CellStyle).Text(item.Branch);
-                    table.Cell().Element(CellStyle).Text(item.StatusCode);
-                    table.Cell().Element(CellStyle).Text(item.ArchivingDate.ToString());
-                    table.Cell().Element(CellStyle).Text(item.DestructionDate.ToString());
-                    table.Cell().Element(CellStyle).Text(item.ArchivingPeriod.ToString());
-                    table.Cell().Element(CellStyle).Text(item.SentBy);
-
-                    static IContainer CellStyle(IContainer container)
-                    {
-                        return container
-                            .DefaultTextStyle(x => x.SemiBold().FontSize(9))
-                            .Border(1)
-                            .BorderColor(Colors.Grey.Lighten1)
-                            .Padding(5);
-                    }
-                }
-            });
-        }
+INSERT [dbo].[t_Config] ([Id], [SettingName], [SettingValue], [SettingDescription], [IsActive], [CreatedBy], [CreatedDate], [LastModifiedBy], [LastModifiedDate]) VALUES (1, N'ExpirationYears', N'3         ', N'Number of years before points expiration', 1, N'psammia', CAST(N'2025-07-10T00:00:00.000' AS DateTime), N'psammia', CAST(N'2025-07-10T00:00:00.000' AS DateTime))
+SET IDENTITY_INSERT [dbo].[t_Config] OFF
+ALTER TABLE [dbo].[t_Config] ADD  CONSTRAINT [DF_t_Config_CreatedBy]  DEFAULT (N'AlternaSystemUser') FOR [CreatedBy]
+GO
+ALTER TABLE [dbo].[t_Config] ADD  CONSTRAINT [DF_t_Config_CreatedDate]  DEFAULT (getdate()) FOR [CreatedDate]
+GO
+ALTER TABLE [dbo].[t_Config] ADD  CONSTRAINT [DF_t_Config_LastModifiedBy]  DEFAULT (N'AlternaSystemUser') FOR [LastModifiedBy]
+GO
+ALTER TABLE [dbo].[t_Customer_Points] ADD  CONSTRAINT [DF_t_Customer_Points_CreatedDate]  DEFAULT (getdate()) FOR [CreatedDate]
+GO
+ALTER TABLE [dbo].[t_Customer_Points] ADD  CONSTRAINT [DF_t_Customer_Points_CreatedBy]  DEFAULT (N'AlternaSystemUser') FOR [CreatedBy]
+GO
+ALTER TABLE [dbo].[t_Customer_Points] ADD  CONSTRAINT [DF_t_Customer_Points_LastModifiedDate]  DEFAULT (getdate()) FOR [LastModifiedDate]
+GO
+ALTER TABLE [dbo].[t_Customer_Points] ADD  CONSTRAINT [DF_t_Customer_Points_LastModifiedBy]  DEFAULT (N'AlternaSystemUser') FOR [LastModifiedBy]
+GO
+ALTER TABLE [dbo].[t_Operation_Type] ADD  CONSTRAINT [DF_t_Operation_Type_CreatedDate]  DEFAULT (getdate()) FOR [CreatedDate]
+GO
+ALTER TABLE [dbo].[t_Operation_Type] ADD  CONSTRAINT [DF_t_Operation_Type_CreatedBy]  DEFAULT (N'AlternaSystemUser') FOR [CreatedBy]
+GO
+ALTER TABLE [dbo].[t_Operation_Type] ADD  CONSTRAINT [DF_t_Operation_Type_LastModifiedDate]  DEFAULT (getdate()) FOR [LastModifiedDate]
+GO
+ALTER TABLE [dbo].[t_Operation_Type] ADD  CONSTRAINT [DF_t_Operation_Type_LastModifiedBy]  DEFAULT (N'AlternaSystemUser') FOR [LastModifiedBy]
+GO
+ALTER TABLE [dbo].[t_Transactions] ADD  CONSTRAINT [DF_t_Transactions_CreatedDate]  DEFAULT (getdate()) FOR [CreatedDate]
+GO
+ALTER TABLE [dbo].[t_Transactions] ADD  CONSTRAINT [DF_t_Transactions_CreatedBy]  DEFAULT (N'AlternaSystemUser') FOR [CreatedBy]
+GO
+ALTER TABLE [dbo].[t_Transactions] ADD  CONSTRAINT [DF_t_Transactions_LastModifiedDate]  DEFAULT (getdate()) FOR [LastModifiedDate]
+GO
+ALTER TABLE [dbo].[t_Transactions] ADD  CONSTRAINT [DF_t_Transactions_LastModifiedBy]  DEFAULT (N'AlternaSystemUser') FOR [LastModifiedBy]
+GO
