@@ -1,43 +1,102 @@
-USE [Alterna.Loyalty]
-GO
-/****** Object:  StoredProcedure [dbo].[Get_NonExpiredPoints_ByCustomer]    Script Date: 14/07/2025 9:46:58 AM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
--- =============================================
--- Author:		<Kamal Abbas>
--- Create date: <12/07/2025>
--- Description:	<Get Non Expired Points By Customer List>
--- =============================================
-CREATE or ALTER PROCEDURE [dbo].[Get_NonExpiredPoints_ByCustomerList]
-    @Customer_Id_List NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
 
-    DECLARE @ExpirationYears INT;
 
-    -- Fetch the expiration years from config
-    SELECT TOP 1 
-        @ExpirationYears = CAST(LTRIM(RTRIM(SettingValue)) AS INT)
-    FROM dbo.t_Config
-    WHERE SettingName = 'ExpirationYears' AND IsActive = 1;
 
-    IF @ExpirationYears IS NULL
-    BEGIN
-        RAISERROR('Expiration configuration not found or invalid.', 16, 1);
-        RETURN;
-    END
+using BLL;
+using Microsoft.Extensions.Options;
 
-    -- Sum of non-expired points from t_Transactions
-    SELECT 
-        Customer_Id, SUM(ISNULL(Points, 0)) AS Total_points, 
-    FROM 
-        dbo.t_Transactions
-    WHERE 
-        Customer_Id IN 
-			(SELECT VALUE FROM STRING_SPLIT(@Customer_Id_List, ','))
-        AND GETDATE() <= EOMONTH(DATEADD(YEAR, @ExpirationYears, CreatedDate))
-	GROUP BY Customer_Id;
-END
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .Build();
+
+// Add services to the container.
+builder.Services.Configure<GlobalSettings>(builder.Configuration.GetSection("GlobalSettings") ?? throw new ArgumentNullException(nameof(GlobalSettings)));
+
+builder.Services.Configure<LoyaltyResponseCode>(builder.Configuration.GetSection("ResponseCodes") ?? throw new ArgumentNullException(nameof(LoyaltyResponseCode)));
+
+builder.Services.AddScoped(resolver =>
+{
+    IOptionsMonitor<GlobalSettings> optionsMonitor = resolver.GetRequiredService<IOptionsMonitor<GlobalSettings>>();
+    return optionsMonitor.CurrentValue;
+});
+
+
+builder.Services.AddScoped(resolver =>
+{
+    IOptionsMonitor<LoyaltyResponseCode> optionsMonitor = resolver.GetRequiredService<IOptionsMonitor<LoyaltyResponseCode>>();
+    return optionsMonitor.CurrentValue;
+});
+
+builder.Services.AddControllers();
+
+builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddHttpClient("GeneralHttpClient");
+
+builder.Services.AddScoped<Bll>();
+
+builder.Services.AddSwaggerGen();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+app.UseSwagger();
+app.UseSwaggerUI();
+
+
+app.UseCors(corsOptions => corsOptions
+    .AllowAnyOrigin()
+    .AllowAnyHeader()
+    .AllowAnyMethod());
+
+//app.UseHttpsRedirection();
+
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();
+
+    public LoyaltyController(Bll bll, 
+        IOptionsMonitor<GlobalSettings> globlaSettings, 
+        IOptionsMonitor<LoyaltyResponseCodes> responseCodes)
+
+response codes returning count 0 while it should include data 
+
+
+    }
+  },
+  "AllowedHosts": "*",
+  "GlobalSettings": {
+    "ConnString": "Data Source=DEV-SQL2016\\PERFAPP;Initial Catalog=Alterna.Loyalty;User ID=sasadmin;Password=sasadmin;TrustServerCertificate=True",
+    "IsHttps": false,
+    "IsSwaggerEnabled": true,
+    "AppUsername": "AlternaLoyaltyBackend"
+  },
+  "ResponseCodes": {
+    "ResponseCodes": [
+      {
+        "Code": "200",
+        "Content": "0x0000",
+        "Description": "Success"
+      },
+      {
+        "Code": "422",
+        "Content": "0x0002",
+        "Description": "{0}"
+      },
+      {
+        "Code": "400",
+        "Content": "0x0400",
+        "Description": "Bad Request {0}"
+      },
+      {
+        "Code": "500",
+        "Content": "0x0500",
+        "Description": "Internal Server Error With Error Message {0}"
+      }
+    ]
+  },
+
+and this is my appsettings.json
