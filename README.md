@@ -21,3 +21,33 @@ Best regards,
 [Your Position]
 [Your Company Name]
 [Contact Information, if applicable]
+
+
+
+
+
+=======================
+username: sa
+password: sapassword
+
+
+you can use windows authentication
+
+
+Subject: Follow-up on Training Progress
+
+Hi [Recipient’s Name],
+
+Hope you're doing well.
+
+As part of our agreement, the training on the Microsoft sharepoint we’re currently attending was meant to help us move forward with migrating our current intranet — including its design, data, and structure — to the new version.
+
+However, after several sessions, we’re still not where we need to be in terms of progress or clarity. The main goals of the training, especially around preparing us for the actual migration, haven’t been met yet.
+
+We just wanted to raise this with you, as this training is a key part of the whole project for us. We'd really appreciate your support in helping us realign things and move forward more effectively.
+
+Thanks for your attention and looking forward to your feedback.
+
+Best regards,
+[Your Name]
+[Your Company Name]
