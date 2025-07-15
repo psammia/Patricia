@@ -48,6 +48,28 @@ We just wanted to raise this with you, as this training is a key part of the who
 
 Thanks for your attention and looking forward to your feedback.
 
+=========================================================
+Subject: Training Progress and Migration Objectives
+
+Dear [Recipient's Name],
+
+We hope this message finds you well.
+
+As part of our ongoing collaboration, and based on our mutual agreement, your team has been providing training on the updated Microsoft platform, which is meant to replace the current version we use internally.
+
+The main objective of this training is to enable us to rebuild or migrate our existing intranet to the new platform, covering the design, structure, data, and links — while also helping us implement one or more of the key features currently in use.
+
+However, we would like to share our concern that, up to this point, we have not yet reached the level of clarity or readiness required to move forward with this migration. Despite several sessions, we are still not in a position to act on the core purpose of the training.
+
+Given the importance of this migration for our organization, we kindly ask for your support in reviewing the current training approach to ensure it aligns with the initial goals.
+
+Thank you for your attention to this matter. We look forward to your feedback and to finding a way forward together.
+
+Best regards,
+[Your Name]
+[Your Position]
+[Your Company Name]
+
 Best regards,
 [Your Name]
 [Your Company Name]
