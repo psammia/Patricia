@@ -1,160 +1,40 @@
-To make this invoice display look more appealing, I’ll improve the layout by introducing custom styles that enhance the visual presentation while staying compatible with your tech stack (Bootstrap 3, jQuery 3.7.1, and Firefox 52.6.0). Here's how you can structure the HTML with custom CSS for a cleaner, more modern look:
+CREATE PROCEDURE dbo.InsertIntoAllTables
+    @InputData dbo.MyInputTableType READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
 
-HTML with Custom Classes:
+    DECLARE @User NVARCHAR(50) = 'AlternaSysUser';
+    DECLARE @Now DATETIME = GETDATE();
 
-@model Alterna_Port_Frontend.Models.Model.Invoice
+    BEGIN TRY
+        BEGIN TRANSACTION;
 
-<div class="row custom-invoice-wrapper">
-    <div class="col-md-6 custom-invoice-section">
-        <h4 class="custom-invoice-title">DETAILS:</h4>
-        <table class="table table-bordered custom-table">
-            <tr><th>BILL ID:</th><td>@Model.BillId</td></tr>
-            <tr><th>BILL TYPE:</th><td>A</td></tr>
-            <tr><th>DATE:</th><td>17.02.2016</td></tr>
-            <tr><th>DUE DATE:</th><td>12.12.2099</td></tr>
-        </table>
-    </div>
-    <div class="col-md-6 custom-invoice-section">
-        <h4 class="custom-invoice-title">CLIENT DETAILS:</h4>
-        <table class="table table-bordered custom-table">
-            <tr><th>CLIENT NUMBER:</th><td>2016-2</td></tr>
-            <tr><th>CLIENT NAME:</th><td>KAAKI</td></tr>
-            <tr><th>DEPARTURE DATE:</th><td>12.12.2019</td></tr>
-            <tr><th>SHIP NAME:</th><td>-</td></tr>
-        </table>
-    </div>
-</div>
+        -- Table 1 Insert
+        INSERT INTO Table1 (
+            Var1, Var2, Var3, Var4, Var5, Var6, Var7, Var8, Var9, Var10,
+            CreatedBy, CreatedDate, LastModifiedBy, LastModifiedDate
+        )
+        SELECT 
+            Var1, Var2, Var3, Var4, Var5, Var6, Var7, Var8, Var9, Var10,
+            @User, @Now, @User, @Now
+        FROM @InputData;
 
-<div class="row custom-invoice-wrapper">
-    <div class="col-md-6 custom-invoice-section">
-        <h4 class="custom-invoice-title">BILL DETAILS:</h4>
-        <table class="table table-bordered custom-table">
-            <tr><th>BILL CURRENCY:</th><td>150.00 USD</td></tr>
-            <tr><th>BILL AMOUNT:</th><td>0.00 USD</td></tr>
-            <tr><th>CTO AMOUNT:</th><td>-</td></tr>
-            <tr><th>PENALTY CTO:</th><td>-</td></tr>
-        </table>
-    </div>
-    <div class="col-md-6 custom-invoice-section">
-        <h4 class="custom-invoice-title">FRESH CURRENCY:</h4>
-        <table class="table table-bordered custom-table">
-            <tr><th>AMOUNT:</th><td>150.00 USD</td></tr>
-            <tr><th>PENALTY:</th><td>0.00 USD</td></tr>
-        </table>
+        -- Repeat for other tables
+        INSERT INTO Table2 (...) SELECT ... FROM @InputData;
+        INSERT INTO Table3 (...) SELECT ... FROM @InputData;
+        INSERT INTO Table4 (...) SELECT ... FROM @InputData;
+        INSERT INTO Table5 (...) SELECT ... FROM @InputData;
+        INSERT INTO Table6 (...) SELECT ... FROM @InputData;
+        INSERT INTO Table7 (...) SELECT ... FROM @InputData;
 
-        <h4 class="custom-invoice-title">LOCAL CURRENCY:</h4>
-        <table class="table table-bordered custom-table">
-            <tr><th>AMOUNT:</th><td>100,000,000,000,000,000.00 LBP</td></tr>
-            <tr><th>PENALTY:</th><td>0.00 USD</td></tr>
-        </table>
-    </div>
-</div>
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
 
-Custom CSS:
-
-/* Custom Styles for the Invoice */
-.custom-invoice-wrapper {
-    margin-bottom: 30px;
-}
-
-.custom-invoice-section {
-    padding: 15px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    background-color: #f9f9f9;
-}
-
-.custom-invoice-title {
-    font-size: 18px;
-    font-weight: bold;
-    color: #444;
-    margin-bottom: 10px;
-}
-
-.custom-table th {
-    background-color: #e8e8e8;
-    color: #333;
-    font-weight: bold;
-    text-align: left;
-}
-
-.custom-table td {
-    font-size: 16px;
-    color: #666;
-    padding: 8px;
-}
-
-.custom-table tr {
-    border-bottom: 1px solid #ddd;
-}
-
-.custom-table tr:last-child {
-    border-bottom: none;
-}
-
-.custom-invoice-section h4 {
-    margin-top: 0;
-    font-size: 18px;
-    color: #333;
-}
-
-.custom-table td {
-    vertical-align: middle;
-}
-
-@media (max-width: 768px) {
-    .custom-invoice-wrapper {
-        margin-bottom: 20px;
-    }
-
-    .custom-invoice-section {
-        padding: 10px;
-    }
-
-    .custom-table td {
-        font-size: 14px;
-    }
-}
-
-Explanation:
-
-1. General Styling:
-
-The wrapper and sections are styled to create space between the various blocks, while the background color and border-radius add a modern touch.
-
-The table headers are given a light grey background to differentiate them from the data cells.
-
-
-
-2. Responsive Design:
-
-The custom styles include media queries to ensure the invoice layout adapts well on smaller screens like mobile devices (below 768px).
-
-
-
-3. Typography:
-
-Larger font sizes and bold text are applied to the headings (h4 tags) to emphasize the section titles.
-
-Table data has a slightly smaller font size to keep the content readable and clean.
-
-
-
-4. Color Scheme:
-
-Light gray backgrounds and borders provide subtle contrast and a soft look that doesn't overpower the text.
-
-
-
-
-jQuery (for any future enhancements like interactivity):
-
-$(document).ready(function() {
-    // Example: Toggle sections
-    $(".custom-invoice-title").click(function() {
-        $(this).next("table").toggle();
-    });
-});
-
-This solution enhances the readability of the invoice while keeping the design simple and clean. You can expand on the jQuery part for additional functionality, such as toggling visibility or adding interactivity like hover effects or collapsible sections.
-
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
+        RAISERROR (@ErrMsg, @ErrSeverity, 1);
+    END CATCH
+END;
