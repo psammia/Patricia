@@ -3,7 +3,7 @@ CREATE TYPE dbo.MyInputTableType AS TABLE
 (
 [RowId] INT, -- Used to track each row uniquely
 
-[CompanyCode] NVARCHAR(11), -- CompanyCode in t_Company
+[Code] NVARCHAR(11), -- CompanyCode in t_Company
 [CompanyName] NVARCHAR(22), --Entity Name t_Company & t_Container & lkp_File & t_File
 [Mnemonic] NVARCHAR(50), --Mnemonic
 [IsActive] BIT, --Active t_Company & t_Sequence
@@ -18,17 +18,27 @@ CREATE TYPE dbo.MyInputTableType AS TABLE
 [LastIndex] BIGINT -- t_Sequence in case of a Non Active Entity
 );
 
+DECLARE @MyInputTableType MyInputTableType;
+INSERT INTO @MyInputTableType ([RowId],[Code],[CompanyName],[Mnemonic],[IsActive],[BoxRef],[FileName],[AdditionalInfo],[StatusCode],[ArchivingPeriod],[BoxSentBy],[BoxSentDate],[LastIndex])
+VALUES(1,'ET000132','AFFA','AFFA',1,'AFFA.1','File AFFA 1','Test','RECEIVED',5,'','2021-02-21',0),
+	  (2,'ET000132','AFFA','AFFA',1,'AFFA.1','File AFFA 2','Test','RECEIVED',5,'','2021-02-21',0),
+	  (3,'ET000132','AFFA','AFFA',1,'AFFA.1','File AFFA 3','Test','RECEIVED',5,'','2021-02-21',0),
+	  (4,'ET000132','AFFA','AFFA',1,'AFFA.2','File AFFA 2','Test','RECEIVED',10,'','2021-02-22',0),
+
+	  (5,'ET9900111','REES','REES',1,'REES.1','File REES 1','','RECEIVED',-1,'Clababidi','2021-02-21',65),
+	  (6,'ET9900111','REES','REES',1,'REES.1','Contrats baux originaux','','RECEIVED',-1,'Clababidi','2021-02-21',65),
+	  (7,'ET9900111','REES','REES',1,'REES.1','File REES 3','','RECEIVED',-1,'Clababidi','2021-02-21',65)
+
 
 CREATE or ALTER PROCEDURE dbo.InsertIntoAllTables
-    @InputData dbo.MyInputTableType READONLY
+    @MyInputTableType dbo.MyInputTableType READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
-
     DECLARE @User NVARCHAR(50) = 'AlternaSystem';
     DECLARE @Now DATETIME = GETDATE();
-	DECLARE @CompanyCode NVARCHAR(11)= 'ET000132'; --Get from PROD the latest one
-	DECLARE @FileTypeCode NVARCHAR(50) = '205';	--Get from PROD the latest one
+	--DECLARE @CompanyCode NVARCHAR(11)= 'ET000132';
+	DECLARE @FileTypeCode NVARCHAR(50) = '205';
 
     BEGIN TRY
         BEGIN TRANSACTION;
@@ -47,8 +57,8 @@ BEGIN
            ,[LastModifiedBy]
            ,[LastModifiedDate])
         SELECT 
-            @CompanyCode,[CompanyName], [CompanyName], [Mnemonic], null, 0, [IsActive], @User, @Now, @User, @Now
-        FROM @InputData;
+            [Code],[CompanyName],[CompanyName], [Mnemonic], null, 0, [IsActive], @User, @Now, @User, @Now
+        FROM @MyInputTableType
 		
 		--Temp tables to hold inserted IDs and link them back to input data
 		DECLARE @InsertedContainers TABLE(
@@ -75,11 +85,11 @@ BEGIN
 			,[LastModifiedDate]
 			,[isNotified])
 		OUTPUT
-			i.RowId, inserted.Id
+			i.rowId, inserted.Id
 		INTO @InsertedContainers(RowId, ContainerId)
 		SELECT 
-			i.BoxRef, i.CompanyCode, i.CompanyName, '', i.StatusCode, i.BoxSentDate, 0,@User, @Now, @User, @Now, 1
-		FROM @InputData i;
+			i.BoxRef, i.Code, i.CompanyName, '', i.StatusCode, i.BoxSentDate, 0,@User, @Now, @User, @Now, 1
+		FROM @MyInputTableType i;
 
 		-- Insert new File Type if not already existing
 		INSERT INTO [dbo].[lkp_FileType]
@@ -95,8 +105,8 @@ BEGIN
            ,[LastModifiedBy]
            ,[LastModifiedDate])
 		 SELECT 
-            @FileTypeCode,[CompanyCode], 'Not Branch',[FileName], 0,0,[ArchivingPeriod], @User, @Now, @User, @Now
-        FROM @InputData;
+            @FileTypeCode,[Code], 'Not Branch',[FileName], 0,0,[ArchivingPeriod], @User, @Now, @User, @Now
+        FROM @MyInputTableType;
 
 
 		-- Insert new File
@@ -115,8 +125,8 @@ BEGIN
            ,[LastModifiedBy]
            ,[LastModifiedDate])
 		  SELECT 
-            null,[FileName],@FileTypeCode,'FINAL',[CompanyCode],null,null,[AdditionalInfo],0,@User, @Now, @User, @Now
-        FROM @InputData;
+            null,[FileName],@FileTypeCode,'FINAL',[Code],null,null,[AdditionalInfo],0,@User, @Now, @User, @Now
+        FROM @MyInputTableType;
 
 		-- Insert new Container File RelationShip
 		INSERT INTO [dbo].[t_CurrentContainerFileRelationship]
@@ -128,7 +138,7 @@ BEGIN
            ,[LastModifiedDate])
 		 SELECT 
             t_File.Id,t_Container.Id,@User, @Now, @User, @Now
-        FROM @InputData;
+        FROM @MyInputTableType;
 
 		-- Insert new Sequence in case of Non Active Entity
 		INSERT INTO [dbo].[t_Sequence]
@@ -142,8 +152,8 @@ BEGIN
            ,[LastModifiedBy]
            ,[LastModifiedDate])
 		 SELECT 
-            [CompanyCode],[CompanyCode]+'.',[LastIndex],null,[IsActive],@User, @Now, @User, @Now
-        FROM @InputData;
+            [Code],[Code]+'.',[LastIndex],null,[IsActive],@User, @Now, @User, @Now
+        FROM @MyInputTableType;
 
 
 		/* Insert Box Statuses history:
@@ -162,7 +172,7 @@ BEGIN
            ,[LastModifiedDate])
 		  SELECT 
             t_Container.Id,'SENT','WH',0,[BoxSentBy], [BoxSentDate], [BoxSentBy], [BoxSentDate]
-        FROM @InputData;
+        FROM @MyInputTableType;
 
 
         COMMIT TRANSACTION;
