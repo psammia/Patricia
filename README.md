@@ -28,7 +28,7 @@ VALUES(1,'ET000132','AFFA','AFFA',1,'AFFA.1','File AFFA 1','Test','RECEIVED',5,'
 	  (5,'ET9900111','REES','REES',1,'REES.1','File REES 1','','RECEIVED',-1,'Clababidi','2021-02-21',65),
 	  (6,'ET9900111','REES','REES',1,'REES.1','Contrats baux originaux','','RECEIVED',-1,'Clababidi','2021-02-21',65),
 	  (7,'ET9900111','REES','REES',1,'REES.1','File REES 3','','RECEIVED',-1,'Clababidi','2021-02-21',65)
-
+SELECT * FROM @MyInputTableType
 
 CREATE or ALTER PROCEDURE dbo.InsertIntoAllTables
     @MyInputTableType dbo.MyInputTableType READONLY
@@ -85,103 +85,8 @@ BEGIN
 			,[LastModifiedDate]
 			,[isNotified])
 		OUTPUT
-			i.rowId, inserted.Id
+			i.RowId, inserted.Id
 		INTO @InsertedContainers(RowId, ContainerId)
 		SELECT 
 			i.BoxRef, i.Code, i.CompanyName, '', i.StatusCode, i.BoxSentDate, 0,@User, @Now, @User, @Now, 1
 		FROM @MyInputTableType i;
-
-		-- Insert new File Type if not already existing
-		INSERT INTO [dbo].[lkp_FileType]
-           ([Code]
-           ,[Entity]
-           ,[Category]
-           ,[Description]
-           ,[HasDate]
-           ,[IsCustomer]
-           ,[ArchivingPeriod]
-           ,[CreatedBy]
-           ,[CreatedDate]
-           ,[LastModifiedBy]
-           ,[LastModifiedDate])
-		 SELECT 
-            @FileTypeCode,[Code], 'Not Branch',[FileName], 0,0,[ArchivingPeriod], @User, @Now, @User, @Now
-        FROM @MyInputTableType;
-
-
-		-- Insert new File
-		INSERT INTO [dbo].[t_File]
-           ([CustomerId]
-           ,[Name]
-           ,[FileTypeCode]
-           ,[StatusCode]
-           ,[CompanyCode]
-           ,[FromDate]
-           ,[ToDate]
-           ,[AdditionalInfo]
-           ,[isDeleted]
-           ,[CreatedBy]
-           ,[CreatedDate]
-           ,[LastModifiedBy]
-           ,[LastModifiedDate])
-		  SELECT 
-            null,[FileName],@FileTypeCode,'FINAL',[Code],null,null,[AdditionalInfo],0,@User, @Now, @User, @Now
-        FROM @MyInputTableType;
-
-		-- Insert new Container File RelationShip
-		INSERT INTO [dbo].[t_CurrentContainerFileRelationship]
-           ([FileId]
-           ,[ContainerId]
-           ,[CreatedBy]
-           ,[CreatedDate]
-           ,[LastModifiedBy]
-           ,[LastModifiedDate])
-		 SELECT 
-            t_File.Id,t_Container.Id,@User, @Now, @User, @Now
-        FROM @MyInputTableType;
-
-		-- Insert new Sequence in case of Non Active Entity
-		INSERT INTO [dbo].[t_Sequence]
-           ([Owner]
-           ,[Prefix]
-           ,[LastIndex]
-           ,[Suffix]
-           ,[IsActive]
-           ,[CreatedBy]
-           ,[CreatedDate]
-           ,[LastModifiedBy]
-           ,[LastModifiedDate])
-		 SELECT 
-            [Code],[Code]+'.',[LastIndex],null,[IsActive],@User, @Now, @User, @Now
-        FROM @MyInputTableType;
-
-
-		/* Insert Box Statuses history:
-			1- If status = RECEIVED => 
-				Insert 2 rows: 	1/ status='SENT' 2/ status='RECEIVED'
-			2- If status = DESTROYED
-				Insert 3 rows:  1/ status='SENT' 2/ status='RECEIVED' 3/ status='DESTROYED' */ 
-		INSERT INTO [dbo].[t_ContainerStatus]
-           ([ContainerId]
-           ,[StatusCode]
-           ,[HoldingEntityCode]
-           ,[isCurrentStatus]
-           ,[CreatedBy]
-           ,[CreatedDate]
-           ,[LastModifiedBy]
-           ,[LastModifiedDate])
-		  SELECT 
-            t_Container.Id,'SENT','WH',0,[BoxSentBy], [BoxSentDate], [BoxSentBy], [BoxSentDate]
-        FROM @MyInputTableType;
-
-
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        ROLLBACK TRANSACTION;
-
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
-        RAISERROR (@ErrMsg, @ErrSeverity, 1);
-    END CATCH
-END;
