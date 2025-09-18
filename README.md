@@ -1,3 +1,4 @@
+
 CREATE OR ALTER PROCEDURE dbo.InsertIntoAllTables 
 @MyInputTableType dbo.MyInputTableType READONLY 
 AS 
@@ -58,33 +59,77 @@ BEGIN
             AND cont.[CompanyCode] = input.[Code]
         WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
-        -- Insert new File Type if not already existing (check both id and unique code)
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT @FileTypeCode,[Code],'Not Branch',[FileName],0,0,[ArchivingPeriod],@User,@Now,@User,@Now 
+        -- Insert new File Type with auto-incrementing FileTypeCode (PK)
+        -- Get the next available FileTypeCode for each unique Entity
+        DECLARE @NextFileTypeCode TABLE (
+            Entity NVARCHAR(50),
+            NextCode INT
+        );
+        
+        -- Calculate next FileTypeCode for each entity that needs a new FileType
+        INSERT INTO @NextFileTypeCode (Entity, NextCode)
+        SELECT DISTINCT input.[Code] as Entity,
+               ISNULL((SELECT MAX(CAST(ft.Code AS INT)) FROM [dbo].[lkp_FileType] ft WHERE ISNUMERIC(ft.Code) = 1), 0) + 
+               ROW_NUMBER() OVER (ORDER BY input.[Code]) as NextCode
         FROM @MyInputTableType input
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[lkp_FileType] ft
-            WHERE ft.Code = @FileTypeCode AND ft.Entity = input.[Code]
+            WHERE ft.Entity = input.[Code] 
+            AND ft.[Description] = input.[FileName]
         );
 
-        -- Insert Files only for combinations that don't already exist
-        -- Assuming Name + CompanyCode + FileTypeCode should be unique business key
+        -- Insert new File Type records with incremented FileTypeCode
+        INSERT INTO [dbo].[lkp_FileType] 
+        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               CAST(nft.NextCode AS NVARCHAR(50)) as Code,
+               input.[Code] as Entity,
+               'Not Branch' as Category,
+               input.[FileName] as Description,
+               0 as HasDate,
+               0 as IsCustomer,
+               input.[ArchivingPeriod],
+               @User,
+               @Now,
+               @User,
+               @Now
+        FROM @MyInputTableType input
+        INNER JOIN @NextFileTypeCode nft ON nft.Entity = input.[Code]
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[lkp_FileType] ft
+            WHERE ft.Entity = input.[Code] 
+            AND ft.[Description] = input.[FileName]
+        );
+
+        -- Get the FileTypeCode for each file (either existing or newly created)
+        DECLARE @FileTypeCodes TABLE (
+            RowId INT,
+            FileTypeCode NVARCHAR(50)
+        );
+        
+        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
+        SELECT input.RowId, ft.Code
+        FROM @MyInputTableType input
+        INNER JOIN [dbo].[lkp_FileType] ft ON ft.Entity = input.[Code] 
+            AND ft.[Description] = input.[FileName];
+
+        -- Insert Files using the correct FileTypeCode for each row
         WITH FileSource AS (
-            SELECT RowId, FileName, Code, AdditionalInfo
+            SELECT input.RowId, input.FileName, input.Code, input.AdditionalInfo, ftc.FileTypeCode
             FROM @MyInputTableType input
+            INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
             WHERE NOT EXISTS (
                 SELECT 1 FROM [dbo].[t_File] f
                 WHERE f.[Name] = input.[FileName] 
                 AND f.[CompanyCode] = input.[Code]
-                AND f.[FileTypeCode] = @FileTypeCode
+                AND f.[FileTypeCode] = ftc.FileTypeCode
             )
         )
         MERGE [dbo].[t_File] AS target
         USING FileSource AS source ON 1=0  -- Always insert, never match
         WHEN NOT MATCHED THEN
             INSERT ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-            VALUES (null, source.FileName, @FileTypeCode, 'FINAL', source.Code, null, null, source.AdditionalInfo, 0, @User, @Now, @User, @Now)
+            VALUES (null, source.FileName, source.FileTypeCode, 'FINAL', source.Code, null, null, source.AdditionalInfo, 0, @User, @Now, @User, @Now)
         OUTPUT source.RowId, inserted.Id
         INTO @InsertedFiles(RowId, FileId);
 
@@ -92,9 +137,10 @@ BEGIN
         INSERT INTO @InsertedFiles(RowId, FileId)
         SELECT input.RowId, f.Id
         FROM @MyInputTableType input
+        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
         INNER JOIN [dbo].[t_File] f ON f.[Name] = input.[FileName] 
             AND f.[CompanyCode] = input.[Code]
-            AND f.[FileTypeCode] = @FileTypeCode
+            AND f.[FileTypeCode] = ftc.FileTypeCode
         WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedFiles);
 
         -- Insert new Container File Relationship using the captured IDs
