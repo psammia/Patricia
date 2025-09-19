@@ -31,15 +31,13 @@ BEGIN
             FileId INT 
         ); 
 
-        -- Insert Containers only for combinations that don't already exist
-        -- Assuming BoxRef + CompanyCode should be unique business key
+        -- Insert Containers only if Code (BoxRef) doesn't already exist
         WITH ContainerSource AS (
             SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
             FROM @MyInputTableType input
             WHERE NOT EXISTS (
                 SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef] 
-                AND cont.[CompanyCode] = input.[Code]
+                WHERE cont.[Code] = input.[BoxRef]
             )
         )
         MERGE [dbo].[t_Container] AS target
@@ -54,15 +52,14 @@ BEGIN
         INSERT INTO @InsertedContainers(RowId, ContainerId)
         SELECT input.RowId, cont.Id
         FROM @MyInputTableType input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef] 
-            AND cont.[CompanyCode] = input.[Code]
+        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
         WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
         -- Insert new File Type with auto-incrementing FileTypeCode (PK)
         -- Get unique combinations that need new FileType records
         DECLARE @NewFileTypes TABLE (
-            Entity NVARCHAR(50),
             Description NVARCHAR(250),
+            Entity NVARCHAR(50),
             ArchivingPeriod INT,
             NextCode INT
         );
@@ -73,24 +70,23 @@ BEGIN
         FROM [dbo].[lkp_FileType] 
         WHERE ISNUMERIC(Code) = 1;
         
-        -- Insert unique combinations that don't exist with incremented codes
+        -- Insert unique descriptions that don't exist with incremented codes
         WITH UniqueNewFileTypes AS (
             SELECT DISTINCT 
-                   input.[Code] as Entity,
                    input.[FileName] as Description,
+                   input.[Code] as Entity,
                    input.[ArchivingPeriod]
             FROM @MyInputTableType input
             WHERE NOT EXISTS (
                 SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.Entity = input.[Code] 
-                AND ft.[Description] = input.[FileName]
+                WHERE ft.[Description] = input.[FileName]
             )
         )
-        INSERT INTO @NewFileTypes (Entity, Description, ArchivingPeriod, NextCode)
-        SELECT Entity, 
-               Description, 
+        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
+        SELECT Description, 
+               Entity, 
                ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
+               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Description) as NextCode
         FROM UniqueNewFileTypes;
 
         -- Insert new File Type records with incremented FileTypeCode
@@ -118,8 +114,7 @@ BEGIN
         INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
         SELECT input.RowId, ft.Code
         FROM @MyInputTableType input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.Entity = input.[Code] 
-            AND ft.[Description] = input.[FileName];
+        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Description] = input.[FileName];
 
         -- Insert Files using the correct FileTypeCode for each row
         WITH FileSource AS (
@@ -171,13 +166,23 @@ BEGIN
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Sequence] seq
             WHERE seq.[Owner] = input.[Code]
+        )
+        AND input.[Code] NOT IN (
+            SELECT i2.[Code] 
+            FROM @MyInputTableType i2 
+            WHERE i2.RowId < input.RowId
         );
 
         -- Insert Box Statuses history using the captured Container IDs
-        -- Only insert if this exact status doesn't already exist for the container
+        -- Handle multiple status records based on input StatusCode
+        
+        -- First, insert SENT status for all containers (always the first status)
         INSERT INTO [dbo].[t_ContainerStatus] 
         ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT c.ContainerId,'SENT','WH',0,
+        SELECT c.ContainerId,
+               'SENT',
+               'WH',
+               CASE WHEN i.[StatusCode] = 'SENT' THEN 1 ELSE 0 END, -- Current status only if input status is SENT
                CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @User ELSE i.[BoxSentBy] END,
                i.[BoxSentDate],
                CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @User ELSE i.[BoxSentBy] END,
@@ -188,8 +193,46 @@ BEGIN
             SELECT 1 FROM [dbo].[t_ContainerStatus] cs
             WHERE cs.[ContainerId] = c.ContainerId 
             AND cs.[StatusCode] = 'SENT'
-            AND cs.[HoldingEntityCode] = 'WH'
-            AND cs.[CreatedDate] = i.[BoxSentDate]
+        );
+
+        -- Insert RECEIVED status for containers where input StatusCode is RECEIVED or DESTROYED
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT c.ContainerId,
+               'RECEIVED',
+               'WH',
+               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END, -- Current status only if input status is RECEIVED
+               @User,
+               DATEADD(MINUTE, 1, i.[BoxSentDate]), -- Add 1 minute to ensure chronological order
+               @User,
+               DATEADD(MINUTE, 1, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @MyInputTableType i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED')
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'RECEIVED'
+        );
+
+        -- Insert DESTROYED status for containers where input StatusCode is DESTROYED
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT c.ContainerId,
+               'DESTROYED',
+               'WH',
+               1, -- This is always the current status when DESTROYED
+               @User,
+               DATEADD(MINUTE, 2, i.[BoxSentDate]), -- Add 2 minutes to ensure it's the latest
+               @User,
+               DATEADD(MINUTE, 2, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @MyInputTableType i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] = 'DESTROYED'
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'DESTROYED'
         );
 
         COMMIT TRANSACTION; 
