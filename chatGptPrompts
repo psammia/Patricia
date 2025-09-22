@@ -13,7 +13,7 @@ BEGIN
         -- Insert new Company (only if Code doesn't already exist)
         INSERT INTO [dbo].[t_Company] 
         ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],null,0,[IsActive],@User,@Now,@User,@Now 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@User,@Now,@User,@Now 
         FROM @MyInputTableType input
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Company] comp 
