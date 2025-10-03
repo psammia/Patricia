@@ -1,18 +1,330 @@
+using System;
+using System.IO;
+using System.Text;
+using Newtonsoft.Json; // or System.Text.Json
+
+// ====================================
+// Example 1: Manual Object Creation
+// ====================================
+public Insert_UserApplication_WithFiles_Request CreateRequestManually()
 {
-  "baseRequest": {
-    "correlationId": "string"
-  },
-  "correlationId": "string",
-  "external_Id": "string",
-  "app_FilesList": [
+    var request = new Insert_UserApplication_WithFiles_Request
     {
-      "file_Name": "string",
-      "file_Type": "string",
-      "file_Size": 0,
-      "file_Data": "string",
-      "file_Data_Base64": "string"
+        BaseRequest = new BaseRequest
+        {
+            CorrelationId = Guid.NewGuid().ToString()
+        },
+        CorrelationId = Guid.NewGuid().ToString(),
+        External_Id = "EXT-2024-001",
+        app_FilesList = new List<App_Files>
+        {
+            new App_Files
+            {
+                File_Name = "invoice.pdf",
+                File_Type = "application/pdf",
+                File_Size = 0, // Will be calculated in BLL
+                File_Data_Base64 = "JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCA2MTIgNzkyXS9Db250ZW50cyA0IDAgUj4+CmVuZG9iago0IDAgb2JqCjw8L0ZpbHRlci9GbGF0ZURlY29kZS9MZW5ndGggNDQ+PnN0cmVhbQp4nCvkMlAwULCx0XfOL0hNLlFQV0jMK0stKlFQBPFBIhYKPpm5qUUgHSAlphYKQFZqJVDKwQAAR3IQJgplbmRzdHJlYW0KZW5kb2JqCjEgMCBvYmoKPDwvVHlwZS9QYWdlcy9Db3VudCAxL0tpZHNbMyAwIFJdPj4KZW5kb2JqCjUgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDEgMCBSPj4KZW5kb2JqCjYgMCBvYmoKPDwvUHJvZHVjZXIoaVRleHQm"
+            },
+            new App_Files
+            {
+                File_Name = "photo.jpg",
+                File_Type = "image/jpeg",
+                File_Size = 0,
+                File_Data_Base64 = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAT8AKp//2Q=="
+            }
+        }
+    };
+
+    return request;
+}
+
+// ====================================
+// Example 2: Load File from Disk
+// ====================================
+public Insert_UserApplication_WithFiles_Request CreateRequestFromFile(string filePath)
+{
+    // Read file from disk
+    byte[] fileBytes = File.ReadAllBytes(filePath);
+    string base64String = Convert.ToBase64String(fileBytes);
+    
+    // Get file info
+    FileInfo fileInfo = new FileInfo(filePath);
+    string fileName = fileInfo.Name;
+    string mimeType = GetMimeType(fileName);
+
+    var request = new Insert_UserApplication_WithFiles_Request
+    {
+        BaseRequest = new BaseRequest
+        {
+            CorrelationId = Guid.NewGuid().ToString()
+        },
+        CorrelationId = Guid.NewGuid().ToString(),
+        External_Id = $"EXT-{DateTime.Now:yyyyMMddHHmmss}",
+        app_FilesList = new List<App_Files>
+        {
+            new App_Files
+            {
+                File_Name = fileName,
+                File_Type = mimeType,
+                File_Size = fileBytes.Length,
+                File_Data_Base64 = base64String
+            }
+        }
+    };
+
+    return request;
+}
+
+// ====================================
+// Example 3: Multiple Files from Disk
+// ====================================
+public Insert_UserApplication_WithFiles_Request CreateRequestFromMultipleFiles(string[] filePaths)
+{
+    var filesList = new List<App_Files>();
+
+    foreach (var filePath in filePaths)
+    {
+        if (File.Exists(filePath))
+        {
+            byte[] fileBytes = File.ReadAllBytes(filePath);
+            FileInfo fileInfo = new FileInfo(filePath);
+
+            filesList.Add(new App_Files
+            {
+                File_Name = fileInfo.Name,
+                File_Type = GetMimeType(fileInfo.Name),
+                File_Size = fileBytes.Length,
+                File_Data_Base64 = Convert.ToBase64String(fileBytes)
+            });
+        }
+    }
+
+    var request = new Insert_UserApplication_WithFiles_Request
+    {
+        BaseRequest = new BaseRequest
+        {
+            CorrelationId = Guid.NewGuid().ToString()
+        },
+        CorrelationId = Guid.NewGuid().ToString(),
+        External_Id = $"EXT-{DateTime.Now:yyyyMMddHHmmss}",
+        app_FilesList = filesList
+    };
+
+    return request;
+}
+
+// ====================================
+// Example 4: From Stream (e.g., Upload)
+// ====================================
+public Insert_UserApplication_WithFiles_Request CreateRequestFromStream(
+    Stream fileStream, 
+    string fileName, 
+    string externalId)
+{
+    using (var memoryStream = new MemoryStream())
+    {
+        fileStream.CopyTo(memoryStream);
+        byte[] fileBytes = memoryStream.ToArray();
+        string base64String = Convert.ToBase64String(fileBytes);
+
+        var request = new Insert_UserApplication_WithFiles_Request
+        {
+            BaseRequest = new BaseRequest
+            {
+                CorrelationId = Guid.NewGuid().ToString()
+            },
+            CorrelationId = Guid.NewGuid().ToString(),
+            External_Id = externalId,
+            app_FilesList = new List<App_Files>
+            {
+                new App_Files
+                {
+                    File_Name = fileName,
+                    File_Type = GetMimeType(fileName),
+                    File_Size = fileBytes.Length,
+                    File_Data_Base64 = base64String
+                }
+            }
+        };
+
+        return request;
+    }
+}
+
+// ====================================
+// Example 5: From Web API Controller
+// ====================================
+[HttpPost("upload")]
+public async Task<IActionResult> UploadFiles([FromForm] IFormFileCollection files, [FromForm] string externalId)
+{
+    var filesList = new List<App_Files>();
+
+    foreach (var file in files)
+    {
+        if (file.Length > 0)
+        {
+            using (var memoryStream = new MemoryStream())
+            {
+                await file.CopyToAsync(memoryStream);
+                byte[] fileBytes = memoryStream.ToArray();
+
+                filesList.Add(new App_Files
+                {
+                    File_Name = file.FileName,
+                    File_Type = file.ContentType,
+                    File_Size = file.Length,
+                    File_Data_Base64 = Convert.ToBase64String(fileBytes)
+                });
+            }
+        }
+    }
+
+    var request = new Insert_UserApplication_WithFiles_Request
+    {
+        BaseRequest = new BaseRequest
+        {
+            CorrelationId = Guid.NewGuid().ToString()
+        },
+        CorrelationId = Guid.NewGuid().ToString(),
+        External_Id = externalId,
+        app_FilesList = filesList
+    };
+
+    // Call your BLL method
+    var result = await _businessLayer.Insert_UserApplication_WithFiles(request);
+    
+    return Ok(result);
+}
+
+// ====================================
+// Example 6: Serialize to JSON
+// ====================================
+public string CreateJsonRequest()
+{
+    var request = new Insert_UserApplication_WithFiles_Request
+    {
+        BaseRequest = new BaseRequest
+        {
+            CorrelationId = "550e8400-e29b-41d4-a716-446655440000"
+        },
+        CorrelationId = "550e8400-e29b-41d4-a716-446655440001",
+        External_Id = "EXT-2024-12345",
+        app_FilesList = new List<App_Files>
+        {
+            new App_Files
+            {
+                File_Name = "contract.pdf",
+                File_Type = "application/pdf",
+                File_Size = 2048,
+                File_Data_Base64 = "JVBERi0xLjQKJeLjz9MK..."
+            }
+        }
+    };
+
+    // Using Newtonsoft.Json
+    string json = JsonConvert.SerializeObject(request, Formatting.Indented);
+    
+    // Or using System.Text.Json
+    // string json = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
+    
+    return json;
+}
+
+// ====================================
+// Example 7: Deserialize from JSON
+// ====================================
+public Insert_UserApplication_WithFiles_Request DeserializeJsonRequest(string json)
+{
+    // Using Newtonsoft.Json
+    var request = JsonConvert.DeserializeObject<Insert_UserApplication_WithFiles_Request>(json);
+    
+    // Or using System.Text.Json
+    // var request = JsonSerializer.Deserialize<Insert_UserApplication_WithFiles_Request>(json);
+    
+    return request;
+}
+
+// ====================================
+// Helper Method: Get MIME Type
+// ====================================
+private string GetMimeType(string fileName)
+{
+    string extension = Path.GetExtension(fileName).ToLowerInvariant();
+    
+    var mimeTypes = new Dictionary<string, string>
+    {
+        { ".pdf", "application/pdf" },
+        { ".doc", "application/msword" },
+        { ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+        { ".xls", "application/vnd.ms-excel" },
+        { ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+        { ".png", "image/png" },
+        { ".jpg", "image/jpeg" },
+        { ".jpeg", "image/jpeg" },
+        { ".gif", "image/gif" },
+        { ".txt", "text/plain" },
+        { ".csv", "text/csv" },
+        { ".zip", "application/zip" }
+    };
+
+    return mimeTypes.ContainsKey(extension) 
+        ? mimeTypes[extension] 
+        : "application/octet-stream";
+}
+
+// ====================================
+// Example 8: Sample JSON String
+// ====================================
+public string GetSampleJsonString()
+{
+    return @"{
+  ""baseRequest"": {
+    ""correlationId"": ""550e8400-e29b-41d4-a716-446655440000""
+  },
+  ""correlationId"": ""550e8400-e29b-41d4-a716-446655440001"",
+  ""external_Id"": ""EXT-2024-12345"",
+  ""app_FilesList"": [
+    {
+      ""file_Name"": ""invoice.pdf"",
+      ""file_Type"": ""application/pdf"",
+      ""file_Size"": 0,
+      ""file_Data"": null,
+      ""file_Data_Base64"": ""JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCA2MTIgNzkyXS9Db250ZW50cyA0IDAgUj4+CmVuZG9iago0IDAgb2JqCjw8L0ZpbHRlci9GbGF0ZURlY29kZS9MZW5ndGggNDQ+PnN0cmVhbQp4nCvkMlAwULCx0XfOL0hNLlFQV0jMK0stKlFQBPFBIhYKPpm5qUUgHSAlphYKQFZqJVDKwQAAR3IQJgplbmRzdHJlYW0KZW5kb2JqCjEgMCBvYmoKPDwvVHlwZS9QYWdlcy9Db3VudCAxL0tpZHNbMyAwIFJdPj4KZW5kb2JqCjUgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDEgMCBSPj4KZW5kb2JqCjYgMCBvYmoKPDwvUHJvZHVjZXIoaVRleHQm""
+    },
+    {
+      ""file_Name"": ""photo.jpg"",
+      ""file_Type"": ""image/jpeg"",
+      ""file_Size"": 0,
+      ""file_Data"": null,
+      ""file_Data_Base64"": ""/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAT8AKp//2Q==""
     }
   ]
+}";
+}
+
+// ====================================
+// Example 9: Usage in Console App
+// ====================================
+public static async Task Main(string[] args)
+{
+    // Example 1: From file
+    string filePath = @"C:\Documents\invoice.pdf";
+    var request1 = CreateRequestFromFile(filePath);
+    
+    // Example 2: Multiple files
+    string[] files = new[] 
+    { 
+        @"C:\Documents\invoice.pdf",
+        @"C:\Documents\contract.docx",
+        @"C:\Images\photo.jpg"
+    };
+    var request2 = CreateRequestFromMultipleFiles(files);
+    
+    // Example 3: Manual creation
+    var request3 = CreateRequestManually();
+    
+    // Send to API or BLL
+    // var result = await businessLayer.Insert_UserApplication_WithFiles(request1);
 }
 
 
