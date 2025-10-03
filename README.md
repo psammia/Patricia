@@ -1,3 +1,21 @@
+{
+  "baseRequest": {
+    "correlationId": "string"
+  },
+  "correlationId": "string",
+  "external_Id": "string",
+  "app_FilesList": [
+    {
+      "file_Name": "string",
+      "file_Type": "string",
+      "file_Size": 0,
+      "file_Data": "string",
+      "file_Data_Base64": "string"
+    }
+  ]
+}
+
+
 #region Insert User Application With Files
 
 public async Task<Application> Insert_UserApplication_WithFiles(Insert_UserApplication_WithFiles_Request request)
