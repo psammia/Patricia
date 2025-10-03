@@ -68,7 +68,7 @@ namespace BLL
     public partial class Bll
     {
         #region Get Application Files
-        public async Task<Get_ApplicationFiles_Response> Get_ApplicationFiles(Get_ApplicationFiles_Request request)
+        public async Task<(Application? application, List<App_Files_Db> files)> Get_ApplicationFiles(Get_ApplicationFiles_Request request)
         {
             DapperDal dal = new DapperDal(_globalSettings.ConnString);
             DynamicParameters parameters = new DynamicParameters();
@@ -76,43 +76,34 @@ namespace BLL
             parameters.Add("P__CorrelationId", request.CorrelationId);
             parameters.Add("P__External_Id", request.External_Id);
 
-            // Execute stored procedure that returns multiple result sets
-            using var multi = await dal.ExecuteQueryMultipleAsync(
+            // Get Application
+            IEnumerable<Application> appResult = await dal.ExecuteQueryAsync<Application>(
                 "usp_GetApplicationFiles",
                 parameters,
-                CommandType.StoredProcedure);
+                CommandType.StoredProcedure,
+                DapperDal.CommandDirection.Select);
 
-            // First result set: Application data
-            Application? application = (await multi.ReadAsync<Application>()).FirstOrDefault();
+            Application? application = appResult.FirstOrDefault();
 
-            // Second result set: Files data
-            IEnumerable<App_Files_Db> filesDb = await multi.ReadAsync<App_Files_Db>();
-
-            // Convert byte[] to base64 for output
-            List<App_Files_Output> filesOutput = filesDb.Select(f => new App_Files_Output
+            // Get Files
+            List<App_Files_Db> files = new List<App_Files_Db>();
+            
+            if (application != null)
             {
-                Id = f.Id,
-                App_Id = f.App_Id,
-                File_Name = f.File_Name,
-                File_Type = f.File_Type,
-                File_Size = f.File_Size,
-                File_Data_Base64 = Convert.ToBase64String(f.File_Data),
-                CreatedDate = f.CreatedDate
-            }).ToList();
+                DynamicParameters fileParameters = new DynamicParameters();
+                fileParameters.Add("P__CorrelationId", request.CorrelationId);
+                fileParameters.Add("P__External_Id", request.External_Id);
 
-            Get_ApplicationFiles_Response response = new Get_ApplicationFiles_Response
-            {
-                BaseResponse = new BaseResponse
-                {
-                    CorrelationId = request.BaseRequest.CorrelationId,
-                    ReturnCode = "200",
-                    ReturnDescription = "Success"
-                },
-                Application = application,
-                Files = filesOutput
-            };
+                IEnumerable<App_Files_Db> filesResult = await dal.ExecuteQueryAsync<App_Files_Db>(
+                    "usp_GetApplicationFiles_Files",
+                    fileParameters,
+                    CommandType.StoredProcedure,
+                    DapperDal.CommandDirection.Select);
 
-            return response;
+                files = filesResult.ToList();
+            }
+
+            return (application, files);
         }
         #endregion
     }
@@ -177,14 +168,36 @@ namespace Alterna_OnBoarding.Controllers
                 LogInfoJson(request, correlationInfo);
 
                 // Call BLL method
-                response = await _bll.Get_ApplicationFiles(request);
+                var (application, filesDb) = await _bll.Get_ApplicationFiles(request);
 
                 // Check if application was found
-                if (response.Application == null)
+                if (application == null)
                 {
                     response.BaseResponse.ReturnCode = _responseCodesDictionary["404"].Content;
                     response.BaseResponse.ReturnDescription = "Application not found with provided CorrelationId and External_Id";
+                    
+                    correlationInfo.RDirection = RequestDirection.Response;
+                    correlationInfo.Reserved = "Application not found";
+                    LogInfoJson(response, correlationInfo);
+                    
+                    return response;
                 }
+
+                // Convert byte[] to base64 for output
+                List<App_Files_Output> filesOutput = filesDb.Select(f => new App_Files_Output
+                {
+                    Id = f.Id,
+                    App_Id = f.App_Id,
+                    File_Name = f.File_Name,
+                    File_Type = f.File_Type,
+                    File_Size = f.File_Size,
+                    File_Data_Base64 = Convert.ToBase64String(f.File_Data),
+                    CreatedDate = f.CreatedDate
+                }).ToList();
+
+                // Set response data
+                response.Application = application;
+                response.Files = filesOutput;
 
                 correlationInfo.RDirection = RequestDirection.Response;
                 correlationInfo.Reserved = "GetApplicationFiles replied with the following response";
@@ -237,7 +250,7 @@ GO
 -- =====================================================================
 -- Author:      Patricia Sammia
 -- Create date: 03-10-2025
--- Description: Get Application with Files by CorrelationId and External_Id
+-- Description: Get Application by CorrelationId and External_Id
 -- =====================================================================
 CREATE OR ALTER PROCEDURE [dbo].[usp_GetApplicationFiles]
 (
@@ -259,6 +272,37 @@ BEGIN
         WHERE CorrelationId = @P__CorrelationId
           AND External_Id = @P__External_Id;
 
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000),
+                @ErrorSeverity INT,
+                @ErrorState INT;
+
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
+
+        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+-- =====================================================================
+-- Author:      Patricia Sammia
+-- Create date: 03-10-2025
+-- Description: Get Application Files by CorrelationId and External_Id
+-- =====================================================================
+CREATE OR ALTER PROCEDURE [dbo].[usp_GetApplicationFiles_Files]
+(
+    @P__CorrelationId NVARCHAR(250),
+    @P__External_Id NVARCHAR(10)
+)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
         -- Return Files data
         SELECT 
             f.Id,
@@ -276,7 +320,6 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-        -- Re-throw the error with details
         DECLARE @ErrorMessage NVARCHAR(4000),
                 @ErrorSeverity INT,
                 @ErrorState INT;
@@ -308,7 +351,7 @@ REQUEST:
   "external_Id": "EXT12345"
 }
 
-RESPONSE:
+RESPONSE (Success):
 {
   "baseResponse": {
     "correlationId": "12345-67890-ABCDE-2025",
@@ -343,7 +386,7 @@ RESPONSE:
   ]
 }
 
-RESPONSE (If not found):
+RESPONSE (Not Found):
 {
   "baseResponse": {
     "correlationId": "12345-67890-ABCDE-2025",
@@ -353,29 +396,4 @@ RESPONSE (If not found):
   "application": null,
   "files": []
 }
-*/
-
-// ========================================
-// DAL Helper Method (if needed in DapperDal.cs)
-// ========================================
-/*
-// ADD THIS METHOD TO YOUR DapperDal CLASS IF NOT EXISTS
-
-using Dapper;
-
-public async Task<SqlMapper.GridReader> ExecuteQueryMultipleAsync(
-    string sql,
-    DynamicParameters parameters,
-    CommandType commandType)
-{
-    using var connection = new SqlConnection(_connectionString);
-    await connection.OpenAsync();
-    
-    return await connection.QueryMultipleAsync(
-        sql,
-        parameters,
-        commandType: commandType,
-        commandTimeout: 30);
-}
-*/
 */
