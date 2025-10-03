@@ -1,246 +1,476 @@
-CREATE OR ALTER PROCEDURE dbo.InsertIntoAllTables 
-@MyInputTableType dbo.MyInputTableType READONLY 
-AS 
-BEGIN 
-    SET NOCOUNT ON; 
-    DECLARE @User NVARCHAR(50) = 'AlternaSystem'; 
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @FileTypeCode NVARCHAR(50) = '205'; 
+// ========================================
+// FILE: Models/Application.cs
+// ========================================
+namespace BLL.Models
+{
+    public class Application
+    {
+        public Int64 Id { get; set; }
+        public String CorrelationId { get; set; } = String.Empty;
+        public String External_Id { get; set; } = String.Empty;
+        public Int32 StatusId { get; set; }
+    }
 
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
+    public class App_Files
+    {
+        public String File_Name { get; set; } = String.Empty;
+        public String File_Type { get; set; } = String.Empty;
+        public Int64 File_Size { get; set; }
+        public Byte[] File_Data { get; set; } = [];
+    }
+}
 
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@User,@Now,@User,@Now 
-        FROM @MyInputTableType input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
+// ========================================
+// FILE: Models/Request.cs
+// ========================================
+namespace BLL.Models
+{
+    public class BaseRequest
+    {
+        public required String CorrelationId { get; set; }
+    }
 
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
+    public class App_Files_Input
+    {
+        public String File_Name { get; set; } = String.Empty;
+        public String File_Type { get; set; } = String.Empty;
+        public String File_Data_Base64 { get; set; } = String.Empty;
+    }
 
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
+    public class Insert_UserApplication_WithFiles_Request
+    {
+        public required BaseRequest BaseRequest { get; set; }
+        public required String External_Id { get; set; } = string.Empty;
+        public List<App_Files_Input> app_FilesList { get; set; } = [];
+    }
+}
 
-        -- Insert Containers only if Code (BoxRef) doesn't already exist
-        WITH ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM @MyInputTableType input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-            )
+// ========================================
+// FILE: Models/Response.cs
+// ========================================
+namespace BLL.Models
+{
+    public class BaseResponse
+    {
+        public String CorrelationId { get; set; } = string.Empty;
+        public String ReturnCode { get; set; } = String.Empty;
+        public String ReturnDescription { get; set; } = String.Empty;
+    }
+
+    public class Insert_UserApp_WithFiles_Response
+    {
+        public BaseResponse BaseResponse { get; set; } = new BaseResponse();
+        public Application? CreatedApplication { get; set; }
+    }
+}
+
+// ========================================
+// FILE: BLL/Bll.cs
+// ========================================
+using System.Data;
+using DAL;
+using Dapper;
+using Microsoft.Extensions.Options;
+using BLL.Models;
+
+namespace BLL
+{
+    public partial class Bll
+    {
+        private readonly GlobalSettings _globalSettings;
+
+        public Bll(IOptionsMonitor<GlobalSettings> globalSettings)
+        {
+            _globalSettings = globalSettings.CurrentValue;
+            InitializeGeneralEvents();
+        }
+
+        #region Insert User Application With Files
+        public async Task<Application> Insert_UserApplication_WithFiles(Insert_UserApplication_WithFiles_Request request)
+        {
+            DapperDal dal = new DapperDal(_globalSettings.ConnString);
+            DynamicParameters parameters = new DynamicParameters();
+            
+            parameters.Add("P__CorrelationId", request.BaseRequest.CorrelationId);
+            parameters.Add("P__External_Id", request.External_Id);
+            parameters.Add("P__TVP_Files", ConvertAndGetAppFilesDt(request.app_FilesList).AsTableValuedParameter());
+
+            IEnumerable<Application> res = await dal.ExecuteQueryAsync<Application>(
+                "usp_InsertUserApplicationWithFiles",
+                parameters,
+                CommandType.StoredProcedure,
+                DapperDal.CommandDirection.Update);
+
+            return res.ToList().First();
+        }
+
+        private DataTable ConvertAndGetAppFilesDt(List<App_Files_Input> app_Files)
+        {
+            DataTable dt = new DataTable("TVP_Files");
+            dt.Columns.Add("File_Name", typeof(string));
+            dt.Columns.Add("File_Type", typeof(string));
+            dt.Columns.Add("File_Size", typeof(long));
+            dt.Columns.Add("File_Data", typeof(byte[]));
+
+            foreach (App_Files_Input appFile in app_Files)
+            {
+                DataRow dr = dt.NewRow();
+
+                // Convert base64 string to byte array
+                byte[] fileBytes;
+                try
+                {
+                    fileBytes = Convert.FromBase64String(appFile.File_Data_Base64);
+                }
+                catch (FormatException ex)
+                {
+                    throw new ArgumentException($"Invalid base64 data for file: {appFile.File_Name}", ex);
+                }
+
+                dr["File_Name"] = appFile.File_Name;
+                dr["File_Type"] = appFile.File_Type;
+                dr["File_Size"] = fileBytes.Length; // Calculate size from byte array
+                dr["File_Data"] = fileBytes;
+
+                dt.Rows.Add(dr);
+            }
+            
+            return dt;
+        }
+        #endregion
+    }
+}
+
+// ========================================
+// FILE: Controllers/OnBoardingController.cs
+// ========================================
+using Microsoft.AspNetCore.Mvc;
+using BLL;
+using BLL.Models;
+using Microsoft.Extensions.Options;
+using static NLog.NLogUtil;
+using static BLL.DataGuard;
+using System.Text;
+
+namespace Alterna_OnBoarding.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    public class OnBoardingController : ControllerBase
+    {
+        private readonly Bll _bll;
+        private readonly GlobalSettings _globalSettings;
+        private readonly Dictionary<String, OnBoardingResponseCode> _responseCodesDictionary = [];
+
+        public OnBoardingController(Bll bll, IOptionsMonitor<GlobalSettings> globalSettings, IOptionsMonitor<OnBoardingResponseCodes> responseCodes)
+        {
+            _bll = bll;
+            _globalSettings = globalSettings.CurrentValue;
+
+            foreach (OnBoardingResponseCode responseCode in responseCodes.CurrentValue.ResponseCodes)
+            {
+                _responseCodesDictionary.Add(responseCode.Code, new OnBoardingResponseCode()
+                {
+                    Description = responseCode.Description,
+                    Content = responseCode.Content
+                });
+            }
+        }
+
+        #region Insert User Application With Files      
+        [HttpPost]
+        [Route("Insert_UserApplication_WithFiles")]
+        public async Task<Insert_UserApp_WithFiles_Response> Insert_UserApplication_WithFiles([FromBody] Insert_UserApplication_WithFiles_Request request)
+        {
+            Insert_UserApp_WithFiles_Response response = new Insert_UserApp_WithFiles_Response()
+            {
+                BaseResponse = new BaseResponse()
+                {
+                    CorrelationId = request.BaseRequest.CorrelationId,
+                    ReturnCode = _responseCodesDictionary["200"].Content,
+                    ReturnDescription = _responseCodesDictionary["200"].Description
+                }
+            };
+
+            CorrelationInfo correlationInfo = new CorrelationInfo()
+            {
+                CorrelationId = request.BaseRequest.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "InsertUserApplicationWithFiles",
+                UserName = _globalSettings.AppUsername
+            };
+
+            try
+            {
+                #region DataGuard
+                List<KeyValuePair<DataIntegrityCheckfunctions, Property>> dataGuardDict =
+                [
+                    new(DataIntegrityCheckfunctions.IS_CORRELATION_ID_INVALID, new Property()
+                    {
+                        PropName = "CorrelationId",
+                        PropValue = correlationInfo.CorrelationId
+                    }),
+                    new(DataIntegrityCheckfunctions.IS_STRING_EMPTY, new Property()
+                    {
+                        PropName = "External_Id",
+                        PropValue = request.External_Id
+                    })
+                ];
+
+                // Validate files
+                if (request.app_FilesList == null || request.app_FilesList.Count == 0)
+                {
+                    throw new SGBLBadRequestException("File list cannot be empty");
+                }
+
+                foreach (var file in request.app_FilesList)
+                {
+                    if (string.IsNullOrWhiteSpace(file.File_Name))
+                    {
+                        throw new SGBLBadRequestException("File name cannot be empty");
+                    }
+                    if (string.IsNullOrWhiteSpace(file.File_Type))
+                    {
+                        throw new SGBLBadRequestException($"File type cannot be empty for file: {file.File_Name}");
+                    }
+                    if (string.IsNullOrWhiteSpace(file.File_Data_Base64))
+                    {
+                        throw new SGBLBadRequestException($"File data cannot be empty for file: {file.File_Name}");
+                    }
+                }
+
+                DataIntegrityCheck(dataGuardDict);
+                #endregion
+
+                correlationInfo.Reserved = "InsertUserApplicationWithFiles has been called with the following Request";
+                LogInfoJson(request, correlationInfo);
+
+                // Call BLL method and capture created application
+                Application createdApp = await _bll.Insert_UserApplication_WithFiles(request);
+                response.CreatedApplication = createdApp;
+
+                correlationInfo.RDirection = RequestDirection.Response;
+                correlationInfo.Reserved = "InsertUserApplicationWithFiles replied with the following response";
+                LogInfoJson(response, correlationInfo);
+
+                return response;
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                StringBuilder sb = new(_responseCodesDictionary["400"].Description);
+                sb.Replace("{0}", ex.Message);
+
+                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
+                response.BaseResponse.ReturnCode = _responseCodesDictionary["400"].Content;
+                response.BaseResponse.ReturnDescription = sb.ToString();
+                
+                correlationInfo.RDirection = RequestDirection.Response;
+                correlationInfo.Reserved = ex.Message;
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (ArgumentException ex)
+            {
+                StringBuilder sb = new(_responseCodesDictionary["400"].Description);
+                sb.Replace("{0}", ex.Message);
+
+                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
+                response.BaseResponse.ReturnCode = _responseCodesDictionary["400"].Content;
+                response.BaseResponse.ReturnDescription = sb.ToString();
+                
+                correlationInfo.RDirection = RequestDirection.Response;
+                correlationInfo.Reserved = ex.Message;
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                StringBuilder sb = new(_responseCodesDictionary["500"].Description);
+                sb.Replace("{0}", ex.Message);
+
+                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
+                response.BaseResponse.ReturnCode = _responseCodesDictionary["500"].Content;
+                response.BaseResponse.ReturnDescription = sb.ToString();
+
+                correlationInfo.RDirection = RequestDirection.Response;
+                correlationInfo.Reserved = ex.Message;
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+        }
+        #endregion
+    }
+}
+
+// ========================================
+// FILE: Database/usp_InsertUserApplicationWithFiles.sql
+// ========================================
+/*
+USE [Alterna.OnBoarding]
+GO
+
+-- Drop if exists
+IF OBJECT_ID('dbo.usp_InsertUserApplicationWithFiles', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.usp_InsertUserApplicationWithFiles;
+GO
+
+-- Create Table Valued Parameter Type if not exists
+IF NOT EXISTS (SELECT * FROM sys.types WHERE is_table_type = 1 AND name = 'FileListType')
+BEGIN
+    CREATE TYPE dbo.FileListType AS TABLE
+    (
+        File_Name NVARCHAR(255),
+        File_Type NVARCHAR(100),
+        File_Size BIGINT,
+        File_Data VARBINARY(MAX)
+    );
+END
+GO
+
+-- =====================================================================
+-- Author:      Patricia Sammia
+-- Create date: 01-10-2025
+-- Modified:    03-10-2025 - Fixed TVP parameter and added SELECT return
+-- Description: Insert Client Application through BB with files list
+-- =====================================================================
+CREATE PROCEDURE dbo.usp_InsertUserApplicationWithFiles
+(
+    @P__CorrelationId NVARCHAR(250),
+    @P__External_Id NVARCHAR(10),
+    @P__TVP_Files dbo.FileListType READONLY
+)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @AppId BIGINT;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- 1. Insert into t_Application with StatusId = 1
+        INSERT INTO dbo.t_Application
+        (
+            External_Id,
+            CorrelationId,
+            StatusId,
+            CreatedBy,
+            CreatedDate,
+            LastModifiedBy,
+            LastModifiedDate
         )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0  -- Always insert, never match
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @User, @Now, @User, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Also capture existing container IDs for rows that weren't inserted
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @MyInputTableType input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- Insert new File Type with auto-incrementing FileTypeCode (PK)
-        -- Get unique combinations that need new FileType records
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
+        VALUES
+        (
+            @P__External_Id,
+            @P__CorrelationId,
+            1,               
+            'AlternaSysUser',   
+            GETDATE(),
+            'AlternaSysUser',
+            GETDATE()
         );
-        
-        -- Get the current maximum FileTypeCode
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Insert unique descriptions that don't exist with incremented codes
-        WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   input.[ArchivingPeriod]
-            FROM @MyInputTableType input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-            )
+
+        SET @AppId = SCOPE_IDENTITY();
+
+        -- 2. Insert related files into t_App_Files
+        INSERT INTO dbo.t_App_Files
+        (
+            App_Id,
+            File_Name,
+            File_Type,
+            File_Size,
+            File_Data,
+            CreatedBy,
+            CreatedDate,
+            LastModifiedBy,
+            LastModifiedDate
         )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Description) as NextCode
-        FROM UniqueNewFileTypes;
+        SELECT
+            @AppId,
+            f.File_Name,
+            f.File_Type,
+            f.File_Size,
+            f.File_Data,
+            'AlternaSysUser',
+            GETDATE(),
+            'AlternaSysUser',
+            GETDATE()
+        FROM @P__TVP_Files f;
 
-        -- Insert new File Type records with incremented FileTypeCode
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @User,
-               @Now,
-               @User,
-               @Now
-        FROM @NewFileTypes nft;
+        COMMIT TRANSACTION;
 
-        -- Get the FileTypeCode for each file (either existing or newly created)
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @MyInputTableType input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Description] = input.[FileName];
+        -- 3. Return the created application data
+        SELECT 
+            Id,
+            CorrelationId,
+            External_Id,
+            StatusId
+        FROM dbo.t_Application
+        WHERE Id = @AppId;
 
-        -- Insert Files using the correct FileTypeCode for each row
-        WITH FileSource AS (
-            SELECT input.RowId, input.FileName, input.Code, input.AdditionalInfo, ftc.FileTypeCode
-            FROM @MyInputTableType input
-            INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_File] f
-                WHERE f.[Name] = input.[FileName] 
-                AND f.[CompanyCode] = input.[Code]
-                AND f.[FileTypeCode] = ftc.FileTypeCode
-            )
-        )
-        MERGE [dbo].[t_File] AS target
-        USING FileSource AS source ON 1=0  -- Always insert, never match
-        WHEN NOT MATCHED THEN
-            INSERT ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-            VALUES (null, source.FileName, source.FileTypeCode, 'FINAL', source.Code, null, null, source.AdditionalInfo, 0, @User, @Now, @User, @Now)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedFiles(RowId, FileId);
+    END TRY
+    BEGIN CATCH
+        -- Rollback if any error happens
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
 
-        -- Also capture existing file IDs for rows that weren't inserted
-        INSERT INTO @InsertedFiles(RowId, FileId)
-        SELECT input.RowId, f.Id
-        FROM @MyInputTableType input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        INNER JOIN [dbo].[t_File] f ON f.[Name] = input.[FileName] 
-            AND f.[CompanyCode] = input.[Code]
-            AND f.[FileTypeCode] = ftc.FileTypeCode
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedFiles);
+        -- Re-throw the error with details
+        DECLARE @ErrorMessage NVARCHAR(4000),
+                @ErrorSeverity INT,
+                @ErrorState INT;
 
-        -- Insert new Container File Relationship using the captured IDs
-        -- Check if relationship already exists to avoid duplicates
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @User, @Now, @User, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
+        SELECT
+            @ErrorMessage = ERROR_MESSAGE(),
+            @ErrorSeverity = ERROR_SEVERITY(),
+            @ErrorState = ERROR_STATE();
 
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@User,@Now,@User,@Now 
-        FROM @MyInputTableType input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @MyInputTableType i2 
-            WHERE i2.RowId < input.RowId
-        );
+        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+*/
 
-        -- Insert Box Statuses history using the captured Container IDs
-        -- Handle multiple status records based on input StatusCode
-        
-        -- First, insert SENT status for all containers (always the first status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT c.ContainerId,
-               'SENT',
-               'WH',
-               CASE WHEN i.[StatusCode] = 'SENT' THEN 1 ELSE 0 END, -- Current status only if input status is SENT
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @User ELSE i.[BoxSentBy] END,
-               i.[BoxSentDate],
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @User ELSE i.[BoxSentBy] END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @MyInputTableType i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
+// ========================================
+// FILE: Sample Request JSON
+// ========================================
+/*
+POST /api/OnBoarding/Insert_UserApplication_WithFiles
+Content-Type: application/json
 
-        -- Insert RECEIVED status for containers where input StatusCode is RECEIVED or DESTROYED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT c.ContainerId,
-               'RECEIVED',
-               'WH',
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END, -- Current status only if input status is RECEIVED
-               @User,
-               DATEADD(MINUTE, 1, i.[BoxSentDate]), -- Add 1 minute to ensure chronological order
-               @User,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @MyInputTableType i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED')
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
+{
+  "baseRequest": {
+    "correlationId": "12345-67890-ABCDE-2025"
+  },
+  "external_Id": "EXT12345",
+  "app_FilesList": [
+    {
+      "file_Name": "passport.pdf",
+      "file_Type": "application/pdf",
+      "file_Data_Base64": "JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9GaWx0ZXIvRmxhdGVEZWNvZGUvTGVuZ3RoIDQ4Pj4Kc3RyZWFtCniCszEyNDYzMVczNDC1MjEzBgCBgQOzCmVuZHN0cmVhbQplbmRvYmoKNCAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL0NvbnRlbnRzIDMgMCBSL01lZGlhQm94WzAgMCA2MTIgNzkyXS9SZXNvdXJjZXM8PD4+Pj4KZW5kb2JqCjIgMCBvYmoKPDwvVHlwZS9QYWdlcy9Db3VudCAxL0tpZHNbNCAwIFJdPj4KZW5kb2JqCjEgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDIgMCBSPj4KZW5kb2JqCjUgMCBvYmoKPDwvUHJvZHVjZXIoaVRleHQgNS4wLjYgXDI1MFwyNjBlMSBcMjUwcDdkXDI1MFwyNjAwNlwyNjAwM1w2MDBjXDI1MFwyNjAwNlwyNjAwM1w2MDBjKS9Nb2REYXRlKEQ6MjAyNTEwMDMxMjAwMDBaKS9DcmVhdGlvbkRhdGUoRDoyMDI1MTAwMzEyMDAwMFopPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDI1MiAwMDAwMCBuIAowMDAwMDAwMjAzIDAwMDAwIG4gCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDEyNCAwMDAwMCBuIAowMDAwMDAwMzAxIDAwMDAwIG4gCnRyYWlsZXIKPDwvU2l6ZSA2L1Jvb3QgMSAwIFIvSW5mbyA1IDAgUi9JRFs8ZjRhZjI5MTQwZDI0NDU5OGFiYjU5Y2U0ZjY5ZjRhNjQ+PGY0YWYyOTE0MGQyNDQ1OThhYmI1OWNlNGY2OWY0YTY0Pl0+PgpzdGFydHhyZWYKNDQ4CiUlRU9GCg=="
+    },
+    {
+      "file_Name": "id_card.jpg",
+      "file_Type": "image/jpeg",
+      "file_Data_Base64": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCwAA8A/9k="
+    }
+  ]
+}
 
-        -- Insert DESTROYED status for containers where input StatusCode is DESTROYED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT c.ContainerId,
-               'DESTROYED',
-               'WH',
-               1, -- This is always the current status when DESTROYED
-               @User,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]), -- Add 2 minutes to ensure it's the latest
-               @User,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @MyInputTableType i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
-
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
+Response:
+{
+  "baseResponse": {
+    "correlationId": "12345-67890-ABCDE-2025",
+    "returnCode": "200",
+    "returnDescription": "Success"
+  },
+  "createdApplication": {
+    "id": 1001,
+    "correlationId": "12345-67890-ABCDE-2025",
+    "external_Id": "EXT12345",
+    "statusId": 1
+  }
+}
+*/
