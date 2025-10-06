@@ -1,194 +1,66 @@
-using System;
-using System.Net;
-using System.Web.Http;
-using YourNamespace.BLL;
+-- Stored Procedure to delete all applications with StatusId and their related files
+-- ================================================
+-- Stored Procedure: sp_DeleteApplicationsByStatus
+-- Description: Deletes all applications with a specific StatusId 
+--              and their related files (stored as byte arrays)
+-- ================================================
+CREATE PROCEDURE sp_DeleteApplicationsByStatus
+    @StatusId INT,
+    @DeletedCount INT OUTPUT,
+    @DeletedFilesCount INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        -- Get count of applications to be deleted
+        SELECT @DeletedCount = COUNT(*)
+        FROM Applications
+        WHERE StatusId = @StatusId;
+        
+        -- Get count of files to be deleted
+        SELECT @DeletedFilesCount = COUNT(*)
+        FROM appfiles
+        WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId);
+        
+        -- Delete files from appfiles table first (foreign key constraint)
+        -- This will remove all file records including the byte arrays
+        DELETE FROM appfiles
+        WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId);
+        
+        -- Delete other related records if any (add more as needed)
+        -- Example: DELETE FROM ApplicationDocuments WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId)
+        -- Example: DELETE FROM ApplicationNotes WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId)
+        
+        -- Delete applications
+        DELETE FROM Applications
+        WHERE StatusId = @StatusId;
+        
+        COMMIT TRANSACTION;
+        
+        RETURN 0; -- Success
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+            
+        -- Return error
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+        RETURN -1; -- Error
+    END CATCH
+END
+GO
 
-namespace YourNamespace.API.Controllers
-{
-    [RoutePrefix("api/applications")]
-    public class ApplicationsController : ApiController
-    {
-        private readonly ApplicationBLL _applicationBLL;
-
-        public ApplicationsController()
-        {
-            _applicationBLL = new ApplicationBLL();
-        }
-
-        public ApplicationsController(ApplicationBLL applicationBLL)
-        {
-            _applicationBLL = applicationBLL;
-        }
-
-        /// <summary>
-        /// Deletes all applications with Status ID = 2 and their related files (byte arrays in database)
-        /// </summary>
-        /// <returns>Result with deletion details</returns>
-        [HttpDelete]
-        [Route("delete-by-status-two")]
-        public IHttpActionResult DeleteApplicationsWithStatusTwo()
-        {
-            try
-            {
-                DeletionResult result = _applicationBLL.DeleteApplicationsWithStatusTwo();
-
-                return Ok(new
-                {
-                    success = result.Success,
-                    message = result.GetMessage(),
-                    data = new
-                    {
-                        deletedApplications = result.DeletedApplicationsCount,
-                        deletedFiles = result.DeletedFilesCount
-                    }
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                // Log the exception
-                return InternalServerError(new Exception($"An error occurred while deleting applications: {ex.Message}"));
-            }
-        }
-
-        /// <summary>
-        /// Deletes all applications with the specified status ID and their related files (byte arrays in database)
-        /// </summary>
-        /// <param name="statusId">The status ID to filter applications</param>
-        /// <returns>Result with deletion details</returns>
-        [HttpDelete]
-        [Route("delete-by-status/{statusId:int}")]
-        public IHttpActionResult DeleteApplicationsByStatus(int statusId)
-        {
-            try
-            {
-                DeletionResult result = _applicationBLL.DeleteApplicationsByStatus(statusId);
-
-                return Ok(new
-                {
-                    success = result.Success,
-                    message = result.GetMessage(),
-                    statusId = statusId,
-                    data = new
-                    {
-                        deletedApplications = result.DeletedApplicationsCount,
-                        deletedFiles = result.DeletedFilesCount
-                    }
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                // Log the exception
-                return InternalServerError(new Exception($"An error occurred while deleting applications: {ex.Message}"));
-            }
-        }
-    }
-}
-
-// ===== For ASP.NET Core (Alternative) =====
-/*
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-using YourNamespace.BLL;
-
-namespace YourNamespace.API.Controllers
-{
-    [ApiController]
-    [Route("api/[controller]")]
-    public class ApplicationsController : ControllerBase
-    {
-        private readonly ApplicationBLL _applicationBLL;
-        private readonly ILogger<ApplicationsController> _logger;
-
-        public ApplicationsController(ApplicationBLL applicationBLL, ILogger<ApplicationsController> logger)
-        {
-            _applicationBLL = applicationBLL;
-            _logger = logger;
-        }
-
-        /// <summary>
-        /// Deletes all applications with Status ID = 2 and their related files (byte arrays in database)
-        /// </summary>
-        [HttpDelete("delete-by-status-two")]
-        public IActionResult DeleteApplicationsWithStatusTwo()
-        {
-            try
-            {
-                DeletionResult result = _applicationBLL.DeleteApplicationsWithStatusTwo();
-
-                _logger.LogInformation($"Deleted {result.DeletedApplicationsCount} applications and {result.DeletedFilesCount} files with Status ID = 2");
-
-                return Ok(new
-                {
-                    success = result.Success,
-                    message = result.GetMessage(),
-                    data = new
-                    {
-                        deletedApplications = result.DeletedApplicationsCount,
-                        deletedFiles = result.DeletedFilesCount
-                    }
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { success = false, message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting applications with status 2");
-                return StatusCode(500, new 
-                { 
-                    success = false, 
-                    message = $"An error occurred while deleting applications: {ex.Message}" 
-                });
-            }
-        }
-
-        /// <summary>
-        /// Deletes all applications with the specified status ID and their related files (byte arrays in database)
-        /// </summary>
-        [HttpDelete("delete-by-status/{statusId}")]
-        public IActionResult DeleteApplicationsByStatus(int statusId)
-        {
-            try
-            {
-                DeletionResult result = _applicationBLL.DeleteApplicationsByStatus(statusId);
-
-                _logger.LogInformation($"Deleted {result.DeletedApplicationsCount} applications and {result.DeletedFilesCount} files with Status ID = {statusId}");
-
-                return Ok(new
-                {
-                    success = result.Success,
-                    message = result.GetMessage(),
-                    statusId = statusId,
-                    data = new
-                    {
-                        deletedApplications = result.DeletedApplicationsCount,
-                        deletedFiles = result.DeletedFilesCount
-                    }
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { success = false, message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error deleting applications with status {statusId}");
-                return StatusCode(500, new 
-                { 
-                    success = false, 
-                    message = $"An error occurred while deleting applications: {ex.Message}" 
-                });
-            }
-        }
-    }
-}
-*/
+-- ================================================
+-- Example Usage:
+-- ================================================
+-- DECLARE @DeletedApps INT, @DeletedFiles INT
+-- EXEC sp_DeleteApplicationsByStatus @StatusId = 2, @DeletedCount = @DeletedApps OUTPUT, @DeletedFilesCount = @DeletedFiles OUTPUT
+-- SELECT @DeletedApps AS DeletedApplications, @DeletedFiles AS DeletedFiles
+-- GO
