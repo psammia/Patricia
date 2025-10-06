@@ -1,66 +1,82 @@
--- Stored Procedure to delete all applications with StatusId and their related files
--- ================================================
--- Stored Procedure: sp_DeleteApplicationsByStatus
--- Description: Deletes all applications with a specific StatusId 
---              and their related files (stored as byte arrays)
--- ================================================
-CREATE PROCEDURE sp_DeleteApplicationsByStatus
-    @StatusId INT,
-    @DeletedCount INT OUTPUT,
-    @DeletedFilesCount INT OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    BEGIN TRY
-        BEGIN TRANSACTION;
-        
-        -- Get count of applications to be deleted
-        SELECT @DeletedCount = COUNT(*)
-        FROM Applications
-        WHERE StatusId = @StatusId;
-        
-        -- Get count of files to be deleted
-        SELECT @DeletedFilesCount = COUNT(*)
-        FROM appfiles
-        WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId);
-        
-        -- Delete files from appfiles table first (foreign key constraint)
-        -- This will remove all file records including the byte arrays
-        DELETE FROM appfiles
-        WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId);
-        
-        -- Delete other related records if any (add more as needed)
-        -- Example: DELETE FROM ApplicationDocuments WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId)
-        -- Example: DELETE FROM ApplicationNotes WHERE ApplicationId IN (SELECT ApplicationId FROM Applications WHERE StatusId = @StatusId)
-        
-        -- Delete applications
-        DELETE FROM Applications
-        WHERE StatusId = @StatusId;
-        
-        COMMIT TRANSACTION;
-        
-        RETURN 0; -- Success
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
-            
-        -- Return error
-        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
-        
-        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
-        RETURN -1; -- Error
-    END CATCH
-END
-GO
+using System;
+using YourNamespace.DAL;
 
--- ================================================
--- Example Usage:
--- ================================================
--- DECLARE @DeletedApps INT, @DeletedFiles INT
--- EXEC sp_DeleteApplicationsByStatus @StatusId = 2, @DeletedCount = @DeletedApps OUTPUT, @DeletedFilesCount = @DeletedFiles OUTPUT
--- SELECT @DeletedApps AS DeletedApplications, @DeletedFiles AS DeletedFiles
--- GO
+namespace YourNamespace.BLL
+{
+    public class ApplicationBLL
+    {
+        private readonly ApplicationDAL _applicationDAL;
+
+        public ApplicationBLL()
+        {
+            _applicationDAL = new ApplicationDAL();
+        }
+
+        public ApplicationBLL(ApplicationDAL applicationDAL)
+        {
+            _applicationDAL = applicationDAL;
+        }
+
+        /// <summary>
+        /// Deletes all applications with the specified status ID along with their files (stored as byte arrays in database)
+        /// </summary>
+        /// <param name="statusId">The status ID to filter applications</param>
+        /// <returns>Deletion result with counts</returns>
+        public DeletionResult DeleteApplicationsByStatus(int statusId)
+        {
+            try
+            {
+                // Business validation
+                if (statusId <= 0)
+                {
+                    throw new ArgumentException("Status ID must be greater than zero.", nameof(statusId));
+                }
+
+                // Delete from database (applications and appfiles records with byte arrays)
+                var (deletedApps, deletedFiles) = _applicationDAL.DeleteApplicationsByStatus(statusId);
+
+                // You can add additional business logic here
+                // For example: Log the deletion, send notifications, update audit logs, etc.
+
+                return new DeletionResult
+                {
+                    DeletedApplicationsCount = deletedApps,
+                    DeletedFilesCount = deletedFiles,
+                    Success = true
+                };
+            }
+            catch (ArgumentException ex)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Business logic error while deleting applications: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Deletes all applications with Status ID = 2 (specific method)
+        /// </summary>
+        /// <returns>Deletion result</returns>
+        public DeletionResult DeleteApplicationsWithStatusTwo()
+        {
+            return DeleteApplicationsByStatus(2);
+        }
+    }
+
+    /// <summary>
+    /// Result class for deletion operations
+    /// </summary>
+    public class DeletionResult
+    {
+        public bool Success { get; set; }
+        public int DeletedApplicationsCount { get; set; }
+        public int DeletedFilesCount { get; set; }
+
+        public string GetMessage()
+        {
+            return $"Successfully deleted {DeletedApplicationsCount} application(s) and {DeletedFilesCount} file(s) from database.";
+        }
+    }
+}
