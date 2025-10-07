@@ -33,41 +33,18 @@ namespace BLL
     public partial class Bll
     {
         #region Delete Applications By Status
-        public async Task<(List<DeletedApplicationInfo> deletedApps, int filesCount)> Delete_ApplicationsByStatus(Delete_ApplicationsByStatus_Request request)
+        public async Task Delete_ApplicationsByStatus(Delete_ApplicationsByStatus_Request request)
         {
             DapperDal dal = new DapperDal(_globalSettings.ConnString);
             DynamicParameters parameters = new DynamicParameters();
             
             parameters.Add("P__StatusId", request.StatusId);
 
-            // Get deleted applications info
-            IEnumerable<DeletedApplicationInfo> deletedAppsResult = await dal.ExecuteQueryAsync<DeletedApplicationInfo>(
+            await dal.ExecuteQueryAsync<dynamic>(
                 "usp_DeleteApplicationsByStatus",
                 parameters,
                 CommandType.StoredProcedure,
                 DapperDal.CommandDirection.Delete);
-
-            List<DeletedApplicationInfo> deletedApps = deletedAppsResult.ToList();
-
-            // Get deleted files count
-            DynamicParameters countParameters = new DynamicParameters();
-            countParameters.Add("P__StatusId", request.StatusId);
-
-            IEnumerable<DeletedFilesCount> filesCountResult = await dal.ExecuteQueryAsync<DeletedFilesCount>(
-                "usp_GetDeletedFilesCount",
-                countParameters,
-                CommandType.StoredProcedure,
-                DapperDal.CommandDirection.Select);
-
-            int filesCount = filesCountResult.FirstOrDefault()?.FilesCount ?? 0;
-
-            return (deletedApps, filesCount);
-        }
-
-        // Helper class for files count
-        private class DeletedFilesCount
-        {
-            public int FilesCount { get; set; }
         }
         #endregion
     }
