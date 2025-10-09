@@ -1,256 +1,42 @@
-// ========================================
-// FILE: Models/Request.cs (ADD TO EXISTING)
-// ========================================
-namespace BLL.Models
-{
-    #region Delete Applications By Status Request
-    public class Delete_ApplicationsByStatus_Request
-    {
-        public required BaseRequest BaseRequest { get; set; }
-        public Int32 StatusId { get; set; } = 2;
-    }
-    #endregion
-}
-
-// ========================================
-// FILE: Models/Response.cs (ADD TO EXISTING)
-// ========================================
-namespace BLL.Models
-{
-    #region Delete Applications By Status Response
-    public class Delete_ApplicationsByStatus_Response
-    {
-        public BaseResponse BaseResponse { get; set; } = new BaseResponse();
-    }
-    #endregion
-}
-
-// ========================================
-// FILE: BLL/Bll.cs (ADD TO EXISTING CLASS)
-// ========================================
-namespace BLL
-{
-    public partial class Bll
-    {
-        #region Delete Applications By Status
-        public async Task Delete_ApplicationsByStatus(Delete_ApplicationsByStatus_Request request)
-        {
-            DapperDal dal = new DapperDal(_globalSettings.ConnString);
-            DynamicParameters parameters = new DynamicParameters();
-            
-            parameters.Add("P__StatusId", request.StatusId);
-
-            await dal.ExecuteQueryAsync<dynamic>(
-                "usp_DeleteApplicationsByStatus",
-                parameters,
-                CommandType.StoredProcedure,
-                DapperDal.CommandDirection.Delete);
-        }
-        #endregion
-    }
-}
-
-// ========================================
-// FILE: Controllers/OnBoardingController.cs (ADD TO EXISTING)
-// ========================================
-namespace Alterna_OnBoarding.Controllers
-{
-    public partial class OnBoardingController
-    {
-        #region Delete Applications By Status
-        [HttpPost]
-        [Route("Delete_ApplicationsByStatus")]
-        public async Task<Delete_ApplicationsByStatus_Response> Delete_ApplicationsByStatus([FromBody] Delete_ApplicationsByStatus_Request request)
-        {
-            Delete_ApplicationsByStatus_Response response = new Delete_ApplicationsByStatus_Response()
-            {
-                BaseResponse = new BaseResponse()
-                {
-                    CorrelationId = request.BaseRequest.CorrelationId,
-                    ReturnCode = _responseCodesDictionary["200"].Content,
-                    ReturnDescription = _responseCodesDictionary["200"].Description
-                }
-            };
-
-            CorrelationInfo correlationInfo = new CorrelationInfo()
-            {
-                CorrelationId = request.BaseRequest.CorrelationId,
-                RDirection = RequestDirection.Request,
-                RequestURL = "DeleteApplicationsByStatus",
-                UserName = _globalSettings.AppUsername
-            };
-
-            try
-            {
-                #region DataGuard
-                List<KeyValuePair<DataIntegrityCheckfunctions, Property>> dataGuardDict =
-                [
-                    new(DataIntegrityCheckfunctions.IS_CORRELATION_ID_INVALID, new Property()
-                    {
-                        PropName = "CorrelationId",
-                        PropValue = correlationInfo.CorrelationId
-                    })
-                ];
-
-                // Validate StatusId
-                if (request.StatusId <= 0)
-                {
-                    throw new SGBLBadRequestException("StatusId must be greater than 0");
-                }
-
-                DataIntegrityCheck(dataGuardDict);
-                #endregion
-
-                correlationInfo.Reserved = "DeleteApplicationsByStatus has been called with the following Request";
-                LogInfoJson(request, correlationInfo);
-
-                // Call BLL method
-                await _bll.Delete_ApplicationsByStatus(request);
-
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = "DeleteApplicationsByStatus completed successfully";
-                LogInfoJson(response, correlationInfo);
-
-                return response;
-            }
-            catch (SGBLBadRequestException ex)
-            {
-                StringBuilder sb = new(_responseCodesDictionary["400"].Description);
-                sb.Replace("{0}", ex.Message);
-
-                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
-                response.BaseResponse.ReturnCode = _responseCodesDictionary["400"].Content;
-                response.BaseResponse.ReturnDescription = sb.ToString();
-                
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = ex.Message;
-                LogErrorJson(response, correlationInfo, ex);
-
-                return response;
-            }
-            catch (Exception ex)
-            {
-                StringBuilder sb = new(_responseCodesDictionary["500"].Description);
-                sb.Replace("{0}", ex.Message);
-
-                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
-                response.BaseResponse.ReturnCode = _responseCodesDictionary["500"].Content;
-                response.BaseResponse.ReturnDescription = sb.ToString();
-
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = ex.Message;
-                LogErrorJson(response, correlationInfo, ex);
-
-                return response;
-            }
-        }
-        #endregion
-    }
-}
-
-// ========================================
-// FILE: Database/usp_DeleteApplicationsByStatus.sql
-// ========================================
-/*
-USE [Alterna.OnBoarding]
+USE [Alterna.TopUp]
 GO
-
--- =====================================================================
--- Author:      Patricia Sammia
--- Create date: 03-10-2025
--- Description: Delete Applications and their Files by StatusId
--- =====================================================================
-CREATE OR ALTER PROCEDURE [dbo].[usp_DeleteApplicationsByStatus]
+/****** Object:  Table [dbo].[t_Transaction]    Script Date: 09/10/2025 8:25:34 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[t_Transaction](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[SessionId] [nvarchar](35) NOT NULL,
+	[TransactionId] [nvarchar](40) NOT NULL,
+	[OrderId] [nvarchar](40) NOT NULL,
+	[CustomerId] [int] NOT NULL,
+	[AccountNo] [nvarchar](16) NOT NULL,
+	[Amount] [decimal](18, 4) NOT NULL,
+	[Currency] [nvarchar](3) NOT NULL,
+	[CardNo] [nvarchar](4) NOT NULL,
+	[FirstName] [nvarchar](255) NOT NULL,
+	[LastName] [nvarchar](255) NOT NULL,
+	[FtRef] [nvarchar](50) NULL,
+	[StatusCode] [nvarchar](50) NOT NULL,
+	[CreatedBy] [nvarchar](255) NOT NULL,
+	[CreatedDate] [datetime2](0) NOT NULL,
+	[LastModifiedBy] [nvarchar](255) NOT NULL,
+	[LastModifiedDate] [datetime2](0) NOT NULL,
+ CONSTRAINT [PK_t_Transaction] PRIMARY KEY CLUSTERED 
 (
-    @P__StatusId INT
-)
-AS
-BEGIN
-    SET NOCOUNT ON;
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
 
-    BEGIN TRY
-        BEGIN TRANSACTION;
-
-        -- Delete related files first (foreign key constraint)
-        DELETE f
-        FROM dbo.t_App_Files f
-        INNER JOIN dbo.t_Application a ON f.App_Id = a.Id
-        WHERE a.StatusId = @P__StatusId;
-
-        -- Delete applications
-        DELETE FROM dbo.t_Application
-        WHERE StatusId = @P__StatusId;
-
-        COMMIT TRANSACTION;
-
-    END TRY
-    BEGIN CATCH
-        -- Rollback if any error happens
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
-
-        DECLARE @ErrorMessage NVARCHAR(4000),
-                @ErrorSeverity INT,
-                @ErrorState INT;
-
-        SELECT
-            @ErrorMessage = ERROR_MESSAGE(),
-            @ErrorSeverity = ERROR_SEVERITY(),
-            @ErrorState = ERROR_STATE();
-
-        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
-    END CATCH
-END
 GO
-*/
-
-// ========================================
-// Sample Request/Response
-// ========================================
-/*
-POST /api/OnBoarding/Delete_ApplicationsByStatus
-Content-Type: application/json
-
-REQUEST (Default StatusId = 2):
-{
-  "baseRequest": {
-    "correlationId": "12345-67890-ABCDE-2025"
-  },
-  "statusId": 2
-}
-
-REQUEST (Custom StatusId):
-{
-  "baseRequest": {
-    "correlationId": "12345-67890-ABCDE-2025"
-  },
-  "statusId": 3
-}
-
-RESPONSE (Success):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "200",
-    "returnDescription": "Success"
-  }
-}
-
-RESPONSE (Bad Request):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "400",
-    "returnDescription": "Bad Request: StatusId must be greater than 0"
-  }
-}
-
-RESPONSE (Error):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "500",
-    "returnDescription": "Internal Server Error: {error message}"
-  }
-}
-*/
+ALTER TABLE [dbo].[t_Transaction] ADD  CONSTRAINT [DF_t_Transaction_StatusCode]  DEFAULT (N'Success') FOR [StatusCode]
+GO
+ALTER TABLE [dbo].[t_Transaction] ADD  CONSTRAINT [DF_t_Transaction_CreatedBy]  DEFAULT (N'AlternaSystem') FOR [CreatedBy]
+GO
+ALTER TABLE [dbo].[t_Transaction] ADD  CONSTRAINT [DF_t_Transaction_CreatedDate]  DEFAULT (getdate()) FOR [CreatedDate]
+GO
+ALTER TABLE [dbo].[t_Transaction] ADD  CONSTRAINT [DF_t_Transaction_LastModifiedBy]  DEFAULT (N'AlternaSystem') FOR [LastModifiedBy]
+GO
+ALTER TABLE [dbo].[t_Transaction] ADD  CONSTRAINT [DF_t_Transaction_LastModifiedDate]  DEFAULT (getdate()) FOR [LastModifiedDate]
+GO
