@@ -94,6 +94,16 @@ CREATE TABLE [dbo].[lkp_Status](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]
 
+Id	Code	Description	Category	CreatedBy	CreatedDate	LastModifiedBy	LastModifiedDate
+1	PENDING	Container created	CONTAINER	ArchivingInit	2024-06-10 10:54:26.733	ArchivingInit	2024-06-10 10:54:26.733
+2	SENTFORVAL	Container sent for validation by the  RCA	CONTAINER	ArchivingInit	2024-06-10 10:54:26.740	ArchivingInit	2024-06-10 10:54:26.740
+3	VALIDATED	Container status validate by the DA	CONTAINER	ArchivingInit	2024-06-10 10:54:26.740	ArchivingInit	2024-06-10 10:54:26.740
+4	SENT	Container sent to the warehouse	CONTAINER	ArchivingInit	2024-06-10 10:54:26.747	ArchivingInit	2024-06-10 10:54:26.747
+5	RECEIVED	Container received to the warehouse	CONTAINER	ArchivingInit	2024-06-10 10:54:26.750	ArchivingInit	2024-06-10 10:54:26.750
+6	TOBEDESTR	Container reaching the expiry date, waiting to be destroyed	CONTAINER	ArchivingInit	2024-06-10 10:54:26.753	ArchivingInit	2024-06-10 10:54:26.753
+7	DESTROYED	Container destroyed	CONTAINER	ArchivingInit	2024-06-10 10:54:26.757	ArchivingInit	2024-06-10 10:54:26.757
+
+
 GO
 /****** Object:  Table [dbo].[t_Company]    Script Date: 17/10/2025 11:05:56 AM ******/
 SET ANSI_NULLS ON
@@ -403,7 +413,924 @@ ALTER TABLE [dbo].[t_Sequence] ADD  DEFAULT (getdate()) FOR [LastModifiedDate]
 GO
 
 1) Project No.1 Name: Archiving that communicates with project No.1 through API call
-2) Project No.2 Name: PdfGenerator  
+   Composed from BackEnd and FrontEnd, using MVC.
+   Back:  is composed from Archiving.Controller + BLL + CustomCode class for events.
+   Front is composed from FilesController
+
+ == FilesController.cs
+        public ActionResult ReDownloadSendPDF(String boxReference)
+        {
+            DownloadPDFModel model = new();
+            DownloadPDFRes downloadPDFRes = Common.ApiCall<DownloadPDFRes>(new DownloadPDFReq()
+            {
+                BaseReq = new BaseRequest(HttpContext,GetSession("ArchiveData")),
+                ContainerID = boxReference
+            }, "DownloadPDF");
+
+            if (downloadPDFRes.Resp is null || downloadPDFRes.Resp.Length == 0)
+            {
+                HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
+                HttpContext.Session.SetString("ErrorMessage", "Invalid PDF");
+
+                throw new ErrorHandler(new ErrorModel() { ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, ErrorMessage = "Invalid PDF" });
+            }
+
+
+            String PDF = downloadPDFRes.Resp ?? String.Empty;
+
+            if (PDF == String.Empty)
+            {
+                HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
+                HttpContext.Session.SetString("ErrorMessage", "Invalid PDF");
+
+                throw new ErrorHandler(new ErrorModel() { ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, ErrorMessage = "PDF Server Not Responding" });
+            }
+            Byte[] bytearray = new Byte[PDF.Length / 2];
+            for (Int32 i = 0; i < PDF.Length; i += 2)
+            {
+                bytearray[i / 2] = Convert.ToByte(PDF.Substring(i, 2), 16);
+            }
+
+            String ModifiedRef = boxReference;
+            Regex specialCharacters = new("""
+                                            [<]|[>]|[:]|["]|[/]|[\\]|[|]|[?]|[*]
+                                            """);
+            ModifiedRef = specialCharacters.Replace(ModifiedRef, "_");
+            FileContentResult fileContentResult = new(bytearray, "application/pdf")
+            {
+                FileDownloadName = $"{ModifiedRef}_{DateTime.Now:yyyy-MM-dd hh-mm-ss}.pdf"
+            };
+
+            return fileContentResult;
+
+        }
+
+
+=== BLL.cs
+        public String DownloadPDF(DownloadPDFReq downloadPDFReq)
+        {
+            OnPreEventDownloadPDF?.Invoke(ref downloadPDFReq);
+
+            String data = JsonConvert.SerializeObject(downloadPDFReq);
+            HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+            HttpClient client = new();
+            String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ??
+                                    throw new SGBLInternalServerException(
+                                        "PDF Service not initialized please Contact Support");
+
+            Task<HttpResponseMessage>
+                Request = client.PostAsync($"{PDFRequestBase}RedownloadDocPDFForArchive", content);
+
+            Request.Wait();
+            Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+            responseString.Wait();
+
+            String Ret = responseString.Result;
+            OnPostEventDownloadPDF?.Invoke(ref Ret, ref downloadPDFReq);
+
+            return Ret;
+        }
+
+        #region EditContainerStatus
+
+        public Container EditContainerStatus(EditContainerStatusReq editContainerStatusReq)
+        {
+            DAL.DAL iDAL = new();
+
+            Container Ret = new();
+
+            OnPreEventEditContainerStatus?.Invoke(ref editContainerStatusReq);
+
+            DynamicParameters param = new();
+
+            param.Add("ContainerId", editContainerStatusReq.ContainerId);
+            param.Add("StatusCode", editContainerStatusReq.StatusCode);
+            param.Add("HoldingEntityCode", editContainerStatusReq.HoldingEntityCode);
+            param.Add("User", editContainerStatusReq.BaseReq.CurrentUser);
+
+            Ret = iDAL.ExecuteQuery<Container>("usp_EditContainerStatus", param, CommandType.StoredProcedure,
+                CommandDirection.Update).FirstOrDefault()!;
+
+            OnPostEventEditContainerStatus?.Invoke(ref Ret, ref editContainerStatusReq);
+
+            return Ret;
+        }
+
+===Back === ArchivingController.cs
+
+		        [HttpPost]
+        [Route("DownloadPDF")]
+        public DownloadPDFRes DownloadPDF(DownloadPDFReq downloadPDFReq)
+        {
+            DownloadPDFRes response = new()
+            {
+                Req = downloadPDFReq
+            };
+
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = downloadPDFReq.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "DownloadPDF",
+                UserName = downloadPDFReq.BaseReq.CurrentUser
+            };
+
+            try
+            {
+                String CorrelationId = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CorrelationId;
+                String CurrentUser = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CurrentUser;
+
+                if (String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) && String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch))
+                {
+                    throw new SGBLBadRequestException($"{nameof(DownloadPDFReq.BaseReq.CurrentEntity)} and {nameof(DownloadPDFReq.BaseReq.CurrentBranch)} Cannot Be null or empty");
+                }
+
+                String CurrentEntity = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) ? String.Empty : downloadPDFReq.BaseReq.CurrentEntity;
+                String CurrentBranch = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch) ? String.Empty : downloadPDFReq.BaseReq.CurrentBranch;
+
+                LogInfo("DownloadPDF Has been called with the following Request", correlationInfo);
+                LogInfoJson(downloadPDFReq, correlationInfo);
+
+                correlationInfo.RDirection = RequestDirection.Processing;
+
+                #region Data Guard Check
+                using (BLL.BLL oBLL = new(CurrentUser))
+                {
+                    LogInfo("Data guard checks have started", correlationInfo);
+
+                    Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
+                    {
+                        { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(downloadPDFReq) }
+                    };
+
+                    oBLL.DataIntegrityCheck(DataGuardDictionnary);
+
+                    LogInfo("Data guard check successful", correlationInfo);
+
+                    LogInfo("Start of UpdateConfiguration call", correlationInfo);
+
+                    response.Resp = oBLL.DownloadPDF(downloadPDFReq);
+
+                    if (response.Resp == null)
+                    {
+                        throw new SGBLInternalServerException($"Failed to get box reference");
+                    }
+
+                    response.WebResp.CorrelationId = CorrelationId;
+                    response.WebResp.User = CurrentUser;
+                    response.WebResp.Entity = CurrentEntity;
+                    response.WebResp.Branch = CurrentBranch;
+                    response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+
+                    correlationInfo.RDirection = RequestDirection.Response;
+
+                    LogInfo("GetCustomer Has Replied with the Following response", correlationInfo);
+                    LogInfoJson(response, correlationInfo);
+                    LogInfo("Calling the GetCustomer is completed", correlationInfo);
+                }
+
+                return response;
+                #endregion
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : downloadPDFReq.BaseReq.CurrentEntity!;
+                response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : downloadPDFReq.BaseReq.CurrentBranch!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                //this was added in case correlation Id was invalid(null or Empty)
+                correlationInfo.CorrelationId = response.WebResp.CorrelationId;
+                //this was added in case Username was invalid(null or Empty)
+                correlationInfo.UserName = response.WebResp.User;
+
+                //don't forget to change status code in case of exception
+                correlationInfo.StatusCode = HttpStatusCode.BadRequest;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (SGBLInternalServerException ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.NoContent;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.StackTrace, correlationInfo);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+        }
+
+		        [HttpPost]
+        [Route("EditContainerStatus")]
+        public EditContainerStatusRes EditContainerStatus(EditContainerStatusReq editContainerStatusReq)
+        {
+            EditContainerStatusRes response = new()
+            {
+                Req = editContainerStatusReq
+            };
+
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = editContainerStatusReq.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "EditContainerStatus",
+                UserName = editContainerStatusReq.BaseReq.CurrentUser
+            };
+
+            try
+            {
+                String CorrelationId = String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : editContainerStatusReq.BaseReq.CorrelationId;
+                String CurrentUser = String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : editContainerStatusReq.BaseReq.CurrentUser;
+
+                if (String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CurrentEntity) && String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CurrentBranch))
+                {
+                    throw new SGBLBadRequestException($"{nameof(editContainerStatusReq.BaseReq.CurrentEntity)} and {nameof(editContainerStatusReq.BaseReq.CurrentBranch)} Cannot Be null or empty");
+                }
+
+                String CurrentEntity = String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CurrentEntity) ? String.Empty : editContainerStatusReq.BaseReq.CurrentEntity;
+                String CurrentBranch = String.IsNullOrEmpty(editContainerStatusReq.BaseReq.CurrentBranch) ? String.Empty : editContainerStatusReq.BaseReq.CurrentBranch;
+
+                LogInfo("EditContainerStatus Has been called with the following Request", correlationInfo);
+                LogInfoJson(editContainerStatusReq, correlationInfo);
+
+                correlationInfo.RDirection = RequestDirection.Processing;
+
+                #region Data Guard Check
+                using (BLL.BLL oBLL = new(CurrentUser))
+                {
+                    LogInfo("Data guard checks have started", correlationInfo);
+
+                    Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
+                    {
+                        { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(editContainerStatusReq) },
+                        { DataIntegrityCheckFunctions.IS_NEGATIVE, editContainerStatusReq.ContainerId }
+                    };
+
+                    oBLL.DataIntegrityCheck(DataGuardDictionnary);
+
+                    LogInfo("Data guard check successful", correlationInfo);
+
+                    LogInfo("Start of EditContainerStatus call", correlationInfo);
+
+                    response.Resp = oBLL.EditContainerStatus(editContainerStatusReq);
+
+                    if (response.Resp == null)
+                    {
+                        throw new SGBLInternalServerException("Failed editing the container status of container Id: " + editContainerStatusReq.ContainerId);
+                    }
+
+                    response.WebResp.CorrelationId = CorrelationId;
+                    response.WebResp.User = CurrentUser;
+                    response.WebResp.Entity = CurrentEntity;
+                    response.WebResp.Branch = CurrentBranch;
+                    response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+                    response.Req = editContainerStatusReq;
+
+                    correlationInfo.RDirection = RequestDirection.Response;
+
+                    LogInfo("EditContainerStatus Has Replied with the Following response", correlationInfo);
+                    LogInfoJson(response, correlationInfo);
+                    LogInfo("Calling the EditContainerStatus is completed", correlationInfo);
+                }
+
+                return response;
+                #endregion
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : editContainerStatusReq.BaseReq.CorrelationId!;
+                response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : editContainerStatusReq.BaseReq.CurrentUser!;
+                response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : editContainerStatusReq.BaseReq.CurrentEntity!;
+                response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : editContainerStatusReq.BaseReq.CurrentBranch!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = new();
+
+                //this was added in case correlation Id was invalid(null or Empty)
+                correlationInfo.CorrelationId = response.WebResp.CorrelationId;
+                //this was added in case Username was invalid(null or Empty)
+                correlationInfo.UserName = response.WebResp.User;
+
+                //don't forget to change status code in case of exception
+                correlationInfo.StatusCode = HttpStatusCode.BadRequest;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (SGBLInternalServerException ex)
+            {
+                response.WebResp.CorrelationId = editContainerStatusReq.BaseReq.CorrelationId!;
+                response.WebResp.User = editContainerStatusReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = new();
+
+                correlationInfo.StatusCode = HttpStatusCode.NoContent;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.WebResp.CorrelationId = editContainerStatusReq.BaseReq.CorrelationId!;
+                response.WebResp.User = editContainerStatusReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+                response.Resp = new();
+
+                correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.StackTrace, correlationInfo);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+        }
+		    #region Edit Container Status Prevent Adition
+    public partial class EditContainerStatusReq
+    {
+        public String? PDF { get; set; }
+    }
+	    public partial class EditContainerStatusRes
+    {
+        public BaseResponse WebResp { get; set; } = new BaseResponse();
+        public required EditContainerStatusReq Req { get; set; }
+        public Container? Resp { get; set; }
+    }
+    
+		    public partial class DownloadPDFReq
+    {
+        public BaseRequest BaseReq { get; set; } = new BaseRequest();
+        public required String ContainerID { get; set; }
+        public ArchivingDocumentType? DocumentType { get; set; }
+    }
+	    public partial class DownloadPDFRes
+    {
+        public BaseResponse WebResp { get; set; } = new BaseResponse();
+        public required DownloadPDFReq Req { get; set; }
+        public String? Resp { get; set; }
+    }
+====Controller.cs
+
+		    public class DownloadPDFModel
+    {
+        public List<FileType> FileTypeList { get; set; } = [];
+        public List<SelectListItem> EntityList { get; set; } = [];
+
+    }
+	    public partial class DownloadPDFRes
+    {
+        public BaseResponse WebResp { get; set; } = new BaseResponse();
+        public DownloadPDFReq? Req { get; set; }
+        public String Resp { get; set; } = String.Empty;
+    }
+
+	=== BLL.cs ====
+        [HttpPost]
+        [Route("DownloadPDF")]
+        public DownloadPDFRes DownloadPDF(DownloadPDFReq downloadPDFReq)
+        {
+            DownloadPDFRes response = new()
+            {
+                Req = downloadPDFReq
+            };
+
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = downloadPDFReq.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "DownloadPDF",
+                UserName = downloadPDFReq.BaseReq.CurrentUser
+            };
+
+            try
+            {
+                String CorrelationId = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CorrelationId;
+                String CurrentUser = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CurrentUser;
+
+                if (String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) && String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch))
+                {
+                    throw new SGBLBadRequestException($"{nameof(DownloadPDFReq.BaseReq.CurrentEntity)} and {nameof(DownloadPDFReq.BaseReq.CurrentBranch)} Cannot Be null or empty");
+                }
+
+                String CurrentEntity = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) ? String.Empty : downloadPDFReq.BaseReq.CurrentEntity;
+                String CurrentBranch = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch) ? String.Empty : downloadPDFReq.BaseReq.CurrentBranch;
+
+                LogInfo("DownloadPDF Has been called with the following Request", correlationInfo);
+                LogInfoJson(downloadPDFReq, correlationInfo);
+
+                correlationInfo.RDirection = RequestDirection.Processing;
+
+                #region Data Guard Check
+                using (BLL.BLL oBLL = new(CurrentUser))
+                {
+                    LogInfo("Data guard checks have started", correlationInfo);
+
+                    Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
+                    {
+                        { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(downloadPDFReq) }
+                    };
+
+                    oBLL.DataIntegrityCheck(DataGuardDictionnary);
+
+                    LogInfo("Data guard check successful", correlationInfo);
+
+                    LogInfo("Start of UpdateConfiguration call", correlationInfo);
+
+                    response.Resp = oBLL.DownloadPDF(downloadPDFReq);
+
+                    if (response.Resp == null)
+                    {
+                        throw new SGBLInternalServerException($"Failed to get box reference");
+                    }
+
+                    response.WebResp.CorrelationId = CorrelationId;
+                    response.WebResp.User = CurrentUser;
+                    response.WebResp.Entity = CurrentEntity;
+                    response.WebResp.Branch = CurrentBranch;
+                    response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+
+                    correlationInfo.RDirection = RequestDirection.Response;
+
+                    LogInfo("GetCustomer Has Replied with the Following response", correlationInfo);
+                    LogInfoJson(response, correlationInfo);
+                    LogInfo("Calling the GetCustomer is completed", correlationInfo);
+                }
+
+                return response;
+                #endregion
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : downloadPDFReq.BaseReq.CurrentEntity!;
+                response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : downloadPDFReq.BaseReq.CurrentBranch!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                //this was added in case correlation Id was invalid(null or Empty)
+                correlationInfo.CorrelationId = response.WebResp.CorrelationId;
+                //this was added in case Username was invalid(null or Empty)
+                correlationInfo.UserName = response.WebResp.User;
+
+                //don't forget to change status code in case of exception
+                correlationInfo.StatusCode = HttpStatusCode.BadRequest;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (SGBLInternalServerException ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.NoContent;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.StackTrace, correlationInfo);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+        }
+
+		
+		    public partial class DownloadPDFRes
+    {
+        public BaseResponse WebResp { get; set; } = new BaseResponse();
+        public required DownloadPDFReq Req { get; set; }
+        public String? Resp { get; set; }
+    }
+
+	    public partial class DownloadPDFReq
+    {
+        public BaseRequest BaseReq { get; set; } = new BaseRequest();
+        public required String ContainerID { get; set; }
+        public ArchivingDocumentType? DocumentType { get; set; }
+    }
+
+
+        public Container EditContainerStatus(EditContainerStatusReq editContainerStatusReq)
+        {
+            DAL.DAL iDAL = new();
+
+            Container Ret = new();
+
+            OnPreEventEditContainerStatus?.Invoke(ref editContainerStatusReq);
+
+            DynamicParameters param = new();
+
+            param.Add("ContainerId", editContainerStatusReq.ContainerId);
+            param.Add("StatusCode", editContainerStatusReq.StatusCode);
+            param.Add("HoldingEntityCode", editContainerStatusReq.HoldingEntityCode);
+            param.Add("User", editContainerStatusReq.BaseReq.CurrentUser);
+
+            Ret = iDAL.ExecuteQuery<Container>("usp_EditContainerStatus", param, CommandType.StoredProcedure,
+                CommandDirection.Update).FirstOrDefault()!;
+
+            OnPostEventEditContainerStatus?.Invoke(ref Ret, ref editContainerStatusReq);
+
+            return Ret;
+        }
+
+=== CustomerCode.cs
+        private void BLL_OnPreEventEditContainerStatus(ref EditContainerStatusReq editContainerStatusReq)
+        {
+            if (editContainerStatusReq.StatusCode.Equals(ContainerStatusCode.SENT.ToString()) && !String.IsNullOrEmpty(editContainerStatusReq.Code))
+            {
+                editContainerStatusReq.PDF = String.Empty;
+                String Entity = GetActiveEntity(editContainerStatusReq.HoldingEntityCode);
+
+                GetContainerFilesReq getContainerFilesReq = new()
+                {
+                    BaseReq = editContainerStatusReq.BaseReq,
+                    ContainerId = editContainerStatusReq.ContainerId
+                };
+
+                List<ArchivedFile> files = [];
+                files = GetContainerFiles(getContainerFilesReq).Files;
+                if (files.Count > 0 || editContainerStatusReq.Code is not null)
+                {
+                    Boolean Unlimited = false;
+                    DateTime ArchivePeriod = DateTime.Now;
+                    ArchivePeriod = ArchivePeriod.AddYears(files[0].ArchivingPeriod);
+
+                    if (files[0].ArchivingPeriod == -1)
+                    {
+                        Unlimited = true;
+                    }
+
+                    if (files[0].CustomerId != null)
+                    {
+                        CustomerDocRequest customerDocRequest = new()
+                        {
+                            DestructionDate = Unlimited? "Unlimited":$"{ArchivePeriod:dd/MM/yyyy}",
+                            ContainerID = editContainerStatusReq.Code!,
+                            Entity = Entity,
+                            User = editContainerStatusReq.BaseReq.CurrentUser!,
+                            CustomerFiles = [],
+                            CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
+                        };
+
+                        Dictionary<String,List<String?>> fileDict=[];
+                        foreach (ArchivedFile item in files)
+                        {
+                            if (!fileDict.ContainsKey(item.Name))
+                            {
+                                fileDict.Add(item.Name, [item.CustomerId!.ToString()]);
+                            }
+                            else
+                            {
+                                fileDict[item.Name].Add(item.CustomerId!.ToString());
+                            }
+                        }
+                        foreach (KeyValuePair<String, List<String?>> DictEntry in fileDict)
+                        {
+                            customerDocRequest.CustomerFiles.Add(new() { DocumentType = DictEntry.Key, Id = DictEntry.Value! });
+                        }
+                        try
+                        {
+                            String data=JsonConvert.SerializeObject(customerDocRequest);
+                            HttpContent content = new StringContent(data,Encoding.UTF8,"application/json");
+                            HttpClient client = new();
+                            String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"]??throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
+
+                            Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateCustomerDocPDFForArchive", content);
+
+                            Request.Wait();
+                            Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+                            responseString.Wait();
+                            editContainerStatusReq.PDF = responseString.Result;
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
+                        }
+
+                    }
+                    else if (files[0].CompanyCode.StartsWith("LB"))
+                    {
+                        BranchDocRequest branchDocRequest=new()
+                        {
+                            DestructionDate= Unlimited? "Unlimited":$"{ArchivePeriod:dd/MM/yyyy}",
+                            ContainerID=editContainerStatusReq.Code!,
+                            Entity=Entity,
+                            User =editContainerStatusReq.BaseReq.CurrentUser!,
+                            BranchFiles=[],
+                            CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
+                        };
+                        foreach (ArchivedFile item in files)
+                        {
+                            branchDocRequest.BranchFiles.Add(new()
+                            {
+                                DocumentType = item.Name,
+                                FromDate = $"{item.FromDate:dd-MM-yyyy}",
+                                ToDate = $"{item.ToDate:dd-MM-yyyy}"
+                            });
+                        }
+                        try
+                        {
+                            String data=JsonConvert.SerializeObject(branchDocRequest);
+                            HttpContent content = new StringContent(data,Encoding.UTF8,"application/json");
+                            HttpClient client = new();
+                            String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"]??throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
+
+                            Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateBranchDocPDFForArchive", content);
+
+                            Request.Wait();
+                            Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+                            responseString.Wait();
+                            editContainerStatusReq.PDF = responseString.Result;
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
+                        }
+
+                    }
+                    else if (files[0].CompanyCode.StartsWith("ET"))
+                    {
+                        EntityDocRequest entityDocRequest = new()
+                        {
+                            DestructionDate = Unlimited? "Unlimited":$"{ArchivePeriod:dd/MM/yyyy}",
+                            ContainerID = editContainerStatusReq.Code!,
+                            Entity = files[0].CompanyCode,
+                            User = editContainerStatusReq.BaseReq.CurrentUser!,
+                            EntityFiles = [],
+                            CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
+                        };
+                        foreach (ArchivedFile item in files)
+                        {
+                            entityDocRequest.EntityFiles.Add(new()
+                            {
+                                DocumentType = item.Name,
+                                DocumentDescription = item.AdditionalInfo ?? String.Empty
+                            });
+                        }
+                        try
+                        {
+                            String data = JsonConvert.SerializeObject(entityDocRequest);
+                            HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+                            HttpClient client = new();
+                            String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ?? throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
+
+                            Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateEntityDocPDFForArchive", content);
+
+                            Request.Wait();
+                            Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+                            responseString.Wait();
+                            editContainerStatusReq.PDF = responseString.Result;
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
+                        }
+                    }
+                }
+                else
+                {
+                    throw new SGBLBadRequestException($"The Container With Sequence {editContainerStatusReq.Code} Does Not Contain Any Files\n\rPlease Contact Support");
+                }
+                if (String.IsNullOrEmpty(editContainerStatusReq.PDF))
+                {
+                    throw new SGBLInternalServerException("PDF Service Malfunction");
+                }
+            }
+        }
+
+        private void BLL_OnPostEventEditContainerStatus(ref Container Container, ref EditContainerStatusReq editContainerStatusReq)
+        {
+            if (!String.IsNullOrEmpty(editContainerStatusReq.PDF))
+            {
+                Container.PDF = editContainerStatusReq.PDF;
+            }
+        }
+
+		=== Partial View
+		@using Alterna.Archive.Core.Global
+@using Alterna.Archive.Core.Models
+
+@model Alterna.Archive.Core.Models.TableModel.EntityFilesTableModel
+
+<table id="TblentityFilesTable" class="table table-striped table-bordered" style="width:100%;">
+    <thead>
+        <tr>
+            <th></th>
+            <th>Box</th>
+            <th>File Type</th>
+            <th>File Info</th>
+            <th>Period</th>
+            <th>Inputter</th>
+            <th>Archiving Date</th>
+            <th>Status</th>
+
+        </tr>
+    </thead>
+    <tbody>
+        @if (Model.EntityFilesList.Count > 0)
+        {
+            foreach (ArchivedFile file in Model.EntityFilesList)
+            {
+                String iconId = "containerDetails";
+                String containerCodes = "";
+                DateTime? archivingDate = null;
+
+                foreach (Container container in file.FileContainers)
+                {
+                    iconId += container.Id + "-";
+                    containerCodes += container.Code + "-";
+                    archivingDate = container.ArchivingDate;
+                }
+
+                iconId = iconId.Remove(iconId.Length - 1);
+                containerCodes = containerCodes.Remove(containerCodes.Length - 1);
+
+                <tr>
+                    @if (
+                   file.Status == Const.ContainerStatusCode.SENT.ToString() ||
+                   file.Status == Const.ContainerStatusCode.RECEIVED.ToString() ||
+                   file.Status == Const.ContainerStatusCode.TOBEDESTR.ToString() ||
+                   file.Status == Const.ContainerStatusCode.DESTROYED.ToString()
+                   )
+                    {
+                        <td class="text-center">
+                            <i id="@iconId" class="fa-solid fa-magnifying-glass icon-detail" title="More Details" style="cursor: pointer;" onclick="openDetails('@iconId')"></i>&nbsp;&nbsp
+                            <i id="@containerCodes" class="fa-solid fa-download" title="Re-Download PDF file" style="cursor: pointer;" onclick="downloadPDF('@containerCodes')"></i>
+                        </td>
+                    }
+                    else
+                    {
+                        <td class="text-center">
+                            <i id="@iconId" class="fa-solid fa-magnifying-glass icon-detail" title="More Details" style="cursor: pointer;" onclick="openDetails('@iconId')"></i>
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                        </td>
+                    }
+
+                    <td>@containerCodes</td>
+                    <td>@file.Name</td>
+                    <td>@file.AdditionalInfo</td>
+
+                    @if (file.ArchivingPeriod == -1)
+                    {
+                        <td>Unlimited</td>
+                    }
+                    else
+                    {
+                        <td>@file.ArchivingPeriod</td>
+                    }
+
+                    <td>@file.CreatedBy</td>
+
+                    @if (archivingDate.HasValue)
+                    {
+                        <td>@archivingDate.Value.ToString("dd/MM/yyyy")</td>
+                    }
+                    else
+                    {
+                        <td></td>
+                    }
+
+                    <td>@file.Status</td>
+                </tr>
+            }
+        }
+    </tbody>
+</table>
+
+<button id="BtnSearchAgain" type="button" class="btn btn-primary" style="margin-top: 6px" onclick="SearchAgain()">Search Again</button>
+
+<script>
+    $(document).ready(() => {
+
+        $("#TblentityFilesTable").DataTable(
+            {
+                pagingType: 'full_numbers',
+                responsive: true
+            });
+
+    })
+
+    function openDetails(containerId) {
+        let containerIds = containerId.replace("containerDetails", "").split("-");
+
+        $('#ContainerDetailsContainer').html("");
+
+
+        containerIds.forEach((containerId) => {
+
+            $.ajax({
+                type: 'POST',
+                url: '/Files/GetEntityContainerFiles/',
+                data: {
+                    ContainerId: parseInt(containerId),
+                },
+                dataType: 'html',
+                success: function (response) {
+                    $('#ContainerDetailsContainer').append('<div id="ContainerDetails' + containerId + '"></div>');
+                    $('#ContainerDetails' + containerId).html(response);
+                    $('#TableDisplay').hide();
+                },
+                error: function (xhr) {
+                    $('#MainRenderLocation').html(xhr.responseText);
+                }
+            });
+        });
+    }
+
+    function SearchAgain() {
+        $('#ContainerDetailsContainer').html("");
+        $('#TableDisplay').html("");
+        $("#EntityFilesFilterOptions").show();
+    }
+
+    function downloadPDF(boxRef) {
+        window.open('@Url.Action("ReDownloadSendPDF", "Files")?boxReference=' + boxRef, '_blank').focus();
+    }
+</script>
+
+	
+2) Project No.2 Name: PdfGenerator
+   Composed from Base Controller and BLL.cs
+
+   ==BaseController.cs
+
+       [HttpPost]
+    [Route("GenerateEntityDocPDFForArchive")]
+    public string GenerateEntityDocPDFForArchive(EntityDocRequest requ)
+    {
+        BLL.BLL ArchiveBll = new();
+        var myByteArray = ArchiveBll.GenerateEntityDocPDFForArchive(requ);
+        StringBuilder sb = new(myByteArray.Length * 2);
+        foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+        return sb.ToString();
+    }
+   
+    [HttpPost]
+    [Route("RedownloadDocPDFForArchive")]
+    public string RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest requ)
+    {
+        BLL.BLL ArchiveBll = new();
+        var myByteArray = ArchiveBll.RedownloadDocPDFForArchive(requ);
+        StringBuilder sb = new(myByteArray.Length * 2);
+        foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+        return sb.ToString();
+    }
+   
 == Request.cs
 public class EntityDocRequest
 {
@@ -661,4 +1588,78 @@ Select Request from t_PDF where Request like '% "ContainerID": "'+@BoxReference+
 
 END
 === 
-    
+
+
+	  ALTER PROCEDURE [dbo].[usp_EditContainerStatus] (
+    -- PARAMETER LIST
+    @ContainerId INT,
+    @StatusCode NVARCHAR(10),
+    @HoldingEntityCode NVARCHAR(max),
+    @User NVARCHAR(250)
+  ) AS BEGIN
+SET
+  NOCOUNT ON;
+ DECLARE @FirstActiveBranch nvarchar(9);
+
+SET
+  @FirstActiveBranch = COALESCE(
+    (
+      SELECT
+        TOP 1 Owner
+      FROM
+        t_Sequence
+      WHERE
+        IsActive = 1
+        AND Owner IN (
+          SELECT
+            value
+          FROM
+            string_split(@HoldingEntityCode, ',')
+        )
+    ),
+    'ERROR'
+  );
+  
+UPDATE
+  t_ContainerStatus
+SET
+  isCurrentStatus = 0
+WHERE
+  ContainerId = @ContainerId
+UPDATE
+  t_Container
+SET
+  StatusCode = @StatusCode,
+  LastModifiedBy = @User,
+  LastModifiedDate = GETDATE()
+WHERE
+  Id = @ContainerId
+INSERT INTO
+  t_ContainerStatus (
+    ContainerId,
+    StatusCode,
+    HoldingEntityCode,
+    isCurrentStatus,
+    CreatedBy,
+    LastModifiedBy
+  )
+VALUES
+  (
+    @ContainerId,
+    @StatusCode,
+    @FirstActiveBranch,
+    1,
+    @User,
+    @User
+  )
+SELECT
+  Id,
+  CompanyCode,
+  CurrentLocation,
+  StatusCode,
+  isDeleted
+FROM
+  t_Container
+WHERE
+  Id = @ContainerId
+END
