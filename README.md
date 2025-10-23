@@ -1,3 +1,69 @@
+        [HttpPost]
+        public ActionResult ImportOldBoxesArchive(IFormFile excelFile)
+        {
+            string correlationId = Guid.NewGuid().ToString();
+
+            try
+            {
+                //if (!ExcelValidationService(excelFile, out string message))
+                //{
+                //    return Json(new { isSuccess = false, message = message, correlationId = correlationId });
+                //}
+
+                ImportOldBoxesReq req = new ImportOldBoxesReq()
+                {
+                    BaseReq = new BaseRequest(
+                        HttpContext,
+                        GetSession("ArchiveData")),
+                    OldBoxesList = GetOldBoxes(excelFile!)
+                };
+
+                correlationId = req.BaseReq.CorrelationId;
+
+                ImportOldBoxesRes resp = Common.ApiCall<ImportOldBoxesRes>(req, "ImportOldBoxes");
+
+                if (resp.WebResp.HttpResponseCode != HttpStatusCode.OK)
+                {
+                    return Json(new
+                    {
+                        isSuccess = false,
+                        message = resp.WebResp.ResponseMessage,
+                        correlationId = req.BaseReq.CorrelationId
+                    });
+                }
+
+                return Json(new
+                {
+                    isSuccess = true,
+                    message = "File has been successfully processed!"
+                });
+            }
+            catch (Exception ex)
+            {
+                Dictionary<string, object> dic = Common.GenerateVariables(HttpContext, GetSession("ArchiveData")!);
+
+                LogError(ex.Message, new CorrelationInfo()
+                {
+                    CorrelationId = correlationId,
+                    UserName = dic["user"].ToString(),
+                    RequestURL = "File/Import",
+                    StatusCode = HttpStatusCode.InternalServerError,
+                    RDirection = RequestDirection.Response,
+                    RType = RequestType.POST,
+                }, ex);
+
+
+                return Json(new
+                {
+                    isSuccess = false,
+                    message = $"{ex.ToString()}",
+                    correlationId = correlationId
+                });
+            }
+        }
+
+
+
 using System;
 using System.Collections.Generic;
 using System.IO;
