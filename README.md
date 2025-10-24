@@ -1,3 +1,17 @@
+                var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+                if ((extension != ".xlsx") || (extension != ".xlsm"))
+                {
+                    result.AddError("File", $"Invalid file extension. Expected .xlsx but got {extension}");
+                    return false;
+                } 
+
+                What s wrong with this syntax, i got this error, while i uploaded a .xlsx file?
+
+                
+Error! File validation failed: File: Invalid file extension. Expected .xlsx but got .xlsx
+Correlation Id: 7e4a4c9c-1d5a-427c-8e4b-7f142b694fc2
+
+
 public class YourController : Controller
 {
     private readonly ExcelValidationService _validationService;
