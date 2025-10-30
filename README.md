@@ -14,7 +14,8 @@ BEGIN
 	SELECT 1;  
     DECLARE @Now DATETIME = GETDATE(); 
 	--TODO: to be updated
-    DECLARE @FileTypeCode NVARCHAR(50) = '205'; 
+    DECLARE @FileTypeCode NVARCHAR(50) = '205';
+    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
 
     BEGIN TRY 
         BEGIN TRANSACTION; 
@@ -22,7 +23,7 @@ BEGIN
         -- Insert new Company (only if Code doesn't already exist)
         INSERT INTO [dbo].[t_Company] 
         ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@P__User,@Now,@P__User,@Now 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
         FROM @P__Old_Boxes input
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Company] comp 
@@ -60,7 +61,7 @@ BEGIN
         USING ContainerSource AS source ON 1=0  -- Always insert, never match
         WHEN NOT MATCHED THEN
             INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @P__User, @Now, @P__User, @Now, 1)
+            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
         OUTPUT source.RowId, inserted.Id
         INTO @InsertedContainers(RowId, ContainerId);
 
@@ -129,9 +130,9 @@ BEGIN
                0 as HasDate,
                0 as IsCustomer,
                nft.ArchivingPeriod,
-               @P__User,
+               @SystemUser,
                @Now,
-               @P__User,
+               @SystemUser,
                @Now
         FROM @NewFileTypes nft;
 
@@ -163,9 +164,9 @@ BEGIN
                null, 
                input.AdditionalInfo, 
                0, 
-               @P__User, 
+               @SystemUser, 
                @Now, 
-               @P__User, 
+               @SystemUser, 
                @Now
         FROM @P__Old_Boxes input
         INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
@@ -196,7 +197,7 @@ BEGIN
         -- Create relationships between containers and their associated files based on input data
         INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
         ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @P__User, @Now, @P__User, @Now
+        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
         FROM @InsertedFiles f
         INNER JOIN @InsertedContainers c ON f.RowId = c.RowId  -- Match based on input row relationship
         WHERE NOT EXISTS (
@@ -207,7 +208,7 @@ BEGIN
         -- Insert new Sequence only if Owner doesn't already exist
         INSERT INTO [dbo].[t_Sequence] 
         ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@P__User,@Now,@P__User,@Now 
+        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
         FROM @P__Old_Boxes input
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Sequence] seq
@@ -230,9 +231,9 @@ BEGIN
                'SENT',
                'WH',  -- Always 'WH' for SENT status
                0,     -- Always inactive (false) for SENT
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @P__User ELSE i.[BoxSentBy] END,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                i.[BoxSentDate],
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @P__User ELSE i.[BoxSentBy] END,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                i.[BoxSentDate]
         FROM @InsertedContainers c
         INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
@@ -249,9 +250,9 @@ BEGIN
                'RECEIVED',
                i.[BoxSentBy],  -- Use BoxSentBy value for RECEIVED status
                CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,  -- Active only if final status is RECEIVED
-               @P__User,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                DATEADD(MINUTE, 1, i.[BoxSentDate]), -- Add 1 minute to ensure chronological order
-               @P__User,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                DATEADD(MINUTE, 1, i.[BoxSentDate])
         FROM @InsertedContainers c
         INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
@@ -269,9 +270,9 @@ BEGIN
                'DESTROYED',
                'WH',  -- Always 'WH' for DESTROYED status
                1,     -- Always active (true) for DESTROYED as it's the final status
-               @P__User,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                DATEADD(MINUTE, 2, i.[BoxSentDate]), -- Add 2 minutes to ensure it's the latest
-               @P__User,
+               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
                DATEADD(MINUTE, 2, i.[BoxSentDate])
         FROM @InsertedContainers c
         INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
