@@ -250,9 +250,9 @@ BEGIN
                'RECEIVED',
                i.[BoxSentBy],  -- Use BoxSentBy value for RECEIVED status
                CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,  -- Active only if final status is RECEIVED
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
+               @SystemUser,  -- Always use AlternaSystem for RECEIVED status
                DATEADD(MINUTE, 1, i.[BoxSentDate]), -- Add 1 minute to ensure chronological order
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
+               @SystemUser,  -- Always use AlternaSystem for RECEIVED status
                DATEADD(MINUTE, 1, i.[BoxSentDate])
         FROM @InsertedContainers c
         INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
@@ -270,9 +270,9 @@ BEGIN
                'DESTROYED',
                'WH',  -- Always 'WH' for DESTROYED status
                1,     -- Always active (true) for DESTROYED as it's the final status
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
+               @SystemUser,  -- Always use AlternaSystem for DESTROYED status
                DATEADD(MINUTE, 2, i.[BoxSentDate]), -- Add 2 minutes to ensure it's the latest
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
+               @SystemUser,  -- Always use AlternaSystem for DESTROYED status
                DATEADD(MINUTE, 2, i.[BoxSentDate])
         FROM @InsertedContainers c
         INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
