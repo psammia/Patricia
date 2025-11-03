@@ -1,3 +1,19 @@
+1)	For Each Report one file
+2)	Around 30 files in total. Start with 3 files :
+a.	GCC Customers
+b.	Daily Extraction
+c.	Balance Accounts
+3)	Files received and generated at the level of Charles Kamouh
+4)	Charles will send the files (.csv) to Infocentre to do the control
+5)	Infocentre controls the files
+6)	DEVE make the ETL Jobs. One table for each Job.
+7)	Deve send mail to Infocentre to inform that files were integrated into SASS
+8)	Alice should give DEVE a structure for each file, and ask BML for a File Control
+9)	Check with Infocentre the predefined tables (Columns name, Fields size)
+10)	Adopt Prefix for tables naming  BFRCC_
+
+
+
 USE [Alterna.Archive]
 GO
 /****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables]    Script Date: 30/10/2025 10:23:56 AM ******/
