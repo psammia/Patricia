@@ -1,310 +1,387 @@
-1)	For Each Report one file
-2)	Around 30 files in total. Start with 3 files :
-a.	GCC Customers
-b.	Daily Extraction
-c.	Balance Accounts
-3)	Files received and generated at the level of Charles Kamouh
-4)	Charles will send the files (.csv) to Infocentre to do the control
-5)	Infocentre controls the files
-6)	DEVE make the ETL Jobs. One table for each Job.
-7)	Deve send mail to Infocentre to inform that files were integrated into SASS
-8)	Alice should give DEVE a structure for each file, and ask BML for a File Control
-9)	Check with Infocentre the predefined tables (Columns name, Fields size)
-10)	Adopt Prefix for tables naming  BFRCC_
-
-
-
+-- =============================================
+-- 1. Get Container with Files Data for PDF Generation
+-- =============================================
 USE [Alterna.Archive]
 GO
-/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables]    Script Date: 30/10/2025 10:23:56 AM ******/
-SET ANSI_NULLS ON
+
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerDataForPDFGeneration]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
 GO
-SET QUOTED_IDENTIFIER ON
-GO
-ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250)
-AS 
-BEGIN 
+
+CREATE PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
+    @ContainerCode NVARCHAR(50)
+AS
+BEGIN
     SET NOCOUNT ON;
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-	--TODO: to be updated
-    DECLARE @FileTypeCode NVARCHAR(50) = '205';
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
 
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
+    SELECT 
+        c.Id AS ContainerId,
+        c.Code AS ContainerCode,
+        c.CompanyCode,
+        c.Entity,
+        c.ArchivingDate,
+        c.StatusCode,
+        f.Id AS FileId,
+        f.Name AS FileName,
+        f.CustomerId,
+        f.FromDate,
+        f.ToDate,
+        f.AdditionalInfo,
+        ft.ArchivingPeriod,
+        ft.Description AS FileTypeDescription,
+        CASE 
+            WHEN f.CustomerId IS NOT NULL THEN 'CUSTOMER'
+            WHEN c.CompanyCode LIKE 'LB%' THEN 'BRANCH'
+            WHEN c.CompanyCode LIKE 'ET%' THEN 'ENTITY'
+            ELSE 'UNKNOWN'
+        END AS DocumentType
+    FROM t_Container c
+    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
+    INNER JOIN t_File f ON ccfr.FileId = f.Id
+    INNER JOIN lkp_FileType ft ON f.FileTypeCode = ft.Code
+    WHERE c.Code = @ContainerCode 
+        AND c.isDeleted = 0 
+        AND f.isDeleted = 0
+    ORDER BY f.Name;
+END
+GO
 
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
+-- =============================================
+-- 2. Modified usp_InsertPDF to handle both empty and full varbinary
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_InsertPDF]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_InsertPDF]
+GO
 
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
+CREATE PROCEDURE [dbo].[usp_InsertPDF]
+(
+    @PDF VARBINARY(MAX),
+    @Request NVARCHAR(MAX),
+    @ApiMethod NVARCHAR(500),
+    @BranchList NVARCHAR(MAX),
+    @Entity NVARCHAR(10),
+    @User NVARCHAR(250)
+)
+AS 
+BEGIN
+    SET NOCOUNT ON;
 
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
+    -- Check if PDF already exists for this container
+    DECLARE @ContainerID NVARCHAR(50);
+    
+    -- Extract ContainerID from Request JSON
+    SET @ContainerID = JSON_VALUE(@Request, '$.ContainerID');
+    
+    IF @ContainerID IS NOT NULL
+    BEGIN
+        -- Check if record exists
+        IF EXISTS (
+            SELECT 1 
+            FROM t_PDF 
+            WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
+                AND ApiMethod = @ApiMethod
+        )
+        BEGIN
+            -- Update existing record with new PDF if provided
+            IF @PDF IS NOT NULL AND DATALENGTH(@PDF) > 0
+            BEGIN
+                UPDATE t_PDF
+                SET PDF = @PDF,
+                    LastModifiedBy = @User,
+                    LastModifiedDate = GETDATE()
+                WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
+                    AND ApiMethod = @ApiMethod;
+            END
+        END
+        ELSE
+        BEGIN
+            -- Insert new record
+            INSERT INTO t_PDF (
+                PDF,
+                Request,
+                ApiMethod,
+                BranchList,
+                Entity,
+                CreatedBy,
+                LastModifiedBy
             )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1  -- Only take the first occurrence of each unique BoxRef + CompanyCode combination
+            VALUES (
+                @PDF,
+                @Request,
+                @ApiMethod,
+                @BranchList,
+                @Entity,
+                @User,
+                @User
+            );
+        END
+    END
+    ELSE
+    BEGIN
+        -- If no ContainerID found, just insert
+        INSERT INTO t_PDF (
+            PDF,
+            Request,
+            ApiMethod,
+            BranchList,
+            Entity,
+            CreatedBy,
+            LastModifiedBy
         )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0  -- Always insert, never match
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Also capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode that weren't inserted, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- Insert new File Type with auto-incrementing FileTypeCode (PK)
-        -- DESCRIPTION + ENTITY MUST BE UNIQUE
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
+        VALUES (
+            @PDF,
+            @Request,
+            @ApiMethod,
+            @BranchList,
+            @Entity,
+            @User,
+            @User
         );
-        
-        -- Get the current maximum FileTypeCode
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Insert unique Description + Entity combinations that don't exist with incremented codes
-        WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   input.[ArchivingPeriod]
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-            )
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-        FROM UniqueNewFileTypes;
+    END
+END
+GO
 
-        -- Insert new File Type records with incremented FileTypeCode
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
+-- =============================================
+-- 3. Enhanced usp_GetPDFVarBinaryByBoxReference
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFVarBinaryByBoxReference]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
+GO
 
-        -- Get the FileTypeCode for each file (either existing or newly created)
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName];
+CREATE PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
+    @BoxReference NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
 
-        -- MODIFIED: Insert Files - Create separate file records for each container
-        -- Each file gets its own ID even if FileName is duplicated across containers
-        -- No uniqueness check - every row gets a new file record
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
+    SELECT TOP 1 PDF 
+    FROM t_PDF 
+    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
+        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
+        AND PDF IS NOT NULL
+        AND DATALENGTH(PDF) > 0
+    ORDER BY CreatedDate DESC;
+END
+GO
 
-        -- Map the inserted FileIds back to RowIds in the correct order
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
+-- =============================================
+-- 4. Enhanced usp_GetPDFRequestByBoxReference
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFRequestByBoxReference]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
+GO
 
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
+CREATE PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
+    @BoxReference NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
 
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
+    SELECT TOP 1 Request, ApiMethod
+    FROM t_PDF 
+    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
+        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
+    ORDER BY CreatedDate DESC;
+END
+GO
 
-        -- MODIFIED: Insert new Container File Relationship 
-        -- Create relationships between containers and their associated files based on input data
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId  -- Match based on input row relationship
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
+-- =============================================
+-- 5. Get Entity by Code
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetEntityByCode]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetEntityByCode]
+GO
 
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
+CREATE PROCEDURE [dbo].[usp_GetEntityByCode]
+    @EntityCode NVARCHAR(11)
+AS
+BEGIN
+    SET NOCOUNT ON;
 
-        -- MODIFIED: Insert Box Statuses history based on input StatusCode
-        -- RECEIVED containers: 2 statuses (SENT inactive, RECEIVED active)
-        -- DESTROYED containers: 3 statuses (SENT inactive, RECEIVED inactive, DESTROYED active)
-        
-        -- Insert SENT status for all containers (always inactive - isCurrentStatus = 0, HoldingEntityCode = 'WH')
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT c.ContainerId,
-               'SENT',
-               'WH',  -- Always 'WH' for SENT status
-               0,     -- Always inactive (false) for SENT
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
-               i.[BoxSentDate],
-               CASE WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser ELSE i.[BoxSentBy] END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
+    SELECT 
+        Code,
+        Description,
+        HasFullAccess,
+        Category
+    FROM lkp_Entity
+    WHERE Code = @EntityCode;
+END
+GO
 
-        -- Insert RECEIVED status for containers with StatusCode RECEIVED or DESTROYED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT c.ContainerId,
-               'RECEIVED',
-               i.[BoxSentBy],  -- Use BoxSentBy value for RECEIVED status
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,  -- Active only if final status is RECEIVED
-               @SystemUser,  -- Always use AlternaSystem for RECEIVED status
-               DATEADD(MINUTE, 1, i.[BoxSentDate]), -- Add 1 minute to ensure chronological order
-               @SystemUser,  -- Always use AlternaSystem for RECEIVED status
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED')
+-- =============================================
+-- 6. Check if PDF Exists for Container
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_CheckPDFExistsForContainer]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
+GO
+
+CREATE PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
+    @ContainerCode NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        CASE 
+            WHEN EXISTS (
+                SELECT 1 
+                FROM t_PDF 
+                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
+                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
+            ) 
+            THEN 1 
+            ELSE 0 
+        END AS PDFExists,
+        CASE 
+            WHEN EXISTS (
+                SELECT 1 
+                FROM t_PDF 
+                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
+                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
+                    AND PDF IS NOT NULL
+                    AND DATALENGTH(PDF) > 0
+            ) 
+            THEN 1 
+            ELSE 0 
+        END AS PDFBinaryExists;
+END
+GO
+
+-- =============================================
+-- 7. Get all containers without PDFs (for reporting/backfill)
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainersWithoutPDF]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
+GO
+
+CREATE PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT DISTINCT 
+        c.Id,
+        c.Code,
+        c.CompanyCode,
+        c.Entity,
+        c.StatusCode,
+        c.ArchivingDate,
+        c.CreatedDate
+    FROM t_Container c
+    WHERE c.StatusCode IN ('SENT', 'RECEIVED', 'TOBEDESTR', 'DESTROYED')
+        AND c.isDeleted = 0
         AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
+            SELECT 1 
+            FROM t_PDF p 
+            WHERE p.Request LIKE '%"ContainerID": "' + c.Code + '"%'
+                AND p.ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
+        )
+    ORDER BY c.CreatedDate DESC;
+END
+GO
 
-        -- Insert DESTROYED status for containers with StatusCode DESTROYED only
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT c.ContainerId,
-               'DESTROYED',
-               'WH',  -- Always 'WH' for DESTROYED status
-               1,     -- Always active (true) for DESTROYED as it's the final status
-               @SystemUser,  -- Always use AlternaSystem for DESTROYED status
-               DATEADD(MINUTE, 2, i.[BoxSentDate]), -- Add 2 minutes to ensure it's the latest
-               @SystemUser,  -- Always use AlternaSystem for DESTROYED status
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
+-- =============================================
+-- 8. Get Customer IDs grouped by File Type
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetCustomerFilesByContainer]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
+GO
 
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
+CREATE PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
+    @ContainerCode NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        f.Name AS DocumentType,
+        f.CustomerId,
+        CAST(f.CustomerId AS NVARCHAR(50)) AS CustomerIdString
+    FROM t_Container c
+    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
+    INNER JOIN t_File f ON ccfr.FileId = f.Id
+    WHERE c.Code = @ContainerCode 
+        AND c.isDeleted = 0 
+        AND f.isDeleted = 0
+        AND f.CustomerId IS NOT NULL
+    ORDER BY f.Name, f.CustomerId;
+END
+GO
+
+-- =============================================
+-- 9. Get User who sent the container (Status = SENT)
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUser]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetContainerSentByUser]
+GO
+
+CREATE PROCEDURE [dbo].[usp_GetContainerSentByUser]
+    @ContainerId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Get the user who changed status to SENT
+    SELECT TOP 1 
+        cs.CreatedBy AS SentByUser,
+        cs.CreatedDate AS SentDate,
+        cs.HoldingEntityCode
+    FROM t_ContainerStatus cs
+    WHERE cs.ContainerId = @ContainerId
+        AND cs.StatusCode = 'SENT'
+    ORDER BY cs.CreatedDate DESC;
+    
+    -- If no SENT status found, get the last user who modified the container
+    IF @@ROWCOUNT = 0
+    BEGIN
+        SELECT 
+            c.LastModifiedBy AS SentByUser,
+            c.LastModifiedDate AS SentDate,
+            c.Entity AS HoldingEntityCode
+        FROM t_Container c
+        WHERE c.Id = @ContainerId;
+    END
+END
+GO
+
+-- =============================================
+-- 10. Get User by Container Code (for legacy containers)
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUserByCode]') AND type in (N'P', N'PC'))
+DROP PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
+GO
+
+CREATE PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
+    @ContainerCode NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Get the user who changed status to SENT based on container code
+    SELECT TOP 1 
+        cs.CreatedBy AS SentByUser,
+        cs.CreatedDate AS SentDate,
+        cs.HoldingEntityCode,
+        c.Id AS ContainerId
+    FROM t_Container c
+    INNER JOIN t_ContainerStatus cs ON c.Id = cs.ContainerId
+    WHERE c.Code = @ContainerCode
+        AND cs.StatusCode = 'SENT'
+    ORDER BY cs.CreatedDate DESC;
+    
+    -- If no SENT status found, get the last user who modified the container
+    IF @@ROWCOUNT = 0
+    BEGIN
+        SELECT 
+            c.LastModifiedBy AS SentByUser,
+            c.LastModifiedDate AS SentDate,
+            c.Entity AS HoldingEntityCode,
+            c.Id AS ContainerId
+        FROM t_Container c
+        WHERE c.Code = @ContainerCode;
+    END
+END
+GO
+
+PRINT 'All stored procedures created successfully!'
+GO
