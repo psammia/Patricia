@@ -1,387 +1,815 @@
--- =============================================
--- 1. Get Container with Files Data for PDF Generation
--- =============================================
-USE [Alterna.Archive]
-GO
+using System.Configuration;
+using System.Data;
+using System.Net;
+using Dapper;
+using Newtonsoft.Json;
+using QuestPDF;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerDataForPDFGeneration]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
-GO
+namespace PDFGenerator.BLL
+{
+    public class BLL
+    {
+        private readonly string Catalog_Archive = ConfigurationManager.AppSettings["Catalog_Archive"] ?? "Alterna.Archive";
 
-CREATE PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+        #region RedownloadDocPDFForArchive - Enhanced with On-Demand Generation
 
-    SELECT 
-        c.Id AS ContainerId,
-        c.Code AS ContainerCode,
-        c.CompanyCode,
-        c.Entity,
-        c.ArchivingDate,
-        c.StatusCode,
-        f.Id AS FileId,
-        f.Name AS FileName,
-        f.CustomerId,
-        f.FromDate,
-        f.ToDate,
-        f.AdditionalInfo,
-        ft.ArchivingPeriod,
-        ft.Description AS FileTypeDescription,
-        CASE 
-            WHEN f.CustomerId IS NOT NULL THEN 'CUSTOMER'
-            WHEN c.CompanyCode LIKE 'LB%' THEN 'BRANCH'
-            WHEN c.CompanyCode LIKE 'ET%' THEN 'ENTITY'
-            ELSE 'UNKNOWN'
-        END AS DocumentType
-    FROM t_Container c
-    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
-    INNER JOIN t_File f ON ccfr.FileId = f.Id
-    INNER JOIN lkp_FileType ft ON f.FileTypeCode = ft.Code
-    WHERE c.Code = @ContainerCode 
-        AND c.isDeleted = 0 
-        AND f.isDeleted = 0
-    ORDER BY f.Name;
-END
-GO
+        public byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest redownloadDocPDFForArchiveRequest)
+        {
+            byte[] retRes = [];
 
--- =============================================
--- 2. Modified usp_InsertPDF to handle both empty and full varbinary
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_InsertPDF]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_InsertPDF]
-GO
+            try
+            {
+                using (DAL.DAL dal = new(Catalog_Archive, out var res))
+                {
+                    // Step 1: Try to get existing PDF binary
+                    DynamicParameters dynamicParameters = new();
+                    dynamicParameters.Add("BoxReference", redownloadDocPDFForArchiveRequest.ContainerID);
 
-CREATE PROCEDURE [dbo].[usp_InsertPDF]
-(
-    @PDF VARBINARY(MAX),
-    @Request NVARCHAR(MAX),
-    @ApiMethod NVARCHAR(500),
-    @BranchList NVARCHAR(MAX),
-    @Entity NVARCHAR(10),
-    @User NVARCHAR(250)
-)
-AS 
-BEGIN
-    SET NOCOUNT ON;
+                    string command = ConfigurationManager.AppSettings["Get_PDF_Var_Binary_By_Box_Reference_SP"] ??
+                                   "usp_GetPDFVarBinaryByBoxReference";
+                    
+                    byte[] pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters, CommandType.StoredProcedure, DAL.CommandDirection.Read)
+                        .DefaultIfEmpty([]).FirstOrDefault() ?? [];
 
-    -- Check if PDF already exists for this container
-    DECLARE @ContainerID NVARCHAR(50);
-    
-    -- Extract ContainerID from Request JSON
-    SET @ContainerID = JSON_VALUE(@Request, '$.ContainerID');
-    
-    IF @ContainerID IS NOT NULL
-    BEGIN
-        -- Check if record exists
-        IF EXISTS (
-            SELECT 1 
-            FROM t_PDF 
-            WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
-                AND ApiMethod = @ApiMethod
-        )
-        BEGIN
-            -- Update existing record with new PDF if provided
-            IF @PDF IS NOT NULL AND DATALENGTH(@PDF) > 0
-            BEGIN
-                UPDATE t_PDF
-                SET PDF = @PDF,
-                    LastModifiedBy = @User,
-                    LastModifiedDate = GETDATE()
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
-                    AND ApiMethod = @ApiMethod;
-            END
-        END
-        ELSE
-        BEGIN
-            -- Insert new record
-            INSERT INTO t_PDF (
-                PDF,
-                Request,
-                ApiMethod,
-                BranchList,
-                Entity,
-                CreatedBy,
-                LastModifiedBy
-            )
-            VALUES (
-                @PDF,
-                @Request,
-                @ApiMethod,
-                @BranchList,
-                @Entity,
-                @User,
-                @User
-            );
-        END
-    END
-    ELSE
-    BEGIN
-        -- If no ContainerID found, just insert
-        INSERT INTO t_PDF (
-            PDF,
-            Request,
-            ApiMethod,
-            BranchList,
-            Entity,
-            CreatedBy,
-            LastModifiedBy
-        )
-        VALUES (
-            @PDF,
-            @Request,
-            @ApiMethod,
-            @BranchList,
-            @Entity,
-            @User,
-            @User
-        );
-    END
-END
-GO
+                    // Step 2: If PDF binary exists and is valid, return it
+                    if (pdfInDb.Length > 5)
+                    {
+                        return pdfInDb;
+                    }
 
--- =============================================
--- 3. Enhanced usp_GetPDFVarBinaryByBoxReference
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFVarBinaryByBoxReference]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-GO
+                    // Step 3: Try to get the original request from t_PDF
+                    command = ConfigurationManager.AppSettings["Get_PDF_Request_By_Box_Reference_SP"] ??
+                             "usp_GetPDFRequestByBoxReference";
+                    
+                    var requestData = dal.ExecuteQuery<dynamic>(command, dynamicParameters, CommandType.StoredProcedure, DAL.CommandDirection.Read)
+                        .FirstOrDefault();
 
-CREATE PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                    if (requestData != null && !string.IsNullOrEmpty(requestData.Request))
+                    {
+                        // PDF record exists but binary is empty - regenerate from stored request
+                        string apiMethod = requestData.ApiMethod;
+                        string originalRequestInJsonFormat = requestData.Request;
 
-    SELECT TOP 1 PDF 
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-        AND PDF IS NOT NULL
-        AND DATALENGTH(PDF) > 0
-    ORDER BY CreatedDate DESC;
-END
-GO
+                        retRes = RegeneratePDFFromStoredRequest(originalRequestInJsonFormat, apiMethod);
 
--- =============================================
--- 4. Enhanced usp_GetPDFRequestByBoxReference
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFRequestByBoxReference]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-GO
+                        // Update the PDF binary in database
+                        if (retRes.Length > 0)
+                        {
+                            UpdatePDFBinaryInDatabase(retRes, originalRequestInJsonFormat, apiMethod, "System");
+                        }
 
-CREATE PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                        return retRes;
+                    }
 
-    SELECT TOP 1 Request, ApiMethod
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-    ORDER BY CreatedDate DESC;
-END
-GO
+                    // Step 4: No PDF record exists - this is a legacy container
+                    // Generate PDF from container data
+                    retRes = GeneratePDFFromContainerData(redownloadDocPDFForArchiveRequest.ContainerID, dal);
 
--- =============================================
--- 5. Get Entity by Code
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetEntityByCode]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetEntityByCode]
-GO
+                    return retRes;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to download/generate PDF for container {redownloadDocPDFForArchiveRequest.ContainerID}: {ex.Message}", ex);
+            }
+        }
 
-CREATE PROCEDURE [dbo].[usp_GetEntityByCode]
-    @EntityCode NVARCHAR(11)
-AS
-BEGIN
-    SET NOCOUNT ON;
+        #endregion
 
-    SELECT 
-        Code,
-        Description,
-        HasFullAccess,
-        Category
-    FROM lkp_Entity
-    WHERE Code = @EntityCode;
-END
-GO
+        #region Generate PDF From Container Data (For Legacy Containers)
 
--- =============================================
--- 6. Check if PDF Exists for Container
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_CheckPDFExistsForContainer]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
-GO
+        private byte[] GeneratePDFFromContainerData(string containerCode, DAL.DAL dal)
+        {
+            try
+            {
+                // Get the user who sent the container
+                string sentByUser = GetContainerSentByUser(containerCode, dal);
 
-CREATE PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                // Get container data with files using stored procedure
+                DynamicParameters param = new();
+                param.Add("ContainerCode", containerCode);
 
-    SELECT 
-        CASE 
-            WHEN EXISTS (
-                SELECT 1 
-                FROM t_PDF 
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
-                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-            ) 
-            THEN 1 
-            ELSE 0 
-        END AS PDFExists,
-        CASE 
-            WHEN EXISTS (
-                SELECT 1 
-                FROM t_PDF 
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
-                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-                    AND PDF IS NOT NULL
-                    AND DATALENGTH(PDF) > 0
-            ) 
-            THEN 1 
-            ELSE 0 
-        END AS PDFBinaryExists;
-END
-GO
+                string command = ConfigurationManager.AppSettings["Get_Container_Data_For_PDF_Generation_SP"] ??
+                               "usp_GetContainerDataForPDFGeneration";
 
--- =============================================
--- 7. Get all containers without PDFs (for reporting/backfill)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainersWithoutPDF]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
-GO
+                var containerData = dal.ExecuteQuery<ContainerFileData>(command, param, CommandType.StoredProcedure, DAL.CommandDirection.Read).ToList();
 
-CREATE PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
-AS
-BEGIN
-    SET NOCOUNT ON;
+                if (!containerData.Any())
+                {
+                    throw new Exception($"No data found for container: {containerCode}");
+                }
 
-    SELECT DISTINCT 
-        c.Id,
-        c.Code,
-        c.CompanyCode,
-        c.Entity,
-        c.StatusCode,
-        c.ArchivingDate,
-        c.CreatedDate
-    FROM t_Container c
-    WHERE c.StatusCode IN ('SENT', 'RECEIVED', 'TOBEDESTR', 'DESTROYED')
-        AND c.isDeleted = 0
-        AND NOT EXISTS (
-            SELECT 1 
-            FROM t_PDF p 
-            WHERE p.Request LIKE '%"ContainerID": "' + c.Code + '"%'
-                AND p.ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-        )
-    ORDER BY c.CreatedDate DESC;
-END
-GO
+                var firstRow = containerData.First();
+                string documentType = firstRow.DocumentType;
+                string companyCode = firstRow.CompanyCode;
+                DateTime? archivingDate = firstRow.ArchivingDate;
+                int archivingPeriod = firstRow.ArchivingPeriod;
 
--- =============================================
--- 8. Get Customer IDs grouped by File Type
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetCustomerFilesByContainer]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
-GO
+                // Calculate destruction date
+                bool unlimited = archivingPeriod == -1;
+                DateTime archivePeriodDate = (archivingDate ?? DateTime.Now).AddYears(archivingPeriod);
+                string destructionDate = unlimited ? "Unlimited" : $"{archivePeriodDate:dd/MM/yyyy}";
+                string creationDate = archivingDate.HasValue ? $"{archivingDate.Value:dd/MM/yyyy}" : $"{DateTime.Now:dd/MM/yyyy}";
 
-CREATE PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                // Get entity
+                string entity = GetEntityDescription(firstRow.Entity ?? companyCode, dal);
 
-    SELECT 
-        f.Name AS DocumentType,
-        f.CustomerId,
-        CAST(f.CustomerId AS NVARCHAR(50)) AS CustomerIdString
-    FROM t_Container c
-    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
-    INNER JOIN t_File f ON ccfr.FileId = f.Id
-    WHERE c.Code = @ContainerCode 
-        AND c.isDeleted = 0 
-        AND f.isDeleted = 0
-        AND f.CustomerId IS NOT NULL
-    ORDER BY f.Name, f.CustomerId;
-END
-GO
+                // Generate PDF based on document type
+                byte[] pdfBytes = [];
 
--- =============================================
--- 9. Get User who sent the container (Status = SENT)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUser]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerSentByUser]
-GO
+                switch (documentType)
+                {
+                    case "CUSTOMER":
+                        pdfBytes = GenerateCustomerPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate, sentByUser, dal);
+                        break;
 
-CREATE PROCEDURE [dbo].[usp_GetContainerSentByUser]
-    @ContainerId INT
-AS
-BEGIN
-    SET NOCOUNT ON;
+                    case "BRANCH":
+                        pdfBytes = GenerateBranchPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate, sentByUser);
+                        break;
 
-    -- Get the user who changed status to SENT
-    SELECT TOP 1 
-        cs.CreatedBy AS SentByUser,
-        cs.CreatedDate AS SentDate,
-        cs.HoldingEntityCode
-    FROM t_ContainerStatus cs
-    WHERE cs.ContainerId = @ContainerId
-        AND cs.StatusCode = 'SENT'
-    ORDER BY cs.CreatedDate DESC;
-    
-    -- If no SENT status found, get the last user who modified the container
-    IF @@ROWCOUNT = 0
-    BEGIN
-        SELECT 
-            c.LastModifiedBy AS SentByUser,
-            c.LastModifiedDate AS SentDate,
-            c.Entity AS HoldingEntityCode
-        FROM t_Container c
-        WHERE c.Id = @ContainerId;
-    END
-END
-GO
+                    case "ENTITY":
+                        pdfBytes = GenerateEntityPDFFromContainerData(containerData, containerCode, companyCode, destructionDate, creationDate, sentByUser);
+                        break;
 
--- =============================================
--- 10. Get User by Container Code (for legacy containers)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUserByCode]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
-GO
+                    default:
+                        throw new Exception($"Unknown document type: {documentType}");
+                }
 
-CREATE PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                return pdfBytes;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to generate PDF from container data for {containerCode}: {ex.Message}", ex);
+            }
+        }
 
-    -- Get the user who changed status to SENT based on container code
-    SELECT TOP 1 
-        cs.CreatedBy AS SentByUser,
-        cs.CreatedDate AS SentDate,
-        cs.HoldingEntityCode,
-        c.Id AS ContainerId
-    FROM t_Container c
-    INNER JOIN t_ContainerStatus cs ON c.Id = cs.ContainerId
-    WHERE c.Code = @ContainerCode
-        AND cs.StatusCode = 'SENT'
-    ORDER BY cs.CreatedDate DESC;
-    
-    -- If no SENT status found, get the last user who modified the container
-    IF @@ROWCOUNT = 0
-    BEGIN
-        SELECT 
-            c.LastModifiedBy AS SentByUser,
-            c.LastModifiedDate AS SentDate,
-            c.Entity AS HoldingEntityCode,
-            c.Id AS ContainerId
-        FROM t_Container c
-        WHERE c.Code = @ContainerCode;
-    END
-END
-GO
+        private byte[] GenerateCustomerPDFFromContainerData(List<ContainerFileData> containerData, string containerCode, 
+            string entity, string destructionDate, string creationDate, string user, DAL.DAL dal)
+        {
+            // Get customer files grouped by document type
+            DynamicParameters param = new();
+            param.Add("ContainerCode", containerCode);
 
-PRINT 'All stored procedures created successfully!'
-GO
+            string command = ConfigurationManager.AppSettings["Get_Customer_Files_By_Container_SP"] ??
+                           "usp_GetCustomerFilesByContainer";
+
+            var customerFiles = dal.ExecuteQuery<dynamic>(command, param, CommandType.StoredProcedure, DAL.CommandDirection.Read).ToList();
+
+            CustomerDocRequest customerDocRequest = new()
+            {
+                DestructionDate = destructionDate,
+                ContainerID = containerCode,
+                Entity = entity,
+                User = user,
+                CustomerFiles = new(),
+                CreationDate = creationDate
+            };
+
+            // Group customer IDs by document type
+            Dictionary<string, List<string>> fileDict = new();
+            foreach (var file in customerFiles)
+            {
+                string docType = file.DocumentType;
+                string customerId = file.CustomerIdString ?? "";
+
+                if (!fileDict.ContainsKey(docType))
+                {
+                    fileDict.Add(docType, new List<string> { customerId });
+                }
+                else if (!fileDict[docType].Contains(customerId))
+                {
+                    fileDict[docType].Add(customerId);
+                }
+            }
+
+            foreach (var dictEntry in fileDict)
+            {
+                customerDocRequest.CustomerFiles.Add(new CustomerFile
+                {
+                    DocumentType = dictEntry.Key,
+                    Id = dictEntry.Value
+                });
+            }
+
+            var pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
+            
+            // Save to database
+            SavePDFToDatabase(pdfBytes, customerDocRequest, "GenerateCustomerDocPDFForArchive", entity, user);
+
+            return pdfBytes;
+        }
+
+        private byte[] GenerateBranchPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
+            string entity, string destructionDate, string creationDate, string user)
+        {
+            BranchDocRequest branchDocRequest = new()
+            {
+                DestructionDate = destructionDate,
+                ContainerID = containerCode,
+                Entity = entity,
+                User = user,
+                BranchFiles = new(),
+                CreationDate = creationDate
+            };
+
+            foreach (var row in containerData)
+            {
+                branchDocRequest.BranchFiles.Add(new BranchFile
+                {
+                    DocumentType = row.FileName,
+                    FromDate = row.FromDate.HasValue ? $"{row.FromDate.Value:dd-MM-yyyy}" : "",
+                    ToDate = row.ToDate.HasValue ? $"{row.ToDate.Value:dd-MM-yyyy}" : ""
+                });
+            }
+
+            var pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
+            
+            // Save to database
+            SavePDFToDatabase(pdfBytes, branchDocRequest, "GenerateBranchDocPDFForArchive", entity, user);
+
+            return pdfBytes;
+        }
+
+        private byte[] GenerateEntityPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
+            string companyCode, string destructionDate, string creationDate, string user)
+        {
+            EntityDocRequest entityDocRequest = new()
+            {
+                DestructionDate = destructionDate,
+                ContainerID = containerCode,
+                Entity = companyCode,
+                User = user,
+                EntityFiles = new(),
+                CreationDate = creationDate
+            };
+
+            foreach (var row in containerData)
+            {
+                entityDocRequest.EntityFiles.Add(new EntityFile
+                {
+                    DocumentType = row.FileName,
+                    DocumentDescription = row.AdditionalInfo ?? string.Empty
+                });
+            }
+
+            var pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
+            
+            // Save to database
+            SavePDFToDatabase(pdfBytes, entityDocRequest, "GenerateEntityDocPDFForArchive", companyCode, user);
+
+            return pdfBytes;
+        }
+
+        private string GetContainerSentByUser(string containerCode, DAL.DAL dal)
+        {
+            try
+            {
+                DynamicParameters param = new();
+                param.Add("ContainerCode", containerCode);
+
+                string command = ConfigurationManager.AppSettings["Get_Container_Sent_By_User_By_Code_SP"] ??
+                               "usp_GetContainerSentByUserByCode";
+
+                var result = dal.ExecuteQuery<dynamic>(command, param, CommandType.StoredProcedure, DAL.CommandDirection.Read)
+                    .FirstOrDefault();
+
+                return result?.SentByUser ?? "System";
+            }
+            catch
+            {
+                return "System";
+            }
+        }
+
+        private string GetEntityDescription(string entityCode, DAL.DAL dal)
+        {
+            try
+            {
+                DynamicParameters param = new();
+                param.Add("EntityCode", entityCode);
+
+                string command = ConfigurationManager.AppSettings["Get_Entity_By_Code_SP"] ??
+                               "usp_GetEntityByCode";
+
+                var entity = dal.ExecuteQuery<dynamic>(command, param, CommandType.StoredProcedure, DAL.CommandDirection.Read)
+                    .FirstOrDefault();
+
+                return entity?.Description ?? entityCode;
+            }
+            catch
+            {
+                return entityCode;
+            }
+        }
+
+        #endregion
+
+        #region Regenerate PDF From Stored Request
+
+        private byte[] RegeneratePDFFromStoredRequest(string requestJson, string apiMethod)
+        {
+            byte[] pdfBytes = [];
+
+            switch (apiMethod)
+            {
+                case "GenerateEntityDocPDFForArchive":
+                    var entityRequest = JsonConvert.DeserializeObject<EntityDocRequest>(requestJson);
+                    if (entityRequest != null)
+                    {
+                        pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityRequest);
+                    }
+                    break;
+
+                case "GenerateBranchDocPDFForArchive":
+                    var branchRequest = JsonConvert.DeserializeObject<BranchDocRequest>(requestJson);
+                    if (branchRequest != null)
+                    {
+                        pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchRequest);
+                    }
+                    break;
+
+                case "GenerateCustomerDocPDFForArchive":
+                    var customerRequest = JsonConvert.DeserializeObject<CustomerDocRequest>(requestJson);
+                    if (customerRequest != null)
+                    {
+                        pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerRequest);
+                    }
+                    break;
+
+                default:
+                    throw new Exception($"Unknown API method: {apiMethod}");
+            }
+
+            return pdfBytes;
+        }
+
+        #endregion
+
+        #region Save/Update PDF in Database
+
+        private void SavePDFToDatabase(byte[] pdfBytes, object request, string apiMethod, string entity, string user)
+        {
+            try
+            {
+                string requestJson = JsonConvert.SerializeObject(request, Formatting.Indented);
+
+                DynamicParameters dynamicParameters = new();
+                dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
+                dynamicParameters.Add("Request", requestJson, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("ApiMethod", apiMethod, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("BranchList", "N/A", DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("Entity", entity, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("User", user, DbType.String, ParameterDirection.Input);
+
+                using (DAL.DAL dal = new(Catalog_Archive, out var res))
+                {
+                    var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                    dal.ExecuteQuery(command, dynamicParameters, CommandType.StoredProcedure, DAL.CommandDirection.Update);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't throw - PDF was generated successfully
+                Console.WriteLine($"Warning: Failed to save PDF to database: {ex.Message}");
+            }
+        }
+
+        private void UpdatePDFBinaryInDatabase(byte[] pdfBytes, string requestJson, string apiMethod, string user)
+        {
+            try
+            {
+                // Extract entity from request
+                dynamic requestObj = JsonConvert.DeserializeObject<dynamic>(requestJson);
+                string entity = requestObj?.Entity ?? "Unknown";
+
+                DynamicParameters dynamicParameters = new();
+                dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
+                dynamicParameters.Add("Request", requestJson, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("ApiMethod", apiMethod, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("BranchList", "N/A", DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("Entity", entity, DbType.String, ParameterDirection.Input);
+                dynamicParameters.Add("User", user, DbType.String, ParameterDirection.Input);
+
+                using (DAL.DAL dal = new(Catalog_Archive, out var res))
+                {
+                    var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                    dal.ExecuteQuery(command, dynamicParameters, CommandType.StoredProcedure, DAL.CommandDirection.Update);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Failed to update PDF binary in database: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Generate Entity Doc PDF - Original Method
+
+        public byte[] GenerateEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
+        {
+            var retRes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
+
+            // Save to database with empty binary initially (old behavior for compatibility)
+            byte[] empty = [];
+
+            DynamicParameters dynamicParameters = new();
+            dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+            dynamicParameters.Add("Request", JsonConvert.SerializeObject(entityDocRequest, Formatting.Indented),
+                DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("ApiMethod", "GenerateEntityDocPDFForArchive", DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("BranchList", entityDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("Entity", entityDocRequest.Entity, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("User", entityDocRequest.User, DbType.String, ParameterDirection.Input);
+
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                dal.ExecuteQuery(command, dynamicParameters, CommandType.StoredProcedure, DAL.CommandDirection.Update);
+            }
+
+            return retRes;
+        }
+
+        #endregion
+
+        #region PDF Generation Methods (QuestPDF)
+
+        private byte[] GetByteArrayForEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
+        {
+            Settings.License = LicenseType.Community;
+            var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+            if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+            string[] FontFamilyList = FontsFamily.Split(',');
+
+            var retRes = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4);
+                    page.Margin(15);
+                    page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+                    
+                    page.Header().Element(h =>
+                    {
+                        h.Table(t =>
+                        {
+                            t.ColumnsDefinition(col =>
+                            {
+                                col.RelativeColumn();
+                                col.RelativeColumn();
+                            });
+                            t.Header(th =>
+                            {
+                                th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                    .SemiBold().FontSize(FontSize + 2);
+                            });
+
+                            t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {entityDocRequest.CreationDate}");
+                            t.Cell().Column(1).Row(3).Element(HeadL)
+                                .Text($"Destruction Date: {entityDocRequest.DestructionDate}");
+                            t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {entityDocRequest.User}");
+                            t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {entityDocRequest.Entity}");
+                            t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{entityDocRequest.ContainerID}")
+                                .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                        });
+                    });
+                    
+                    page.Content().Column(x =>
+                    {
+                        x.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn();
+                                columns.RelativeColumn();
+                            });
+                            table.Header(header =>
+                            {
+                                header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                    .FontSize(FontSize + 2);
+                                header.Cell().Row(1).Column(2).Element(HeaderC).Text("Document Description")
+                                    .FontSize(FontSize + 2);
+                            });
+
+                            uint i = 1;
+                            foreach (var entityFile in entityDocRequest.EntityFiles)
+                            {
+                                table.Cell().Row(i).Column(1).Element(DocumentType).Text(entityFile.DocumentType);
+                                table.Cell().Row(i).Column(2).Element(BlockEntity).Text(entityFile.DocumentDescription);
+                                i++;
+                            }
+
+                            table.Footer(footer =>
+                            {
+                                footer.Cell().ColumnSpan(2).Element(FooterR)
+                                    .Text("Branch / Entity signature and seal");
+                            });
+                        });
+                    });
+                    
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" Of ");
+                        x.TotalPages();
+                    });
+                });
+            }).GeneratePdf();
+
+            return retRes;
+        }
+
+        private byte[] GetByteArrayForBranchDocPDFForArchive(BranchDocRequest branchDocRequest)
+        {
+            Settings.License = LicenseType.Community;
+            var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+            if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+            string[] FontFamilyList = FontsFamily.Split(',');
+
+            var retRes = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4);
+                    page.Margin(15);
+                    page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+                    
+                    page.Header().Element(h =>
+                    {
+                        h.Table(t =>
+                        {
+                            t.ColumnsDefinition(col =>
+                            {
+                                col.RelativeColumn();
+                                col.RelativeColumn();
+                            });
+                            t.Header(th =>
+                            {
+                                th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                    .SemiBold().FontSize(FontSize + 2);
+                            });
+
+                            t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {branchDocRequest.CreationDate}");
+                            t.Cell().Column(1).Row(3).Element(HeadL)
+                                .Text($"Destruction Date: {branchDocRequest.DestructionDate}");
+                            t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {branchDocRequest.User}");
+                            t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {branchDocRequest.Entity}");
+                            t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{branchDocRequest.ContainerID}")
+                                .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                        });
+                    });
+                    
+                    page.Content().Column(x =>
+                    {
+                        x.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn();
+                                columns.RelativeColumn();
+                                columns.RelativeColumn();
+                            });
+                            table.Header(header =>
+                            {
+                                header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                    .FontSize(FontSize + 2);
+                                header.Cell().Row(1).Column(2).Element(HeaderC).Text("From Date")
+                                    .FontSize(FontSize + 2);
+                                header.Cell().Row(1).Column(3).Element(HeaderC).Text("To Date")
+                                    .FontSize(FontSize + 2);
+                            });
+
+                            uint i = 1;
+                            foreach (var branchFile in branchDocRequest.BranchFiles)
+                            {
+                                table.Cell().Row(i).Column(1).Element(DocumentType).Text(branchFile.DocumentType);
+                                table.Cell().Row(i).Column(2).Element(BlockEntity).Text(branchFile.FromDate);
+                                table.Cell().Row(i).Column(3).Element(BlockEntity).Text(branchFile.ToDate);
+                                i++;
+                            }
+
+                            table.Footer(footer =>
+                            {
+                                footer.Cell().ColumnSpan(3).Element(FooterR)
+                                    .Text("Branch / Entity signature and seal");
+                            });
+                        });
+                    });
+                    
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" Of ");
+                        x.TotalPages();
+                    });
+                });
+            }).GeneratePdf();
+
+            return retRes;
+        }
+
+        private byte[] GetByteArrayForCustomerDocPDFForArchive(CustomerDocRequest customerDocRequest)
+        {
+            Settings.License = LicenseType.Community;
+            var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+            if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+            string[] FontFamilyList = FontsFamily.Split(',');
+
+            var retRes = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4);
+                    page.Margin(15);
+                    page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+                    
+                    page.Header().Element(h =>
+                    {
+                        h.Table(t =>
+                        {
+                            t.ColumnsDefinition(col =>
+                            {
+                                col.RelativeColumn();
+                                col.RelativeColumn();
+                            });
+                            t.Header(th =>
+                            {
+                                th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                    .SemiBold().FontSize(FontSize + 2);
+                            });
+
+                            t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {customerDocRequest.CreationDate}");
+                            t.Cell().Column(1).Row(3).Element(HeadL)
+                                .Text($"Destruction Date: {customerDocRequest.DestructionDate}");
+                            t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {customerDocRequest.User}");
+                            t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {customerDocRequest.Entity}");
+                            t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{customerDocRequest.ContainerID}")
+                                .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                        });
+                    });
+                    
+                    page.Content().Column(x =>
+                    {
+                        x.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn();
+                                columns.RelativeColumn(2);
+                            });
+                            table.Header(header =>
+                            {
+                                header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                    .FontSize(FontSize + 2);
+                                header.Cell().Row(1).Column(2).Element(HeaderC).Text("Customer IDs")
+                                    .FontSize(FontSize + 2);
+                            });
+
+                            uint i = 1;
+                            foreach (var customerFile in customerDocRequest.CustomerFiles)
+                            {
+                                string customerIds = string.Join(", ", customerFile.Id);
+                                table.Cell().Row(i).Column(1).Element(DocumentType).Text(customerFile.DocumentType);
+                                table.Cell().Row(i).Column(2).Element(BlockEntity).Text(customerIds);
+                                i++;
+                            }
+
+                            table.Footer(footer =>
+                            {
+                                footer.Cell().ColumnSpan(2).Element(FooterR)
+                                    .Text("Branch / Entity signature and seal");
+                            });
+                        });
+                    });
+                    
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" Of ");
+                        x.TotalPages();
+                    });
+                });
+            }).GeneratePdf();
+
+            return retRes;
+        }
+
+        #endregion
+
+        #region QuestPDF Styling Helper Methods
+
+        static IContainer HeadMid(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Background(Colors.Grey.Lighten3)
+                .Padding(5)
+                .AlignCenter()
+                .AlignMiddle();
+        }
+
+        static IContainer HeadLStart(IContainer container)
+        {
+            return container
+                .BorderLeft(1)
+                .BorderRight(1)
+                .BorderTop(1)
+                .Padding(5);
+        }
+
+        static IContainer HeadL(IContainer container)
+        {
+            return container
+                .BorderLeft(1)
+                .BorderRight(1)
+                .Padding(5);
+        }
+
+        static IContainer HeadLEnd(IContainer container)
+        {
+            return container
+                .BorderLeft(1)
+                .BorderRight(1)
+                .BorderBottom(1)
+                .Padding(5);
+        }
+
+        static IContainer HeadSpan(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Padding(5)
+                .AlignCenter()
+                .AlignMiddle();
+        }
+
+        static IContainer HeaderC(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Background(Colors.Grey.Lighten3)
+                .Padding(5)
+                .AlignCenter()
+                .AlignMiddle();
+        }
+
+        static IContainer DocumentType(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Padding(5)
+                .AlignLeft()
+                .AlignMiddle();
+        }
+
+        static IContainer BlockEntity(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Padding(5)
+                .AlignLeft()
+                .AlignMiddle();
+        }
+
+        static IContainer FooterR(IContainer container)
+        {
+            return container
+                .Border(1)
+                .Padding(5)
+                .AlignRight()
+                .AlignMiddle();
+        }
+
+        #endregion
+
+        #region Helper Classes
+
+        public class ContainerFileData
+        {
+            public int ContainerId { get; set; }
+            public string ContainerCode { get; set; }
+            public string CompanyCode { get; set; }
+            public string Entity { get; set; }
+            public DateTime? ArchivingDate { get; set; }
+            public string StatusCode { get; set; }
+            public int FileId { get; set; }
+            public string FileName { get; set; }
+            public int? CustomerId { get; set; }
+            public DateTime? FromDate { get; set; }
+            public DateTime? ToDate { get; set; }
+            public string AdditionalInfo { get; set; }
+            public int ArchivingPeriod { get; set; }
+            public string FileTypeDescription { get; set; }
+            public string DocumentType { get; set; }
+        }
+
+        #endregion
+    }
+}
