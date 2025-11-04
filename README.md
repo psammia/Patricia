@@ -381,9 +381,16 @@ namespace PDFGenerator.BLL
         {
             try
             {
-                // Extract entity from request
+                // Extract entity and user from request if user is "System"
                 dynamic requestObj = JsonConvert.DeserializeObject<dynamic>(requestJson);
                 string entity = requestObj?.Entity ?? "Unknown";
+                string requestUser = requestObj?.User ?? user;
+
+                // If request has actual user, use that instead of "System"
+                if (!string.IsNullOrEmpty(requestUser) && requestUser != "System")
+                {
+                    user = requestUser;
+                }
 
                 DynamicParameters dynamicParameters = new();
                 dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
