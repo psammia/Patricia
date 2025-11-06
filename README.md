@@ -1,387 +1,293 @@
--- =============================================
--- 1. Get Container with Files Data for PDF Generation
--- =============================================
-USE [Alterna.Archive]
-GO
+// Add this method to your BLL.cs in the Archiving project
 
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerDataForPDFGeneration]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
-GO
+public class BackfillResult
+{
+    public int TotalContainers { get; set; }
+    public int SuccessCount { get; set; }
+    public int FailureCount { get; set; }
+    public List<string> FailedContainers { get; set; } = new();
+}
 
-CREATE PROCEDURE [dbo].[usp_GetContainerDataForPDFGeneration]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+public class BackfillContainerInfo
+{
+    public int Id { get; set; }
+    public string Code { get; set; }
+    public string CompanyCode { get; set; }
+    public string Entity { get; set; }
+    public string StatusCode { get; set; }
+    public DateTime? ArchivingDate { get; set; }
+    public DateTime CreatedDate { get; set; }
+    public string CurrentLocation { get; set; }
+}
 
-    SELECT 
-        c.Id AS ContainerId,
-        c.Code AS ContainerCode,
-        c.CompanyCode,
-        c.Entity,
-        c.ArchivingDate,
-        c.StatusCode,
-        f.Id AS FileId,
-        f.Name AS FileName,
-        f.CustomerId,
-        f.FromDate,
-        f.ToDate,
-        f.AdditionalInfo,
-        ft.ArchivingPeriod,
-        ft.Description AS FileTypeDescription,
-        CASE 
-            WHEN f.CustomerId IS NOT NULL THEN 'CUSTOMER'
-            WHEN c.CompanyCode LIKE 'LB%' THEN 'BRANCH'
-            WHEN c.CompanyCode LIKE 'ET%' THEN 'ENTITY'
-            ELSE 'UNKNOWN'
-        END AS DocumentType
-    FROM t_Container c
-    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
-    INNER JOIN t_File f ON ccfr.FileId = f.Id
-    INNER JOIN lkp_FileType ft ON f.FileTypeCode = ft.Code
-    WHERE c.Code = @ContainerCode 
-        AND c.isDeleted = 0 
-        AND f.isDeleted = 0
-    ORDER BY f.Name;
-END
-GO
+public class BackfillFileInfo
+{
+    public int FileId { get; set; }
+    public string FileName { get; set; }
+    public int? CustomerId { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+    public string AdditionalInfo { get; set; }
+    public string CompanyCode { get; set; }
+    public int ArchivingPeriod { get; set; }
+    public string FileTypeDescription { get; set; }
+}
 
--- =============================================
--- 2. Modified usp_InsertPDF to handle both empty and full varbinary
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_InsertPDF]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_InsertPDF]
-GO
-
-CREATE PROCEDURE [dbo].[usp_InsertPDF]
-(
-    @PDF VARBINARY(MAX),
-    @Request NVARCHAR(MAX),
-    @ApiMethod NVARCHAR(500),
-    @BranchList NVARCHAR(MAX),
-    @Entity NVARCHAR(10),
-    @User NVARCHAR(250)
-)
-AS 
-BEGIN
-    SET NOCOUNT ON;
-
-    -- Check if PDF already exists for this container
-    DECLARE @ContainerID NVARCHAR(50);
+public BackfillResult BackfillMissingPDFsForLegacyContainers(string currentUser, DateTime? fromDate = null, DateTime? toDate = null)
+{
+    BackfillResult result = new();
     
-    -- Extract ContainerID from Request JSON
-    SET @ContainerID = JSON_VALUE(@Request, '$.ContainerID');
-    
-    IF @ContainerID IS NOT NULL
-    BEGIN
-        -- Check if record exists
-        IF EXISTS (
-            SELECT 1 
-            FROM t_PDF 
-            WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
-                AND ApiMethod = @ApiMethod
-        )
-        BEGIN
-            -- Update existing record with new PDF if provided
-            IF @PDF IS NOT NULL AND DATALENGTH(@PDF) > 0
-            BEGIN
-                UPDATE t_PDF
-                SET PDF = @PDF,
-                    LastModifiedBy = @User,
-                    LastModifiedDate = GETDATE()
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerID + '"%'
-                    AND ApiMethod = @ApiMethod;
-            END
-        END
-        ELSE
-        BEGIN
-            -- Insert new record
-            INSERT INTO t_PDF (
-                PDF,
-                Request,
-                ApiMethod,
-                BranchList,
-                Entity,
-                CreatedBy,
-                LastModifiedBy
-            )
-            VALUES (
-                @PDF,
-                @Request,
-                @ApiMethod,
-                @BranchList,
-                @Entity,
-                @User,
-                @User
+    try
+    {
+        using (DAL.DAL iDAL = new())
+        {
+            // Get all containers without PDF using stored procedure
+            DynamicParameters param = new();
+            param.Add("FromDate", fromDate, DbType.DateTime, ParameterDirection.Input);
+            param.Add("ToDate", toDate, DbType.DateTime, ParameterDirection.Input);
+
+            string command = ConfigurationManager.AppSettings["Get_Containers_Without_PDF_SP"] ??
+                           "usp_GetContainersWithoutPDF";
+
+            var containersWithoutPDF = iDAL.ExecuteQuery<BackfillContainerInfo>(
+                command, 
+                param, 
+                CommandType.StoredProcedure, 
+                CommandDirection.Read
             );
-        END
-    END
-    ELSE
-    BEGIN
-        -- If no ContainerID found, just insert
-        INSERT INTO t_PDF (
-            PDF,
-            Request,
-            ApiMethod,
-            BranchList,
-            Entity,
-            CreatedBy,
-            LastModifiedBy
-        )
-        VALUES (
-            @PDF,
-            @Request,
-            @ApiMethod,
-            @BranchList,
-            @Entity,
-            @User,
-            @User
-        );
-    END
-END
-GO
 
--- =============================================
--- 3. Enhanced usp_GetPDFVarBinaryByBoxReference
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFVarBinaryByBoxReference]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-GO
+            result.TotalContainers = containersWithoutPDF.Count();
 
-CREATE PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
+            foreach (var container in containersWithoutPDF)
+            {
+                try
+                {
+                    // Get the actual user who sent the container using stored procedure
+                    string sentByUser = GetContainerSentByUser(container.Id, iDAL);
 
-    SELECT TOP 1 PDF 
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-        AND PDF IS NOT NULL
-        AND DATALENGTH(PDF) > 0
-    ORDER BY CreatedDate DESC;
-END
-GO
+                    // Get container files using stored procedure
+                    DynamicParameters fileParam = new();
+                    fileParam.Add("ContainerId", container.Id);
 
--- =============================================
--- 4. Enhanced usp_GetPDFRequestByBoxReference
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetPDFRequestByBoxReference]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-GO
+                    string fileCommand = ConfigurationManager.AppSettings["Get_Container_Files_For_Backfill_SP"] ??
+                                       "usp_GetContainerFilesForBackfill";
 
-CREATE PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                    var files = iDAL.ExecuteQuery<BackfillFileInfo>(
+                        fileCommand,
+                        fileParam,
+                        CommandType.StoredProcedure,
+                        CommandDirection.Read
+                    ).ToList();
 
-    SELECT TOP 1 Request, ApiMethod
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-    ORDER BY CreatedDate DESC;
-END
-GO
+                    if (files.Count > 0)
+                    {
+                        var firstFile = files.First();
+                        
+                        bool unlimited = firstFile.ArchivingPeriod == -1;
+                        DateTime archivePeriod = container.ArchivingDate ?? DateTime.Now;
+                        archivePeriod = archivePeriod.AddYears(firstFile.ArchivingPeriod);
 
--- =============================================
--- 5. Get Entity by Code
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetEntityByCode]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetEntityByCode]
-GO
+                        string entity = GetActiveEntity(container.Entity);
+                        string destructionDate = unlimited ? "Unlimited" : $"{archivePeriod:dd/MM/yyyy}";
+                        string creationDate = container.ArchivingDate.HasValue 
+                            ? $"{container.ArchivingDate.Value:dd/MM/yyyy}" 
+                            : $"{DateTime.Now:dd/MM/yyyy}";
 
-CREATE PROCEDURE [dbo].[usp_GetEntityByCode]
-    @EntityCode NVARCHAR(11)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                        // Determine document type and generate PDF
+                        if (firstFile.CustomerId != null)
+                        {
+                            GenerateCustomerPDFForLegacyContainer(files, container.Code, entity, sentByUser, destructionDate, creationDate, iDAL);
+                        }
+                        else if (firstFile.CompanyCode.StartsWith("LB"))
+                        {
+                            GenerateBranchPDFForLegacyContainer(files, container.Code, entity, sentByUser, destructionDate, creationDate);
+                        }
+                        else if (firstFile.CompanyCode.StartsWith("ET"))
+                        {
+                            GenerateEntityPDFForLegacyContainer(files, container.Code, firstFile.CompanyCode, sentByUser, destructionDate, creationDate);
+                        }
 
-    SELECT 
-        Code,
-        Description,
-        HasFullAccess,
-        Category
-    FROM lkp_Entity
-    WHERE Code = @EntityCode;
-END
-GO
+                        result.SuccessCount++;
+                    }
+                    else
+                    {
+                        result.FailureCount++;
+                        result.FailedContainers.Add($"{container.Code}: No files found");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.FailureCount++;
+                    result.FailedContainers.Add($"{container.Code}: {ex.Message}");
+                    // Log the error
+                    LogError($"Failed to generate PDF for container {container.Code}", new CorrelationInfo(), ex);
+                }
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        throw new SGBLInternalServerException("Backfill process failed", ex);
+    }
 
--- =============================================
--- 6. Check if PDF Exists for Container
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_CheckPDFExistsForContainer]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
-GO
+    return result;
+}
 
-CREATE PROCEDURE [dbo].[usp_CheckPDFExistsForContainer]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+private string GetContainerSentByUser(int containerId, DAL.DAL iDAL)
+{
+    try
+    {
+        DynamicParameters param = new();
+        param.Add("ContainerId", containerId);
 
-    SELECT 
-        CASE 
-            WHEN EXISTS (
-                SELECT 1 
-                FROM t_PDF 
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
-                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-            ) 
-            THEN 1 
-            ELSE 0 
-        END AS PDFExists,
-        CASE 
-            WHEN EXISTS (
-                SELECT 1 
-                FROM t_PDF 
-                WHERE Request LIKE '%"ContainerID": "' + @ContainerCode + '"%'
-                    AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-                    AND PDF IS NOT NULL
-                    AND DATALENGTH(PDF) > 0
-            ) 
-            THEN 1 
-            ELSE 0 
-        END AS PDFBinaryExists;
-END
-GO
+        string command = ConfigurationManager.AppSettings["Get_Container_Sent_By_User_SP"] ??
+                        "usp_GetContainerSentByUser";
 
--- =============================================
--- 7. Get all containers without PDFs (for reporting/backfill)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainersWithoutPDF]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
-GO
+        var result = iDAL.ExecuteQuery<dynamic>(
+            command, 
+            param, 
+            CommandType.StoredProcedure, 
+            CommandDirection.Read
+        ).FirstOrDefault();
 
-CREATE PROCEDURE [dbo].[usp_GetContainersWithoutPDF]
-AS
-BEGIN
-    SET NOCOUNT ON;
+        return result?.SentByUser ?? "System";
+    }
+    catch
+    {
+        return "System";
+    }
+}
 
-    SELECT DISTINCT 
-        c.Id,
-        c.Code,
-        c.CompanyCode,
-        c.Entity,
-        c.StatusCode,
-        c.ArchivingDate,
-        c.CreatedDate
-    FROM t_Container c
-    WHERE c.StatusCode IN ('SENT', 'RECEIVED', 'TOBEDESTR', 'DESTROYED')
-        AND c.isDeleted = 0
-        AND NOT EXISTS (
-            SELECT 1 
-            FROM t_PDF p 
-            WHERE p.Request LIKE '%"ContainerID": "' + c.Code + '"%'
-                AND p.ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-        )
-    ORDER BY c.CreatedDate DESC;
-END
-GO
+private void GenerateEntityPDFForLegacyContainer(List<BackfillFileInfo> files, string containerCode, 
+    string entity, string user, string destructionDate, string creationDate)
+{
+    EntityDocRequest entityDocRequest = new()
+    {
+        DestructionDate = destructionDate,
+        ContainerID = containerCode,
+        Entity = entity,
+        User = user,
+        EntityFiles = new(),
+        CreationDate = creationDate
+    };
 
--- =============================================
--- 8. Get Customer IDs grouped by File Type
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetCustomerFilesByContainer]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
-GO
+    foreach (BackfillFileInfo item in files)
+    {
+        entityDocRequest.EntityFiles.Add(new()
+        {
+            DocumentType = item.FileName,
+            DocumentDescription = item.AdditionalInfo ?? string.Empty
+        });
+    }
 
-CREATE PROCEDURE [dbo].[usp_GetCustomerFilesByContainer]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+    CallPDFServiceAndStore(entityDocRequest, "GenerateEntityDocPDFForArchive");
+}
 
-    SELECT 
-        f.Name AS DocumentType,
-        f.CustomerId,
-        CAST(f.CustomerId AS NVARCHAR(50)) AS CustomerIdString
-    FROM t_Container c
-    INNER JOIN t_CurrentContainerFileRelationship ccfr ON c.Id = ccfr.ContainerId
-    INNER JOIN t_File f ON ccfr.FileId = f.Id
-    WHERE c.Code = @ContainerCode 
-        AND c.isDeleted = 0 
-        AND f.isDeleted = 0
-        AND f.CustomerId IS NOT NULL
-    ORDER BY f.Name, f.CustomerId;
-END
-GO
+private void GenerateBranchPDFForLegacyContainer(List<BackfillFileInfo> files, string containerCode, 
+    string entity, string user, string destructionDate, string creationDate)
+{
+    BranchDocRequest branchDocRequest = new()
+    {
+        DestructionDate = destructionDate,
+        ContainerID = containerCode,
+        Entity = entity,
+        User = user,
+        BranchFiles = new(),
+        CreationDate = creationDate
+    };
 
--- =============================================
--- 9. Get User who sent the container (Status = SENT)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUser]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerSentByUser]
-GO
+    foreach (BackfillFileInfo item in files)
+    {
+        branchDocRequest.BranchFiles.Add(new()
+        {
+            DocumentType = item.FileName,
+            FromDate = item.FromDate.HasValue ? $"{item.FromDate.Value:dd-MM-yyyy}" : "",
+            ToDate = item.ToDate.HasValue ? $"{item.ToDate.Value:dd-MM-yyyy}" : ""
+        });
+    }
 
-CREATE PROCEDURE [dbo].[usp_GetContainerSentByUser]
-    @ContainerId INT
-AS
-BEGIN
-    SET NOCOUNT ON;
+    CallPDFServiceAndStore(branchDocRequest, "GenerateBranchDocPDFForArchive");
+}
 
-    -- Get the user who changed status to SENT
-    SELECT TOP 1 
-        cs.CreatedBy AS SentByUser,
-        cs.CreatedDate AS SentDate,
-        cs.HoldingEntityCode
-    FROM t_ContainerStatus cs
-    WHERE cs.ContainerId = @ContainerId
-        AND cs.StatusCode = 'SENT'
-    ORDER BY cs.CreatedDate DESC;
-    
-    -- If no SENT status found, get the last user who modified the container
-    IF @@ROWCOUNT = 0
-    BEGIN
-        SELECT 
-            c.LastModifiedBy AS SentByUser,
-            c.LastModifiedDate AS SentDate,
-            c.Entity AS HoldingEntityCode
-        FROM t_Container c
-        WHERE c.Id = @ContainerId;
-    END
-END
-GO
+private void GenerateCustomerPDFForLegacyContainer(List<BackfillFileInfo> files, string containerCode, 
+    string entity, string user, string destructionDate, string creationDate, DAL.DAL iDAL)
+{
+    CustomerDocRequest customerDocRequest = new()
+    {
+        DestructionDate = destructionDate,
+        ContainerID = containerCode,
+        Entity = entity,
+        User = user,
+        CustomerFiles = new(),
+        CreationDate = creationDate
+    };
 
--- =============================================
--- 10. Get User by Container Code (for legacy containers)
--- =============================================
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[usp_GetContainerSentByUserByCode]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
-GO
+    // Get customer files grouped by document type using stored procedure
+    DynamicParameters param = new();
+    param.Add("ContainerCode", containerCode);
 
-CREATE PROCEDURE [dbo].[usp_GetContainerSentByUserByCode]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
+    string command = ConfigurationManager.AppSettings["Get_Customer_Files_By_Container_SP"] ??
+                   "usp_GetCustomerFilesByContainer";
 
-    -- Get the user who changed status to SENT based on container code
-    SELECT TOP 1 
-        cs.CreatedBy AS SentByUser,
-        cs.CreatedDate AS SentDate,
-        cs.HoldingEntityCode,
-        c.Id AS ContainerId
-    FROM t_Container c
-    INNER JOIN t_ContainerStatus cs ON c.Id = cs.ContainerId
-    WHERE c.Code = @ContainerCode
-        AND cs.StatusCode = 'SENT'
-    ORDER BY cs.CreatedDate DESC;
-    
-    -- If no SENT status found, get the last user who modified the container
-    IF @@ROWCOUNT = 0
-    BEGIN
-        SELECT 
-            c.LastModifiedBy AS SentByUser,
-            c.LastModifiedDate AS SentDate,
-            c.Entity AS HoldingEntityCode,
-            c.Id AS ContainerId
-        FROM t_Container c
-        WHERE c.Code = @ContainerCode;
-    END
-END
-GO
+    var customerFiles = iDAL.ExecuteQuery<dynamic>(
+        command, 
+        param, 
+        CommandType.StoredProcedure, 
+        CommandDirection.Read
+    ).ToList();
 
-PRINT 'All stored procedures created successfully!'
-GO
+    // Group customer IDs by document type
+    Dictionary<string, List<string>> fileDict = new();
+    foreach (var file in customerFiles)
+    {
+        string docType = file.DocumentType;
+        string customerId = file.CustomerIdString ?? "";
+
+        if (!fileDict.ContainsKey(docType))
+        {
+            fileDict.Add(docType, new List<string> { customerId });
+        }
+        else if (!fileDict[docType].Contains(customerId))
+        {
+            fileDict[docType].Add(customerId);
+        }
+    }
+
+    foreach (KeyValuePair<string, List<string>> dictEntry in fileDict)
+    {
+        customerDocRequest.CustomerFiles.Add(new() 
+        { 
+            DocumentType = dictEntry.Key, 
+            Id = dictEntry.Value
+        });
+    }
+
+    CallPDFServiceAndStore(customerDocRequest, "GenerateCustomerDocPDFForArchive");
+}
+
+private void CallPDFServiceAndStore(object request, string apiMethod)
+{
+    try
+    {
+        string data = JsonConvert.SerializeObject(request);
+        HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+        HttpClient client = new();
+        string pdfRequestBase = ConfigurationManager.AppSettings["PDFService"] 
+            ?? throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
+
+        Task<HttpResponseMessage> httpRequest = client.PostAsync($"{pdfRequestBase}{apiMethod}", content);
+        httpRequest.Wait();
+        
+        Task<string> responseString = httpRequest.Result.Content.ReadAsStringAsync();
+        responseString.Wait();
+
+        if (string.IsNullOrEmpty(responseString.Result))
+        {
+            throw new SGBLInternalServerException("PDF Service returned empty response");
+        }
+    }
+    catch (Exception ex)
+    {
+        throw new SGBLInternalServerException($"PDF Creation Failed for {apiMethod}", ex);
+    }
+}
