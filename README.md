@@ -1,4 +1,5 @@
 // Add to ArchivingController.cs
+using ALTERNA.ARCHIVING.BLL; // Make sure this using is at the top
 
 [HttpPost]
 [Route("BackfillMissingPDFs")]
@@ -93,7 +94,7 @@ public BackfillMissingPDFsRes BackfillMissingPDFs(BackfillMissingPDFsReq backfil
     }
 }
 
-// Request/Response Models
+// Request/Response Models - Add to your Models or Controller namespace
 public partial class BackfillMissingPDFsReq
 {
     public BaseRequest BaseReq { get; set; } = new BaseRequest();
@@ -107,14 +108,5 @@ public partial class BackfillMissingPDFsRes
 {
     public BaseResponse WebResp { get; set; } = new BaseResponse();
     public required BackfillMissingPDFsReq Req { get; set; }
-    public BackfillResult? Resp { get; set; }
-}
-
-// BackfillResult class (should be in your Models or BLL namespace)
-public class BackfillResult
-{
-    public int TotalContainers { get; set; }
-    public int SuccessCount { get; set; }
-    public int FailureCount { get; set; }
-    public List<string> FailedContainers { get; set; } = new();
+    public ALTERNA.ARCHIVING.BLL.BackfillResult? Resp { get; set; } // Use fully qualified name
 }
