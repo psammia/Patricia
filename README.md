@@ -1,3 +1,8 @@
+Let s come back to out latest project archiving and pdf generator.  as for our conversation of yesterday, i didnt take the code and didnt apply it, for the reason that i dont need from date and todate.  i will provide you my latest code and sql tables and stored procedures, to see where i stand by. Now what i need: 1) When uploading the excel file and inserting data in the database, i want to take these 3 things into consideration.  1- when printing the document put into User:  "SystemUser" if the field  of "BoxSentBy" in the excell file is empty, or the value in "BoxSentBy" if not empty. 2-  When inserting data into t_ContainerStatus, Holding entity should take the value of Code (indicated in the excel file) when the status is SENT  and "WH" when the status is RECEIVED or NOTFOUND (which is a new integrated Status) in the table lkp_Status and has no impact on my logic, only will be inserted in the databse staticcly without any other impact anywhere.  Accordingly and using Dapper , stored procedurs, BLL , Archiving Cotroller in the Back End, Configuration Controller in the Front end, using .net Core, and SQL. provide me with the changes that must take place. Here is my code. if any missing tell me to show it to you.
+
+
+
+
 Archiving BLL.cs
 ====================
         public void ImportOldBoxes(ImportOldBoxesReq req)
