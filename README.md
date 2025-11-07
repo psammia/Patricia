@@ -1,3 +1,2349 @@
+Pdf Generator Project ============================
+Base Controller ========
+using System.Text;
+
+using BLL;
+using BLL.ViewModels;
+
+using Microsoft.AspNetCore.Mvc;
+
+namespace API.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+public class BaseController : ControllerBase
+{
+    #region GenerateBranchDocPDFForArchive OLD ONE
+    //[HttpPost]
+    //[Route("GenerateBranchDocPDFForArchive")]
+    //public string GenerateBranchDocPDFForArchive(BranchDocRequest requ)
+    //{
+    //    BLL.BLL ArchiveBll = new();
+    //    var myByteArray = ArchiveBll.GenerateBranchDocPDFForArchive(requ);
+    //    StringBuilder sb = new(myByteArray.Length * 2);
+    //    foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+    //    return sb.ToString();
+    //}
+    #endregion
+
+    [HttpPost]
+    [Route("GenerateBranchDocPDFForArchive")]
+    public string GenerateBranchDocPDFForArchive([FromBody] BranchDocRequest request)
+    {
+        try
+        {
+            BLL.BLL archiveBll = new();
+            var myByteArray = archiveBll.GenerateBranchDocPDFForArchive(request);
+            StringBuilder sb = new(myByteArray.Length * 2);
+            foreach (var b in myByteArray)
+                sb.AppendFormat("{0:x2}", b);
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to generate Branch PDF: {ex.Message}", ex);
+        }
+    }
+
+    #region GenerateCustomerDocPDFForArchive OLD ONE
+    //[HttpPost]
+    //[Route("GenerateCustomerDocPDFForArchive")]
+    //public string GenerateCustomerDocPDFForArchive(CustomerDocRequest requ)
+    //{
+    //    BLL.BLL ArchiveBll = new();
+    //    var myByteArray = ArchiveBll.GenerateCustomerDocPDFForArchive(requ);
+    //    StringBuilder sb = new(myByteArray.Length * 2);
+    //    foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+    //    return sb.ToString();
+    //}
+    #endregion
+
+    [HttpPost]
+    [Route("GenerateCustomerDocPDFForArchive")]
+    public string GenerateCustomerDocPDFForArchive([FromBody] CustomerDocRequest request)
+    {
+        try
+        {
+            BLL.BLL archiveBll = new();
+            var myByteArray = archiveBll.GenerateCustomerDocPDFForArchive(request);
+            StringBuilder sb = new(myByteArray.Length * 2);
+            foreach (var b in myByteArray)
+                sb.AppendFormat("{0:x2}", b);
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to generate Customer PDF: {ex.Message}", ex);
+        }
+    }
+    #region GenerateEntityDocPDFForArchive OLD ONE
+    //[HttpPost]
+    //[Route("GenerateEntityDocPDFForArchive")]
+    //public string GenerateEntityDocPDFForArchive(EntityDocRequest requ)
+    //{
+    //    BLL.BLL ArchiveBll = new();
+    //    var myByteArray = ArchiveBll.GenerateEntityDocPDFForArchive(requ);
+    //    StringBuilder sb = new(myByteArray.Length * 2);
+    //    foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+    //    return sb.ToString();
+    //}
+    #endregion
+
+    [HttpPost]
+    [Route("GenerateBoxPDFForDestruction")]
+    public string GenerateBoxPDFForDestruction(DestructionBoxRequest requ)
+    {
+        BLL.BLL ArchiveBll = new();
+        var myByteArray = ArchiveBll.GenerateBoxPDFForDestruction(requ);
+        StringBuilder sb = new(myByteArray.Length * 2);
+        foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+        return sb.ToString();
+    }
+
+    [HttpPost]
+    [Route("GenerateEntityDocPDFForArchive")]
+    public string GenerateEntityDocPDFForArchive([FromBody] EntityDocRequest request)
+    {
+        try
+        {
+            BLL.BLL archiveBll = new();
+            var myByteArray = archiveBll.GenerateEntityDocPDFForArchive(request);
+            StringBuilder sb = new(myByteArray.Length * 2);
+            foreach (var b in myByteArray)
+                sb.AppendFormat("{0:x2}", b);
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            // Log error
+            throw new Exception($"Failed to generate Entity PDF: {ex.Message}", ex);
+        }
+    }
+
+    #region RedownloadDocPDFForArchive OLD ONE 
+    //[HttpPost]
+    //[Route("RedownloadDocPDFForArchive")]
+    //public string RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest requ)
+    //{
+    //    BLL.BLL ArchiveBll = new();
+    //    var myByteArray = ArchiveBll.RedownloadDocPDFForArchive(requ);
+    //    StringBuilder sb = new(myByteArray.Length * 2);
+    //    foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+    //    return sb.ToString();
+    //}
+    #endregion
+
+    [HttpPost]
+    [Route("RedownloadDocPDFForArchive")]
+    public string RedownloadDocPDFForArchive([FromBody] RedownloadDocPDFForArchiveRequest request)
+    {
+        try
+        {
+            BLL.BLL archiveBll = new();
+            var myByteArray = archiveBll.RedownloadDocPDFForArchive(request);
+
+            if (myByteArray == null || myByteArray.Length == 0)
+            {
+                throw new Exception($"Failed to generate PDF for container {request.ContainerID}");
+            }
+
+            StringBuilder sb = new(myByteArray.Length * 2);
+            foreach (var b in myByteArray)
+                sb.AppendFormat("{0:x2}", b);
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to redownload PDF for container {request.ContainerID}: {ex.Message}", ex);
+        }
+    }
+
+    [HttpGet]
+    [Route("health")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new { status = "healthy", timestamp = DateTime.Now });
+    }
+
+    [HttpPost]
+    [Route("GenerateKycLowRiskPdfReport")]
+    public string GenerateKycLowRiskReport(GenerateKycLowRiskPdfReportRequest req)
+    {
+        BLL.BLL KycBll = new();
+        var myByteArray = KycBll.GenerateKycLowRiskPdfReport(req);
+        StringBuilder sb = new(myByteArray.Length * 2);
+        foreach (var b in myByteArray) sb.AppendFormat("{0:x2}", b);
+        return sb.ToString();
+    }
+
+    [HttpPost]
+    [Route("ExportBoxesToBeDelivered")]
+    public string ExportBoxesToBeDelivered(ExportBoxesToBeDeliveredViewModel exportBoxesToBeDeliveredViewModel)
+    {
+        BLL.BLL bll = new BLL.BLL();
+        byte[] result = bll.GetByteArrayForETSMBranch(
+            exportBoxesToBeDeliveredViewModel.Req,
+            exportBoxesToBeDeliveredViewModel.BoxesToBeDeliveredList);
+
+        StringBuilder sb = new StringBuilder(result.Length * 2);
+        foreach (var b in result)
+        {
+            sb.AppendFormat("{0:x2}", b);
+        }
+
+        return sb.ToString();
+    }
+
+    [HttpPost]
+    [Route("ExportWarehouseContainers")]
+    public string ExportWarehouseContainers(ExportWarehouseContainersPdfReq exportWarehouseContainersPdfReq)
+    {
+        BLL.BLL bll = new BLL.BLL();
+        byte[] result = bll.GetByteArrayForWarehouseReport(
+            exportWarehouseContainersPdfReq);
+
+        StringBuilder sb = new StringBuilder(result.Length * 2);
+        foreach (var b in result)
+        {
+            sb.AppendFormat("{0:x2}", b);
+        }
+
+        return sb.ToString();
+    }
+
+}
+
+
+ARCHIVE.BLL.CS is Ofd Generator ============
+using System.Configuration;
+using System.Data;
+using System.Net;
+
+using Dapper;
+
+using Newtonsoft.Json;
+
+using QuestPDF;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+
+namespace BLL;
+
+public partial class BLL
+{
+    #region MyRegion GenerateBranchDocPDFForArchive OLD ONE
+    //public byte[] GenerateBranchDocPDFForArchive(BranchDocRequest branchDocRequest)
+    //{
+    //    var retRes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
+
+    //    byte[] empty = [];
+    //    DynamicParameters dynamicParameters = new();
+    //    dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+    //    dynamicParameters.Add("Request", JsonConvert.SerializeObject(branchDocRequest, Formatting.Indented),
+    //        DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("ApiMethod", "GenerateBranchDocPDFForArchive", DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("BranchList", branchDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("Entity", branchDocRequest.Entity, DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("User", branchDocRequest.User, DbType.String, ParameterDirection.Input);
+
+    //    using (DAL.DAL dal = new(Catalog_Archive, out var res))
+    //    {
+    //        var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+    //        dal.ExecuteQuery(command, dynamicParameters);
+    //    }
+
+    //    return retRes;
+    //}
+    #endregion
+    public byte[] GenerateBranchDocPDFForArchive(BranchDocRequest branchDocRequest)
+    {
+        var retRes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
+
+        // Save to database with empty binary initially
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(branchDocRequest, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "GenerateBranchDocPDFForArchive", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", branchDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", branchDocRequest.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", branchDocRequest.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+
+    #region MyRegion GenerateCustomerDocPDFForArchive OLD ONE
+    //public byte[] GenerateCustomerDocPDFForArchive(CustomerDocRequest customerDocRequest)
+    //{
+    //    var retRes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
+
+    //    byte[] empty = [];
+
+    //    DynamicParameters dynamicParameters = new();
+    //    dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+    //    dynamicParameters.Add("Request", JsonConvert.SerializeObject(customerDocRequest, Formatting.Indented),
+    //        DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("ApiMethod", "GenerateCustomerDocPDFForArchive", DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("BranchList", customerDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("Entity", customerDocRequest.Entity, DbType.String, ParameterDirection.Input);
+    //    dynamicParameters.Add("User", customerDocRequest.User, DbType.String, ParameterDirection.Input);
+
+    //    using (DAL.DAL dal = new(Catalog_Archive, out var res))
+    //    {
+    //        var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+    //        dal.ExecuteQuery(command, dynamicParameters);
+    //    }
+
+    //    return retRes;
+    //}
+    #endregion
+
+    public byte[] GenerateCustomerDocPDFForArchive(CustomerDocRequest customerDocRequest)
+    {
+        var retRes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
+
+        // Save to database with empty binary initially
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(customerDocRequest, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "GenerateCustomerDocPDFForArchive", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", customerDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", customerDocRequest.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", customerDocRequest.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+    public byte[] GenerateBoxPDFForDestruction(DestructionBoxRequest destructionBoxRequest)
+    {
+        var retRes = GetByteArrayForBoxPDFForDestruction(destructionBoxRequest);
+
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(destructionBoxRequest, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "GenerateBoxPDFForDestruction", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", "WareHouseDestruction", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", destructionBoxRequest.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", destructionBoxRequest.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+
+    public byte[] GenerateEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
+    {
+        var retRes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
+
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(entityDocRequest, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "GenerateBranchDocPDFForArchive", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", entityDocRequest.BranchList, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", entityDocRequest.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", entityDocRequest.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+
+    #region NEW CODE NEW CODE NEW CODE
+
+    #region Enhanced with On-Demand Generation NEW CODE
+    public byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest redownloadDocPDFForArchiveRequest)
+    {
+        byte[] retRes = [];
+
+        try
+        {
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                // Step 1: Try to get existing PDF binary
+                DynamicParameters dynamicParameters = new();
+                dynamicParameters.Add("BoxReference", redownloadDocPDFForArchiveRequest.ContainerID);
+
+                string command = ConfigurationManager.AppSettings["Get_PDF_Var_Binary_By_Box_Reference_SP"] ??
+                               "usp_GetPDFVarBinaryByBoxReference";
+
+                byte[] pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters)
+                    .DefaultIfEmpty([]).FirstOrDefault() ?? [];
+
+                // Step 2: If PDF binary exists and is valid, return it
+                if (pdfInDb.Length > 5)
+                {
+                    return pdfInDb;
+                }
+
+                // Step 3: Try to get the original request from t_PDF
+                command = ConfigurationManager.AppSettings["Get_PDF_Request_By_Box_Reference_SP"] ??
+                         "usp_GetPDFRequestByBoxReference";
+
+                var requestData = dal.ExecuteQuery<dynamic>(command, dynamicParameters)
+                    .FirstOrDefault();
+
+                if (requestData != null && !string.IsNullOrEmpty(requestData.Request))
+                {
+                    // PDF record exists but binary is empty - regenerate from stored request
+                    string apiMethod = requestData.ApiMethod;
+                    string originalRequestInJsonFormat = requestData.Request;
+
+                    retRes = RegeneratePDFFromStoredRequest(originalRequestInJsonFormat, apiMethod);
+
+                    // Update the PDF binary in database
+                    if (retRes.Length > 0)
+                    {
+                        UpdatePDFBinaryInDatabase(retRes, originalRequestInJsonFormat, apiMethod, "System");
+                    }
+
+                    return retRes;
+                }
+
+                // Step 4: No PDF record exists - this is a legacy container
+                // Generate PDF from container data
+                retRes = GeneratePDFFromContainerData(redownloadDocPDFForArchiveRequest.ContainerID, dal);
+
+                return retRes;
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to download/generate PDF for container {redownloadDocPDFForArchiveRequest.ContainerID}: {ex.Message}", ex);
+        }
+    }
+
+    #endregion
+
+    #region Generate PDF From Container Data (For Legacy Containers)
+
+    private byte[] GeneratePDFFromContainerData(string containerCode, DAL.DAL dal)
+    {
+        try
+        {
+            // Get container data with files using stored procedure
+            DynamicParameters param = new();
+            param.Add("ContainerCode", containerCode);
+
+            string command = ConfigurationManager.AppSettings["Get_Container_Data_For_PDF_Generation_SP"] ??
+                           "usp_GetContainerDataForPDFGeneration";
+
+            var containerData = dal.ExecuteQuery<ContainerFileData>(command, param).ToList();
+
+            if (!containerData.Any())
+            {
+                throw new Exception($"No data found for container: {containerCode}");
+            }
+
+            var firstRow = containerData.First();
+            string documentType = firstRow.DocumentType;
+            string companyCode = firstRow.CompanyCode;
+            DateTime? archivingDate = firstRow.ArchivingDate;
+            int archivingPeriod = firstRow.ArchivingPeriod;
+
+            // Calculate destruction date
+            bool unlimited = archivingPeriod == -1;
+            DateTime archivePeriodDate = (archivingDate ?? DateTime.Now).AddYears(archivingPeriod);
+            string destructionDate = unlimited ? "Unlimited" : $"{archivePeriodDate:dd/MM/yyyy}";
+            string creationDate = archivingDate.HasValue ? $"{archivingDate.Value:dd/MM/yyyy}" : $"{DateTime.Now:dd/MM/yyyy}";
+
+            // Get entity
+            string entity = GetEntityDescription(firstRow.Entity ?? companyCode, dal);
+
+            // Generate PDF based on document type
+            byte[] pdfBytes = [];
+
+            switch (documentType)
+            {
+                case "CUSTOMER":
+                    pdfBytes = GenerateCustomerPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate, dal);
+                    break;
+
+                case "BRANCH":
+                    pdfBytes = GenerateBranchPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate);
+                    break;
+
+                case "ENTITY":
+                    pdfBytes = GenerateEntityPDFFromContainerData(containerData, containerCode, companyCode, destructionDate, creationDate);
+                    break;
+
+                default:
+                    throw new Exception($"Unknown document type: {documentType}");
+            }
+
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Failed to generate PDF from container data for {containerCode}: {ex.Message}", ex);
+        }
+    }
+
+    private byte[] GenerateCustomerPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
+        string entity, string destructionDate, string creationDate, DAL.DAL dal)
+    {
+        // Get customer files grouped by document type
+        DynamicParameters param = new();
+        param.Add("ContainerCode", containerCode);
+
+        string command = ConfigurationManager.AppSettings["Get_Customer_Files_By_Container_SP"] ??
+                       "usp_GetCustomerFilesByContainer";
+
+        var customerFiles = dal.ExecuteQuery<dynamic>(command, param).ToList();
+
+        CustomerDocRequest customerDocRequest = new()
+        {
+            DestructionDate = destructionDate,
+            ContainerID = containerCode,
+            Entity = entity,
+            User = "System",
+            CustomerFiles = new(),
+            CreationDate = creationDate
+        };
+
+        // Group customer IDs by document type
+        Dictionary<string, List<string>> fileDict = new();
+        foreach (var file in customerFiles)
+        {
+            string docType = file.DocumentType;
+            string customerId = file.CustomerIdString ?? "";
+
+            if (!fileDict.ContainsKey(docType))
+            {
+                fileDict.Add(docType, new List<string> { customerId });
+            }
+            else if (!fileDict[docType].Contains(customerId))
+            {
+                fileDict[docType].Add(customerId);
+            }
+        }
+
+        foreach (var dictEntry in fileDict)
+        {
+            customerDocRequest.CustomerFiles.Add(new CustomerFile
+            {
+                DocumentType = dictEntry.Key,
+                Id = dictEntry.Value
+            });
+        }
+
+        var pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
+
+        // Save to database
+        SavePDFToDatabase(pdfBytes, customerDocRequest, "GenerateCustomerDocPDFForArchive", entity, "System");
+
+        return pdfBytes;
+    }
+
+    private byte[] GenerateBranchPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
+        string entity, string destructionDate, string creationDate)
+    {
+        BranchDocRequest branchDocRequest = new()
+        {
+            DestructionDate = destructionDate,
+            ContainerID = containerCode,
+            Entity = entity,
+            User = "System",
+            BranchFiles = new(),
+            CreationDate = creationDate
+        };
+
+        foreach (var row in containerData)
+        {
+            branchDocRequest.BranchFiles.Add(new BranchFile
+            {
+                DocumentType = row.FileName,
+                FromDate = row.FromDate.HasValue ? $"{row.FromDate.Value:dd-MM-yyyy}" : "",
+                ToDate = row.ToDate.HasValue ? $"{row.ToDate.Value:dd-MM-yyyy}" : ""
+            });
+        }
+
+        var pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
+
+        // Save to database
+        SavePDFToDatabase(pdfBytes, branchDocRequest, "GenerateBranchDocPDFForArchive", entity, "System");
+
+        return pdfBytes;
+    }
+
+    private byte[] GenerateEntityPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
+        string companyCode, string destructionDate, string creationDate)
+    {
+        EntityDocRequest entityDocRequest = new()
+        {
+            DestructionDate = destructionDate,
+            ContainerID = containerCode,
+            Entity = companyCode,
+            User = "System",
+            EntityFiles = new(),
+            CreationDate = creationDate
+        };
+
+        foreach (var row in containerData)
+        {
+            entityDocRequest.EntityFiles.Add(new EntityFile
+            {
+                DocumentType = row.FileName,
+                DocumentDescription = row.AdditionalInfo ?? string.Empty
+            });
+        }
+
+        var pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
+
+        // Save to database
+        SavePDFToDatabase(pdfBytes, entityDocRequest, "GenerateEntityDocPDFForArchive", companyCode, "System");
+
+        return pdfBytes;
+    }
+
+    private string GetEntityDescription(string entityCode, DAL.DAL dal)
+    {
+        try
+        {
+            DynamicParameters param = new();
+            param.Add("EntityCode", entityCode);
+
+            string command = ConfigurationManager.AppSettings["Get_Entity_By_Code_SP"] ??
+                           "usp_GetEntityByCode";
+
+            var entity = dal.ExecuteQuery<dynamic>(command, param)
+                .FirstOrDefault();
+
+            return entity?.Description ?? entityCode;
+        }
+        catch
+        {
+            return entityCode;
+        }
+    }
+
+    #endregion
+
+    #region Regenerate PDF From Stored Request
+
+    private byte[] RegeneratePDFFromStoredRequest(string requestJson, string apiMethod)
+    {
+        byte[] pdfBytes = [];
+
+        switch (apiMethod)
+        {
+            case "GenerateEntityDocPDFForArchive":
+                var entityRequest = JsonConvert.DeserializeObject<EntityDocRequest>(requestJson);
+                if (entityRequest != null)
+                {
+                    pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityRequest);
+                }
+                break;
+
+            case "GenerateBranchDocPDFForArchive":
+                var branchRequest = JsonConvert.DeserializeObject<BranchDocRequest>(requestJson);
+                if (branchRequest != null)
+                {
+                    pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchRequest);
+                }
+                break;
+
+            case "GenerateCustomerDocPDFForArchive":
+                var customerRequest = JsonConvert.DeserializeObject<CustomerDocRequest>(requestJson);
+                if (customerRequest != null)
+                {
+                    pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerRequest);
+                }
+                break;
+
+            default:
+                throw new Exception($"Unknown API method: {apiMethod}");
+        }
+
+        return pdfBytes;
+    }
+
+    #endregion
+
+    #region Save/Update PDF in Database
+
+    private void SavePDFToDatabase(byte[] pdfBytes, object request, string apiMethod, string entity, string user)
+    {
+        try
+        {
+            string requestJson = JsonConvert.SerializeObject(request, Formatting.Indented);
+
+            DynamicParameters dynamicParameters = new();
+            dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
+            dynamicParameters.Add("Request", requestJson, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("ApiMethod", apiMethod, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("BranchList", "N/A", DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("Entity", entity, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("User", user, DbType.String, ParameterDirection.Input);
+
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                dal.ExecuteQuery(command, dynamicParameters);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't throw - PDF was generated successfully
+            Console.WriteLine($"Warning: Failed to save PDF to database: {ex.Message}");
+        }
+    }
+
+    private void UpdatePDFBinaryInDatabase(byte[] pdfBytes, string requestJson, string apiMethod, string user)
+    {
+        try
+        {
+            // Extract entity from request
+            dynamic requestObj = JsonConvert.DeserializeObject<dynamic>(requestJson);
+            string entity = requestObj?.Entity ?? "Unknown";
+
+            DynamicParameters dynamicParameters = new();
+            dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
+            dynamicParameters.Add("Request", requestJson, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("ApiMethod", apiMethod, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("BranchList", "N/A", DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("Entity", entity, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("User", user, DbType.String, ParameterDirection.Input);
+
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                dal.ExecuteQuery(command, dynamicParameters);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Failed to update PDF binary in database: {ex.Message}");
+        }
+    }
+
+    #endregion
+
+    #region Helper Classes
+
+    public class ContainerFileData
+    {
+        public int ContainerId { get; set; }
+        public string ContainerCode { get; set; } = string.Empty;
+        public string CompanyCode { get; set; } = string.Empty;
+        public string Entity { get; set; } = string.Empty;
+        public DateTime? ArchivingDate { get; set; }
+        public string StatusCode { get; set; } = string.Empty;
+        public int FileId { get; set; }
+        public string FileName { get; set; } = string.Empty;
+        public int? CustomerId { get; set; }
+        public DateTime? FromDate { get; set; }
+        public DateTime? ToDate { get; set; }
+        public string AdditionalInfo { get; set; } = string.Empty;
+        public int ArchivingPeriod { get; set; }
+        public string FileTypeDescription { get; set; } = string.Empty;
+        public string DocumentType { get; set; } = string.Empty;
+    }
+
+    #endregion
+
+    #endregion
+
+    #region MyRegion RedownloadDocPDFForArchive OLD VERSION
+    //public byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest redownloadDocPDFForArchiveRequest)
+    //{
+    //    byte[] retRes = [];
+    //    byte[] pdfInDb = [];
+
+    //    DynamicParameters dynamicParameters = new();
+    //    dynamicParameters.Add("BoxReference", redownloadDocPDFForArchiveRequest.ContainerID);
+
+    //    var originalRequestInJsonFormat = string.Empty;
+
+    //    using (DAL.DAL dal = new(Catalog_Archive, out var res))
+    //    {
+    //        var command = "";
+    //        switch (redownloadDocPDFForArchiveRequest.DocumentType)
+    //        {
+    //            case ArchivingDocumentType.BRANCH_PDF:
+
+    //                // Backward compatibility between phase 1 and phase 2. If Varbinary was found in DB -> return it, else recreate the PDF
+    //                command = ConfigurationManager.AppSettings["Get_PDF_Var_Binary_By_Box_Reference_SP"] ??
+    //                          "usp_GetPDFVarBinaryByBoxReference";
+    //                pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters).DefaultIfEmpty([]).First();
+
+    //                if (pdfInDb.Length > 5)
+    //                {
+    //                    retRes = pdfInDb;
+    //                }
+    //                else
+    //                {
+    //                    command = ConfigurationManager.AppSettings["Get_PDF_Request_By_Box_Reference_SP"] ??
+    //                              "usp_GetPDFRequestByBoxReference";
+    //                    originalRequestInJsonFormat = dal.ExecuteQuery<string>(command, dynamicParameters)
+    //                        .DefaultIfEmpty(string.Empty).First();
+
+    //                    retRes = GetByteArrayForBranchDocPDFForArchive(
+    //                        JsonConvert.DeserializeObject<BranchDocRequest>(originalRequestInJsonFormat)!);
+    //                }
+
+    //                break;
+
+    //            case ArchivingDocumentType.CUSTOMER_PDF:
+    //                command = ConfigurationManager.AppSettings["Get_PDF_Var_Binary_By_Box_Reference_SP"] ??
+    //                          "usp_GetPDFVarBinaryByBoxReference";
+    //                pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters).DefaultIfEmpty([]).First();
+
+    //                if (pdfInDb.Length > 5)
+    //                {
+    //                    retRes = pdfInDb;
+    //                }
+    //                else
+    //                {
+    //                    command = ConfigurationManager.AppSettings["Get_PDF_Request_By_Box_Reference_SP"] ??
+    //                              "usp_GetPDFRequestByBoxReference";
+    //                    originalRequestInJsonFormat = dal.ExecuteQuery<string>(command, dynamicParameters)
+    //                        .DefaultIfEmpty(string.Empty).First();
+
+    //                    retRes = GetByteArrayForCustomerDocPDFForArchive(
+    //                        JsonConvert.DeserializeObject<CustomerDocRequest>(originalRequestInJsonFormat)!);
+    //                }
+
+    //                break;
+
+    //            case ArchivingDocumentType.DESTRUCTION_PDF:
+    //                command = ConfigurationManager.AppSettings["Get_Destroyed_PDF_Var_Binary_By_Box_Reference_SP"] ??
+    //                          "usp_GetDestroyedPDFVarBinaryByBoxReference";
+    //                pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters).DefaultIfEmpty([]).First();
+
+    //                if (pdfInDb.Length > 5)
+    //                {
+    //                    retRes = pdfInDb;
+    //                }
+    //                else
+    //                {
+    //                    command = ConfigurationManager.AppSettings["Get_Destroyed_PDF_Request_By_Box_Reference_SP"] ??
+    //                              "usp_GetDestroyedPDFRequestByBoxReference";
+    //                    originalRequestInJsonFormat = dal.ExecuteQuery<string>(command, dynamicParameters)
+    //                        .DefaultIfEmpty(string.Empty).First();
+
+    //                    retRes = GetByteArrayForBoxPDFForDestruction(
+    //                        JsonConvert.DeserializeObject<DestructionBoxRequest>(originalRequestInJsonFormat)!);
+    //                }
+
+    //                break;
+
+    //            case ArchivingDocumentType.ENTITY_PDF:
+    //                command = ConfigurationManager.AppSettings["Get_PDF_Var_Binary_By_Box_Reference_SP"] ??
+    //                          "usp_GetPDFVarBinaryByBoxReference";
+    //                pdfInDb = dal.ExecuteQuery<byte[]>(command, dynamicParameters).DefaultIfEmpty([]).First();
+
+    //                if (pdfInDb.Length > 5)
+    //                {
+    //                    retRes = pdfInDb;
+    //                }
+    //                else
+    //                {
+    //                    command = ConfigurationManager.AppSettings["Get_PDF_Request_By_Box_Reference_SP"] ??
+    //                              "usp_GetPDFRequestByBoxReference";
+    //                    originalRequestInJsonFormat = dal.ExecuteQuery<string>(command, dynamicParameters)
+    //                        .DefaultIfEmpty(string.Empty).First();
+
+    //                    retRes = GetByteArrayForEntityDocPDFForArchive(
+    //                        JsonConvert.DeserializeObject<EntityDocRequest>(originalRequestInJsonFormat)!);
+    //                }
+
+    //                break;
+    //        }
+    //    }
+
+    //    return retRes;
+    //}
+    #endregion
+
+    #region PDF Generation Methods (QuestPDF)
+    private byte[] GetByteArrayForEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
+    {
+        Settings.License = LicenseType.Community;
+        var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+        if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+        string[] FontFamilyList = FontsFamily.Split(',');
+
+        var retRes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(15);
+                page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+
+                page.Header().Element(h =>
+                {
+                    h.Table(t =>
+                    {
+                        t.ColumnsDefinition(col =>
+                        {
+                            col.RelativeColumn();
+                            col.RelativeColumn();
+                        });
+                        t.Header(th =>
+                        {
+                            th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                .SemiBold().FontSize(FontSize + 2);
+                        });
+
+                        t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {entityDocRequest.CreationDate}");
+                        t.Cell().Column(1).Row(3).Element(HeadL)
+                            .Text($"Destruction Date: {entityDocRequest.DestructionDate}");
+                        t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {entityDocRequest.User}");
+                        t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {entityDocRequest.Entity}");
+                        t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{entityDocRequest.ContainerID}")
+                            .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                    });
+                });
+
+                page.Content().Column(x =>
+                {
+                    x.Item().Table(table =>
+                    {
+                        table.ColumnsDefinition(columns =>
+                        {
+                            columns.RelativeColumn();
+                            columns.RelativeColumn();
+                        });
+                        table.Header(header =>
+                        {
+                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                .FontSize(FontSize + 2);
+                            header.Cell().Row(1).Column(2).Element(HeaderC).Text("Document Description")
+                                .FontSize(FontSize + 2);
+                        });
+
+                        uint i = 1;
+                        foreach (var entityFile in entityDocRequest.EntityFiles)
+                        {
+                            table.Cell().Row(i).Column(1).Element(DocumentType).Text(entityFile.DocumentType);
+                            table.Cell().Row(i).Column(2).Element(BlockEntity).Text(entityFile.DocumentDescription);
+                            i++;
+                        }
+
+                        table.Footer(footer =>
+                        {
+                            footer.Cell().ColumnSpan(2).Element(FooterR)
+                                .Text("Branch / Entity signature and seal");
+                        });
+                    });
+                });
+
+                page.Footer().AlignCenter().Text(x =>
+                {
+                    x.Span("Page ");
+                    x.CurrentPageNumber();
+                    x.Span(" Of ");
+                    x.TotalPages();
+                });
+            });
+        }).GeneratePdf();
+
+        return retRes;
+    }
+
+    private byte[] GetByteArrayForBranchDocPDFForArchive(BranchDocRequest branchDocRequest)
+    {
+        Settings.License = LicenseType.Community;
+        var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+        if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+        string[] FontFamilyList = FontsFamily.Split(',');
+
+        var retRes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(15);
+                page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+
+                page.Header().Element(h =>
+                {
+                    h.Table(t =>
+                    {
+                        t.ColumnsDefinition(col =>
+                        {
+                            col.RelativeColumn();
+                            col.RelativeColumn();
+                        });
+                        t.Header(th =>
+                        {
+                            th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                .SemiBold().FontSize(FontSize + 2);
+                        });
+
+                        t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {branchDocRequest.CreationDate}");
+                        t.Cell().Column(1).Row(3).Element(HeadL)
+                            .Text($"Destruction Date: {branchDocRequest.DestructionDate}");
+                        t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {branchDocRequest.User}");
+                        t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {branchDocRequest.Entity}");
+                        t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{branchDocRequest.ContainerID}")
+                            .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                    });
+                });
+
+                page.Content().Column(x =>
+                {
+                    x.Item().Table(table =>
+                    {
+                        table.ColumnsDefinition(columns =>
+                        {
+                            columns.RelativeColumn();
+                            columns.RelativeColumn();
+                            columns.RelativeColumn();
+                        });
+                        table.Header(header =>
+                        {
+                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                .FontSize(FontSize + 2);
+                            header.Cell().Row(1).Column(2).Element(HeaderC).Text("From Date")
+                                .FontSize(FontSize + 2);
+                            header.Cell().Row(1).Column(3).Element(HeaderC).Text("To Date")
+                                .FontSize(FontSize + 2);
+                        });
+
+                        uint i = 1;
+                        foreach (var branchFile in branchDocRequest.BranchFiles)
+                        {
+                            table.Cell().Row(i).Column(1).Element(DocumentType).Text(branchFile.DocumentType);
+                            table.Cell().Row(i).Column(2).Element(BlockEntity).Text(branchFile.FromDate);
+                            table.Cell().Row(i).Column(3).Element(BlockEntity).Text(branchFile.ToDate);
+                            i++;
+                        }
+
+                        table.Footer(footer =>
+                        {
+                            footer.Cell().ColumnSpan(3).Element(FooterR)
+                                .Text("Branch / Entity signature and seal");
+                        });
+                    });
+                });
+
+                page.Footer().AlignCenter().Text(x =>
+                {
+                    x.Span("Page ");
+                    x.CurrentPageNumber();
+                    x.Span(" Of ");
+                    x.TotalPages();
+                });
+            });
+        }).GeneratePdf();
+
+        return retRes;
+    }
+
+    private byte[] GetByteArrayForCustomerDocPDFForArchive(CustomerDocRequest customerDocRequest)
+    {
+        Settings.License = LicenseType.Community;
+        var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+        if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+        string[] FontFamilyList = FontsFamily.Split(',');
+
+        var retRes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(15);
+                page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+
+                page.Header().Element(h =>
+                {
+                    h.Table(t =>
+                    {
+                        t.ColumnsDefinition(col =>
+                        {
+                            col.RelativeColumn();
+                            col.RelativeColumn();
+                        });
+                        t.Header(th =>
+                        {
+                            th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+                                .SemiBold().FontSize(FontSize + 2);
+                        });
+
+                        t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {customerDocRequest.CreationDate}");
+                        t.Cell().Column(1).Row(3).Element(HeadL)
+                            .Text($"Destruction Date: {customerDocRequest.DestructionDate}");
+                        t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {customerDocRequest.User}");
+                        t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {customerDocRequest.Entity}");
+                        t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{customerDocRequest.ContainerID}")
+                            .FontSize(FontSize * 3f).FontColor(Colors.Grey.Darken2).Bold();
+                    });
+                });
+
+                page.Content().Column(x =>
+                {
+                    x.Item().Table(table =>
+                    {
+                        table.ColumnsDefinition(columns =>
+                        {
+                            columns.RelativeColumn();
+                            columns.RelativeColumn(2);
+                        });
+                        table.Header(header =>
+                        {
+                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+                                .FontSize(FontSize + 2);
+                            header.Cell().Row(1).Column(2).Element(HeaderC).Text("Customer IDs")
+                                .FontSize(FontSize + 2);
+                        });
+
+                        uint i = 1;
+                        foreach (var customerFile in customerDocRequest.CustomerFiles)
+                        {
+                            string customerIds = string.Join(", ", customerFile.Id);
+                            table.Cell().Row(i).Column(1).Element(DocumentType).Text(customerFile.DocumentType);
+                            table.Cell().Row(i).Column(2).Element(BlockEntity).Text(customerIds);
+                            i++;
+                        }
+
+                        table.Footer(footer =>
+                        {
+                            footer.Cell().ColumnSpan(2).Element(FooterR)
+                                .Text("Branch / Entity signature and seal");
+                        });
+                    });
+                });
+
+                page.Footer().AlignCenter().Text(x =>
+                {
+                    x.Span("Page ");
+                    x.CurrentPageNumber();
+                    x.Span(" Of ");
+                    x.TotalPages();
+                });
+            });
+        }).GeneratePdf();
+
+        return retRes;
+    }
+
+    #endregion
+
+    #region PDF Builder Helpers
+
+    #region GetByteArrayForBranchDocPDFForArchive OLD VERSION
+    //private byte[] GetByteArrayForBranchDocPDFForArchive(BranchDocRequest branchDocRequest)
+    //{
+    //    Settings.License = LicenseType.Community;
+    //    var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+    //    if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+    //    string[] FontFamilyList = FontsFamily.Split(',');
+
+    //    var retRes = Document.Create(container =>
+    //    {
+    //        container.Page(page =>
+    //        {
+    //            page.Size(PageSizes.A4);
+    //            page.Margin(15);
+    //            page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+    //            page.Header().Element(h =>
+    //            {
+    //                h.Table(t =>
+    //                {
+    //                    t.ColumnsDefinition(col =>
+    //                    {
+    //                        col.RelativeColumn();
+    //                        col.RelativeColumn();
+    //                    });
+    //                    t.Header(th =>
+    //                    {
+    //                        th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+    //                            .SemiBold().FontSize(FontSize + 2);
+    //                    });
+
+    //                    t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {branchDocRequest.CreationDate}");
+    //                    t.Cell().Column(1).Row(3).Element(HeadL)
+    //                        .Text($"Destruction Date: {branchDocRequest.DestructionDate}");
+    //                    t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {branchDocRequest.User}");
+    //                    t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {branchDocRequest.Entity}");
+    //                    t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{branchDocRequest.ContainerID}")
+    //                        .FontSize(FontSize * 3f).FontColor(Color.FromARGB(180, 0, 0, 0)).Bold();
+    //                });
+    //            });
+    //            page.Content()
+    //                .Column(x =>
+    //                {
+    //                    x.Item().Table(table =>
+    //                    {
+    //                        table.ColumnsDefinition(columns =>
+    //                        {
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                        });
+    //                        table.Header(header =>
+    //                        {
+    //                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+    //                                .FontSize(FontSize + 2);
+    //                            header.Cell().Row(1).Column(2).Element(HeaderC).Text("From date")
+    //                                .FontSize(FontSize + 2);
+    //                            header.Cell().Row(1).Column(3).Element(HeaderC).Text("To date")
+    //                                .FontSize(FontSize + 2);
+    //                        }
+    //                        );
+
+    //                        uint i = 1;
+    //                        foreach (var branchFile in branchDocRequest.BranchFiles)
+    //                        {
+    //                            table.Cell().Row(i).Column(1).Element(DocumentType).Text(branchFile.DocumentType);
+    //                            table.Cell().Row(i).Column(2).Element(Block).Text(branchFile.FromDate);
+    //                            table.Cell().Row(i).Column(3).Element(Block).Text(branchFile.ToDate);
+    //                            i++;
+    //                        }
+
+    //                        table.Footer(footer =>
+    //                        {
+    //                            footer.Cell().ColumnSpan(3).Element(FooterR)
+    //                                .Text("Branch / Entity signature and seal");
+    //                        }
+    //                        );
+    //                    });
+    //                });
+    //            page.Footer()
+    //                .AlignCenter()
+    //                .Text(x =>
+    //                {
+    //                    x.Span("Page ");
+    //                    x.CurrentPageNumber();
+    //                    x.Span(" Of ");
+    //                    x.TotalPages();
+    //                });
+    //        });
+    //    }).GeneratePdf();
+
+    //    return retRes;
+    //}
+    #endregion
+
+    #region GetByteArrayForCustomerDocPDFForArchive OLD VERSION
+    //private byte[] GetByteArrayForCustomerDocPDFForArchive(CustomerDocRequest customerDocRequest)
+    //{
+    //    Settings.License = LicenseType.Community;
+    //    var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+    //    if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+    //    string[] FontFamilyList = FontsFamily.Split(',');
+
+    //    var retRes = Document.Create(container =>
+    //    {
+    //        container.Page(page =>
+    //        {
+    //            page.Size(PageSizes.A4);
+    //            page.Margin(15);
+    //            page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+
+    //            page.Header().Element(h =>
+    //            {
+    //                h.Table(t =>
+    //                {
+    //                    t.ColumnsDefinition(col =>
+    //                    {
+    //                        col.RelativeColumn();
+    //                        col.RelativeColumn();
+    //                    });
+    //                    t.Header(th =>
+    //                    {
+    //                        th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+    //                            .SemiBold().FontSize(FontSize + 2);
+    //                    });
+
+    //                    t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {customerDocRequest.CreationDate}");
+    //                    t.Cell().Column(1).Row(3).Element(HeadL)
+    //                        .Text($"Destruction Date: {customerDocRequest.DestructionDate}");
+    //                    t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {customerDocRequest.User}");
+    //                    t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {customerDocRequest.Entity}");
+    //                    t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{customerDocRequest.ContainerID}")
+    //                        .FontSize(FontSize * 3f).FontColor(Color.FromARGB(180, 0, 0, 0)).Bold();
+    //                });
+    //            });
+    //            page.Content()
+    //                .Column(x =>
+    //                {
+    //                    x.Item().Table(table =>
+    //                    {
+    //                        table.ColumnsDefinition(columns =>
+    //                        {
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                        });
+    //                        table.Header(header =>
+    //                        {
+    //                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+    //                                .FontSize(FontSize + 2);
+    //                            header.Cell().Row(1).Column(2).ColumnSpan(4).Element(HeaderC).Text("Client ID")
+    //                                .FontSize(FontSize + 2);
+    //                        }
+    //                        );
+    //                        uint rowcounter = 1;
+    //                        foreach (var customerFileType in customerDocRequest.CustomerFiles)
+    //                        {
+    //                            table.Cell().Row(rowcounter).Column(1).Element(DocumentType)
+    //                                .Text(customerFileType.DocumentType);
+    //                            table.Cell().Row(rowcounter).Column(2).ColumnSpan(4).Element(BlockCustomerFiles)
+    //                                .Text(string.Join(" - ", customerFileType.Id));
+    //                            rowcounter++;
+    //                        }
+
+    //                        table.Footer(footer =>
+    //                        {
+    //                            footer.Cell().ColumnSpan(5).Element(FooterR)
+    //                                .Text("Branch / Entity signature and seal");
+    //                        }
+    //                        );
+    //                    });
+    //                });
+    //            page.Footer()
+    //                .AlignCenter()
+    //                .Text(x =>
+    //                {
+    //                    x.Span("Page ");
+    //                    x.CurrentPageNumber();
+    //                    x.Span(" Of ");
+    //                    x.TotalPages();
+    //                });
+    //        });
+    //    }).GeneratePdf();
+
+    //    return retRes;
+    //}
+    #endregion
+
+    #region MyRegion GetByteArrayForEntityDocPDFForArchive OLD VERSION
+    //private byte[] GetByteArrayForEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
+    //{
+    //    Settings.License = LicenseType.Community;
+    //    var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+    //    if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+    //    string[] FontFamilyList = FontsFamily.Split(',');
+
+    //    var retRes = Document.Create(container =>
+    //    {
+    //        container.Page(page =>
+    //        {
+    //            page.Size(PageSizes.A4);
+    //            page.Margin(15);
+    //            page.DefaultTextStyle(x =>
+    //                x.FontFamily(FontFamilyList).FontSize(FontSize));
+    //            page.Header().Element(h =>
+    //            {
+    //                h.Table(t =>
+    //                {
+    //                    t.ColumnsDefinition(col =>
+    //                    {
+    //                        col.RelativeColumn();
+    //                        col.RelativeColumn();
+    //                    });
+    //                    t.Header(th =>
+    //                    {
+    //                        th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DELIVERY TO ARCHIVES")
+    //                            .SemiBold().FontSize(FontSize + 2);
+    //                    });
+
+    //                    t.Cell().Column(1).Row(2).Element(HeadLStart).Text($"Date: {entityDocRequest.CreationDate}");
+    //                    t.Cell().Column(1).Row(3).Element(HeadL)
+    //                        .Text($"Destruction Date: {entityDocRequest.DestructionDate}");
+    //                    t.Cell().Column(1).Row(4).Element(HeadL).Text($"User: {entityDocRequest.User}");
+    //                    t.Cell().Column(1).Row(5).Element(HeadLEnd).Text($"Entity: {entityDocRequest.Entity}");
+    //                    t.Cell().Column(2).Row(2).RowSpan(4).Element(HeadSpan).Text($"{entityDocRequest.ContainerID}")
+    //                        .FontSize(FontSize * 3f).FontColor(Color.FromARGB(180, 0, 0, 0)).Bold();
+    //                });
+    //            });
+    //            page.Content()
+    //                .Column(x =>
+    //                {
+    //                    x.Item().Table(table =>
+    //                    {
+    //                        table.ColumnsDefinition(columns =>
+    //                        {
+    //                            columns.RelativeColumn();
+    //                            columns.RelativeColumn();
+    //                        });
+    //                        table.Header(header =>
+    //                        {
+    //                            header.Cell().Row(1).Column(1).Element(HeaderC).Text("Document type")
+    //                                .FontSize(FontSize + 2);
+    //                            header.Cell().Row(1).Column(2).Element(HeaderC).Text("Document Description")
+    //                                .FontSize(FontSize + 2);
+    //                        }
+    //                        );
+
+    //                        uint i = 1;
+    //                        foreach (var entityFile in entityDocRequest.EntityFiles)
+    //                        {
+    //                            table.Cell().Row(i).Column(1).Element(DocumentType).Text(entityFile.DocumentType);
+    //                            table.Cell().Row(i).Column(2).Element(BlockEntity).Text(entityFile.DocumentDescription);
+    //                            i++;
+    //                        }
+
+    //                        table.Footer(footer =>
+    //                        {
+    //                            footer.Cell().ColumnSpan(2).Element(FooterR)
+    //                                .Text("Branch / Entity signature and seal");
+    //                        }
+    //                        );
+    //                    });
+    //                });
+    //            page.Footer()
+    //                .AlignCenter()
+    //                .Text(x =>
+    //                {
+    //                    x.Span("Page ");
+    //                    x.CurrentPageNumber();
+    //                    x.Span(" Of ");
+    //                    x.TotalPages();
+    //                });
+    //        });
+    //    }).GeneratePdf();
+
+    //    return retRes;
+    //}
+    #endregion
+
+    #region MyRegion GetByteArrayForBoxPDFForDestruction
+    private byte[] GetByteArrayForBoxPDFForDestruction(DestructionBoxRequest destructionBoxRequest)
+    {
+        Settings.License = LicenseType.Community;
+        var FontsFamily = ConfigurationManager.AppSettings["FONT_FAMILY"] ?? "Times New Roman";
+        if (!float.TryParse(ConfigurationManager.AppSettings["FONT_SIZE"], out var FontSize)) FontSize = 14f;
+        string[] FontFamilyList = FontsFamily.Split(',');
+
+        var retRes = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(15);
+                page.DefaultTextStyle(x => x.FontFamily(FontFamilyList).FontSize(FontSize));
+
+                page.Header().Element(h =>
+                {
+                    h.Table(t =>
+                    {
+                        t.ColumnsDefinition(col =>
+                        {
+                            col.RelativeColumn();
+                            col.RelativeColumn();
+                        });
+                        t.Header(th =>
+                        {
+                            th.Cell().ColumnSpan(2).Element(HeadMid).Text("SUMMARY OF DESTROYED BOXES").SemiBold()
+                                .FontSize(FontSize + 2);
+                        });
+
+                        t.Cell().ColumnSpan(2).Element(HeadLStart).Text($"Date: {destructionBoxRequest.CreationDate}");
+                        t.Cell().ColumnSpan(2).Element(HeadL).Text($"User: {destructionBoxRequest.User}");
+                        t.Cell().ColumnSpan(2).Element(HeadLEnd).Text($"Entity: {destructionBoxRequest.Entity}");
+                    });
+                });
+                page.Content()
+                    .Column(x =>
+                    {
+                        x.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(columns =>
+                            {
+                                columns.RelativeColumn();
+                                columns.RelativeColumn();
+                                columns.RelativeColumn();
+                            });
+                            table.Header(header =>
+                            {
+                                header.Cell().Row(1).Column(1).Element(HeaderC).Text("Box").FontSize(FontSize + 2);
+                                header.Cell().Row(1).Column(2).ColumnSpan(2).Element(HeaderC)
+                                    .Text("Destruction Date").FontSize(FontSize + 2);
+                            }
+                            );
+
+                            uint i = 1;
+                            foreach (var box in destructionBoxRequest.BoxList)
+                            {
+                                table.Cell().Row(i).Column(1).Element(DocumentType).Text(box.BoxName);
+                                table.Cell().Row(i).Column(2).ColumnSpan(2).Element(Block).Text(box.DestructionDate);
+                                i++;
+                            }
+
+                            table.Footer(footer =>
+                            {
+                                footer.Cell().ColumnSpan(3).Element(FooterR).Text("Archive signature and seal");
+                            }
+                            );
+                        });
+                    });
+                page.Footer()
+                    .AlignCenter()
+                    .Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" Of ");
+                        x.TotalPages();
+                    });
+            });
+        }).GeneratePdf();
+
+        return retRes;
+    }
+    #endregion
+
+    #region MyRegion GetByteArrayForETSMBranch
+    public byte[] GetByteArrayForETSMBranch(
+    ExportBoxesToBeDeliveredReq req,
+    List<BoxesToBeDeliveredDto> boxesToBeDeliveredList)
+    {
+        Settings.License = LicenseType.Community;
+
+        byte[]? retRes = Document.Create(container =>
+        {
+            container
+           .Page(page =>
+           {
+               page.Margin(20);
+               page.Size(PageSizes.A4);
+               page.Header().Element(container => ComposeETSMBranchHeader(container, req));
+               page.Content().Element(container => ComposeETSMBranchContent(container, boxesToBeDeliveredList));
+               page.Footer().Element(container => ComposeETSMBranchFooter(container));
+           });
+        }).GeneratePdf();
+
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(req, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "ExportBoxesToBeDelivered", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", req.BranchList, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", req.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", req.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+
+    #endregion
+
+    #region MyRegion GetByteArrayForWarehouseReport
+    public byte[] GetByteArrayForWarehouseReport(
+ExportWarehouseContainersPdfReq req)
+    {
+        Settings.License = LicenseType.Community;
+
+        byte[]? retRes = Document.Create(container =>
+        {
+            container
+           .Page(page =>
+           {
+               page.Margin(20);
+               page.Size(PageSizes.A4);
+               page.Header().Element(container => ComposeWarehouseReportHeader(container, req));
+               page.Content().Element(container => ComposeWarehouseReportContent(container, req.ContainerList));
+               //page.Footer().Element(container => ComposeWarehouseReportFooter(container));
+           });
+        }).GeneratePdf();
+
+        byte[] empty = [];
+
+        DynamicParameters dynamicParameters = new();
+        dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
+        dynamicParameters.Add("Request", JsonConvert.SerializeObject(req, Formatting.Indented),
+            DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("ApiMethod", "ExportWarehouseContainers", DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("BranchList", req.BranchList, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("Entity", req.Entity, DbType.String, ParameterDirection.Input);
+        dynamicParameters.Add("User", req.User, DbType.String, ParameterDirection.Input);
+
+        using (DAL.DAL dal = new(Catalog_Archive, out var res))
+        {
+            var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+            dal.ExecuteQuery(command, dynamicParameters);
+        }
+
+        return retRes;
+    }
+    #endregion
+
+    #endregion
+}
+
+#region Request Objects
+public class BranchDocRequest
+{
+    public required string DestructionDate { get; set; }
+    public required string User { get; set; }
+    public string BranchList { get; set; } = "N/A";
+    public required string Entity { get; set; }
+    public required string ContainerID { get; set; }
+    public List<BranchFile> BranchFiles { get; set; } = [];
+    public required string CreationDate { get; set; }
+}
+
+public class BranchFile
+{
+    public required string DocumentType { get; set; }
+    public required string FromDate { get; set; }
+    public required string ToDate { get; set; }
+}
+
+public class CustomerDocRequest
+{
+    public required string DestructionDate { get; set; }
+    public required string User { get; set; }
+    public string BranchList { get; set; } = "N/A";
+    public required string Entity { get; set; }
+    public required string ContainerID { get; set; }
+    public required List<CustomerFile> CustomerFiles { get; set; }
+    public required string CreationDate { get; set; }
+}
+
+public class CustomerFile
+{
+    public required string DocumentType { get; set; }
+    public required List<string> Id { get; set; }
+}
+
+public class DestructionBoxRequest
+{
+    public required string User { get; set; }
+    public required string Entity { get; set; }
+    public List<DestructionBox> BoxList { get; set; } = [];
+    public required string CreationDate { get; set; }
+}
+
+public class DestructionBox
+{
+    public required string BoxName { get; set; }
+    public required string DestructionDate { get; set; }
+}
+
+public class EntityDocRequest
+{
+    public required string DestructionDate { get; set; }
+    public required string User { get; set; }
+    public string BranchList { get; set; } = "N/A";
+    public required string Entity { get; set; }
+    public required string ContainerID { get; set; }
+    public List<EntityFile> EntityFiles { get; set; } = [];
+    public required string CreationDate { get; set; }
+}
+
+public class EntityFile
+{
+    public required string DocumentType { get; set; }
+    public string DocumentDescription { get; set; } = string.Empty;
+}
+
+public class RedownloadDocPDFForArchiveRequest
+{
+    public required string ContainerID { get; set; }
+    public required ArchivingDocumentType DocumentType { get; set; }
+}
+
+#region ETSM Branch
+public class BoxesToBeDeliveredDto
+{
+    public string ContainerType { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string CompanyCode { get; set; } = string.Empty;
+}
+
+
+public class ExportBoxesToBeDeliveredReq
+{
+    public required string User { get; set; }
+    public string BranchList { get; set; } = "N/A";
+    public required string Entity { get; set; }
+}
+#endregion
+
+#region Warehouse Report
+public class ExportWareouseContainersDto
+{
+    public string ContainerCode { get; set; } = string.Empty;
+    public string Branch { get; set; } = String.Empty;
+    public string StatusCode { get; set; } = String.Empty;
+    public required string ArchivingDate { get; set; }
+    public required string DestructionDate { get; set; }
+    public Int32 ArchivingPeriod { get; set; }
+    public string SentBy { get; set; } = String.Empty;
+}
+
+public class ExportWarehouseContainersPdfReq
+{
+    public required string User { get; set; }
+    public required List<ExportWareouseContainersDto> ContainerList = [];
+    public string BranchList { get; set; } = "N/A";
+    public required string Entity { get; set; }
+}
+
+#endregion
+
+
+
+
+#endregion
+
+#region Enums
+
+public enum ArchivingDocumentType
+{
+    BRANCH_PDF = 0,
+    CUSTOMER_PDF = 1,
+    DESTRUCTION_PDF = 2,
+    ENTITY_PDF = 3
+}
+
+#endregion
+
+
+BLL.cs PDF Project ==================
+using System.Configuration;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+
+namespace BLL;
+
+public partial class BLL
+{
+    private readonly string Catalog_Archive;
+
+    public BLL()
+    {
+        Catalog_Archive = ConfigurationManager.AppSettings["DB_NAME_ARCHIVE"] ??
+                          throw new ArgumentNullException(
+                              message: "DB_NAME_ARCHIVE Configuration parameter is missing in App.config", null);
+    }
+
+    public static IContainer Block(IContainer container)
+    {
+        return container
+            .Border(1)
+            .Background(Colors.White)
+            .ShowOnce()
+            .MinWidth(50)
+            .MinHeight(20)
+            .Padding(10)
+            .AlignRight()
+            .AlignMiddle();
+    }
+
+    public static IContainer BlockEntity(IContainer container)
+    {
+        return container
+            .Border(1)
+            .Background(Colors.White)
+            .ShowOnce()
+            .MinWidth(50)
+            .MinHeight(20)
+            .Padding(10)
+            .AlignLeft()
+            .AlignMiddle();
+    }
+
+    public static IContainer BlockCustomerFiles(IContainer container)
+    {
+        return container
+            .Border(1)
+            .Background(Colors.White)
+            .ShowOnce()
+            .PaddingHorizontal(10)
+            .AlignCenter()
+            .AlignMiddle();
+    }
+
+    public static IContainer DocumentType(IContainer container)
+    {
+        return container
+            .Border(1)
+            .Background(Colors.White)
+            .Padding(5)
+            .ShowOnce()
+            .AlignMiddle();
+    }
+
+    public static IContainer HeaderC(IContainer container)
+    {
+        return container
+            .Border(1)
+            .Background(Colors.White)
+            .MinWidth(50)
+            .MinHeight(20)
+            .PaddingHorizontal(5)
+            .PaddingVertical(2)
+            .AlignMiddle();
+    }
+
+    public static IContainer FooterL(IContainer container)
+    {
+        return container
+            .MinHeight(100)
+            .PaddingHorizontal(5)
+            .PaddingVertical(15)
+            .AlignLeft()
+            .AlignTop();
+    }
+
+    public static IContainer FooterR(IContainer container)
+    {
+        return container
+            .MinHeight(100)
+            .PaddingHorizontal(5)
+            .PaddingVertical(15)
+            .AlignRight()
+            .AlignTop();
+    }
+
+    public static IContainer HeadMid(IContainer container)
+    {
+        return container
+            .Background(Colors.White)
+            .PaddingBottom(10)
+            .AlignMiddle()
+            .AlignCenter();
+    }
+
+    public static IContainer HeadL(IContainer container)
+    {
+        return container
+            .Background(Colors.White)
+            .AlignMiddle()
+            .AlignLeft();
+    }
+
+    public static IContainer HeadLStart(IContainer container)
+    {
+        return container
+            .Background(Colors.White)
+            .AlignMiddle()
+            .AlignLeft()
+            .PaddingTop(20);
+    }
+
+    public static IContainer HeadLEnd(IContainer container)
+    {
+        return container
+            .Background(Colors.White)
+            .AlignMiddle()
+            .AlignLeft()
+            .PaddingBottom(20);
+    }
+
+    public static IContainer HeadSpan(IContainer container)
+    {
+        return container
+            .AlignMiddle()
+            .AlignLeft()
+            .PaddingBottom(20);
+    }
+
+    #region KYC Low Risk
+
+    public static IContainer KycLowRiskHead(IContainer container)
+    {
+        return container
+            .Shrink()
+            .PaddingBottom(10)
+            .ExtendHorizontal();
+    }
+
+    public static IContainer KycLowRiskHeadStart(IContainer container)
+    {
+        return container
+            .Width(42)
+            .Height(42);
+    }
+
+    public static IContainer KycLowRiskHeadMid(IContainer container)
+    {
+        return container
+            .Width(400)
+            .Height(42)
+            .AlignMiddle();
+    }
+
+    public static IContainer KycLowRiskHeadEnd(IContainer container)
+    {
+        return container
+            .Width(100)
+            .Height(42)
+            .AlignMiddle();
+    }
+
+    public static IContainer KycLowRiskSectionHead(IContainer container)
+    {
+        return container
+            .Background("#e7e6e6")
+            .AlignMiddle()
+            .Padding(5);
+    }
+
+    public static IContainer KycLowRiskField(IContainer container)
+    {
+        return container
+            .PaddingBottom(5);
+    }
+
+    public static void KycLowRiskSection(
+        TableDescriptor tableDescriptor,
+        uint columnNbr,
+        uint rowNbr,
+        string sectionHeaderTitle,
+        List<PrintableCustomerFieldDto> fields,
+        bool isEmptyValuesPrintable,
+        bool isWealthInfo = false)
+    {
+        tableDescriptor.Cell().Column(columnNbr).Row(rowNbr).Element(per =>
+        {
+            per.Table(perT =>
+            {
+                perT.ColumnsDefinition(col =>
+                {
+                    col.RelativeColumn();
+                    col.RelativeColumn();
+                    col.RelativeColumn();
+                    col.RelativeColumn();
+                });
+
+                perT.Cell().ColumnSpan(4)
+                    .Element(KycLowRiskSectionHead)
+                    .Text(sectionHeaderTitle);
+
+                var firstField = fields.FirstOrDefault();
+
+                if (isWealthInfo)
+                {
+                    perT.Cell().Column(1).Row(2).Element(KycLowRiskField)
+                        .Text(firstField?.DisplayName ?? string.Empty);
+
+                    perT.Cell().Column(2).Row(2).Element(KycLowRiskField)
+                        .Text(firstField?.Value ?? string.Empty);
+
+                    fields.RemoveAt(0);
+
+                    perT.Cell().ColumnSpan(4).Row(3).Element(KycLowRiskField)
+                        .Text(
+                            "The contracting person is the Benefit Right Owner of deposited amounts\nان المتعاقد هو صاحب الحق الاقتصادي بالقيم المودعة بالمصرق")
+                        .Bold();
+                }
+
+                var rowCount = (uint)(isWealthInfo ? 4 : 2);
+
+                var lastColumnIndex = firstField?.ColumnIndex ?? 0;
+
+                foreach (var field in fields)
+                    if (!string.IsNullOrWhiteSpace(field.Value) || isEmptyValuesPrintable)
+                    {
+                        if (lastColumnIndex != field.ColumnIndex)
+                        {
+                            rowCount = (uint)(isWealthInfo ? 4 : 2);
+                            lastColumnIndex = field.ColumnIndex;
+                        }
+
+                        var displayFieldColumnIndex = (uint)(field.ColumnIndex == 1 ? 1 : 3);
+                        var valueFieldColumnIndex = (uint)(field.ColumnIndex == 1 ? 2 : 4);
+
+                        field.Value = field.Value.Replace(']', '\n');
+
+                        // Field Name
+                        perT.Cell().Column(displayFieldColumnIndex).Row(rowCount).Element(KycLowRiskField)
+                            .Text(field.DisplayName);
+
+                        // Field Value -> Bold If Modified
+                        perT.Cell().Column(valueFieldColumnIndex).Row(rowCount).ShowIf(field.IsModified)
+                            .Element(KycLowRiskField)
+                            .Text(field.Value).Bold();
+
+                        perT.Cell().Column(valueFieldColumnIndex).Row(rowCount).ShowIf(!field.IsModified)
+                            .Element(KycLowRiskField)
+                            .Text(field.Value);
+
+                        rowCount++;
+                    }
+            });
+        });
+    }
+
+    #endregion
+
+    #region ETSM Branch Components
+    public static void ComposeETSMBranchHeader(IContainer container, ExportBoxesToBeDeliveredReq req)
+    {
+        TextStyle titleStyle = TextStyle
+            .Default
+            .FontSize(13)
+            .Bold()
+            .FontColor(Colors.Black);
+
+        TextStyle labelStyle = TextStyle
+            .Default
+            .FontSize(13)
+            .Bold()
+            .FontColor(Colors.Black);
+
+        container.
+            PaddingHorizontal(15).
+            Column(column =>
+            {
+                column
+                    .Item()
+                    .Padding(15)
+                    .Row(row =>
+            {
+                row.RelativeItem().Column(column =>
+                {
+                    column
+                        .Item()
+                        .TranslateY(8)
+                        .AlignCenter()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1));
+
+                            text.Line("SUMMARY OF BOXES READY TO BE DELIVERED")
+                                .Style(titleStyle);
+                        });
+                });
+            });
+
+                column
+                      .Item()
+                      .PaddingTop(10)
+                      .Row(row =>
+              {
+                  row.RelativeItem().Column(column =>
+                  {
+                      column
+                        .Item()
+                        .AlignLeft()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1).FontSize(10));
+                            text.Span("Date: ");
+                            text.Span(DateTime.Now.ToString("dd/MM/yyyy"));
+                        });
+                  });
+              });
+
+                column
+                      .Item()
+                      .PaddingTop(5)
+                      .Row(row =>
+              {
+                  row.RelativeItem().Column(column =>
+                  {
+                      column
+                        .Item()
+                        .AlignLeft()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1).FontSize(10));
+                            text.Span("User: ");
+                            text.Span(req.User);
+                        });
+                  });
+              });
+
+                column
+                      .Item()
+                      .PaddingTop(5)
+                      .Row(row =>
+              {
+                  row.RelativeItem().Column(column =>
+                  {
+                      column
+                        .Item()
+                        .AlignLeft()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1).FontSize(10));
+                            text.Span("Branch: ");
+                            text.Span(req.BranchList);
+                        });
+                  });
+              });
+            });
+    }
+
+    public static void ComposeETSMBranchContent(IContainer container, List<BoxesToBeDeliveredDto> boxesToBeDeliveredList)
+    {
+        container.PaddingVertical(15).
+        Column(column =>
+        {
+            column
+            .Item()
+            .PaddingTop(15)
+            .PaddingHorizontal(15)
+            .Element(c => ComposeETSMBranchTable(c, boxesToBeDeliveredList));
+        });
+    }
+
+    public static void ComposeETSMBranchTable(IContainer container, List<BoxesToBeDeliveredDto> boxesToBeDeliveredList)
+    {
+        container.Table(table =>
+        {
+            table.ColumnsDefinition(columns =>
+            {
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+            });
+
+            table.Header(header =>
+            {
+                header.Cell().Element(CellStyle).Text("Document type");
+                header.Cell().Element(CellStyle).Text("Box Ref");
+
+
+                static IContainer CellStyle(IContainer container)
+                {
+                    return container
+                        .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                        .Border(1)
+                        .BorderColor(Colors.Grey.Lighten1)
+                        .Padding(5);
+                }
+            });
+
+            foreach (BoxesToBeDeliveredDto item in boxesToBeDeliveredList)
+            {
+                table.Cell().Element(CellStyle).Text(item.ContainerType.ToString());
+                table.Cell().Element(CellStyle).Text(item.Code);
+
+                static IContainer CellStyle(IContainer container)
+                {
+                    return container
+                        .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                        .Border(1)
+                        .BorderColor(Colors.Grey.Lighten1)
+                        .Padding(5);
+                }
+            }
+        });
+    }
+
+    public static void ComposeETSMBranchFooter(IContainer container)
+    {
+        container
+            .PaddingRight(15)
+            .Column(column =>
+            {
+                column.Item().PaddingBottom(70).AlignRight().Text(x =>
+                {
+                    x.Span("Branch / Entity signature and seal");
+                });
+            });
+    }
+    #endregion
+
+    #region Warehouse Report Components
+    public static void ComposeWarehouseReportHeader(IContainer container, ExportWarehouseContainersPdfReq req)
+    {
+        TextStyle titleStyle = TextStyle
+                        .Default
+                        .FontSize(13)
+                        .Bold()
+                        .FontColor(Colors.Black);
+
+        TextStyle labelStyle = TextStyle
+            .Default
+            .FontSize(13)
+            .Bold()
+            .FontColor(Colors.Black);
+
+        container.
+            PaddingHorizontal(15).
+            Column(column =>
+            {
+                column
+                    .Item()
+                    .Padding(15)
+                    .Row(row =>
+            {
+                row.RelativeItem().Column(column =>
+                {
+                    column
+                        .Item()
+                        .TranslateY(8)
+                        .AlignCenter()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1));
+
+                            text.Line("WAREHOUSE REPORT")
+                                .Style(titleStyle);
+                        });
+                });
+            });
+
+                column
+                      .Item()
+                      .PaddingTop(10)
+                      .Row(row =>
+              {
+                  row.RelativeItem().Column(column =>
+                  {
+                      column
+                        .Item()
+                        .AlignLeft()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1).FontSize(10));
+                            text.Span("Date: ");
+                            text.Span(DateTime.Now.ToString("dd/MM/yyyy"));
+                        });
+                  });
+              });
+
+                column
+                      .Item()
+                      .PaddingTop(5)
+                      .Row(row =>
+              {
+                  row.RelativeItem().Column(column =>
+                  {
+                      column
+                        .Item()
+                        .AlignLeft()
+                        .Text(text =>
+                        {
+                            text.DefaultTextStyle(TextStyle.Default.LineHeight(1).FontSize(10));
+                            text.Span("User: ");
+                            text.Span(req.User);
+                        });
+                  });
+              });
+
+            });
+    }
+
+    public static void ComposeWarehouseReportContent(IContainer container, List<ExportWareouseContainersDto> warehouseContainersList)
+    {
+        container.PaddingVertical(15).
+        Column(column =>
+        {
+            column
+            .Item()
+            .PaddingTop(15)
+            .PaddingHorizontal(15)
+            .Element(c => ComposeWarehouseReportTable(c, warehouseContainersList));
+        });
+    }
+
+    public static void ComposeWarehouseReportTable(IContainer container, List<ExportWareouseContainersDto> warehouseContainersList)
+    {
+        container.Table(table =>
+        {
+            table.ColumnsDefinition(columns =>
+            {
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+                columns.RelativeColumn(1);
+            });
+
+            table.Header(header =>
+            {
+                header.Cell().Element(CellStyle).Text("Box Ref");
+                header.Cell().Element(CellStyle).Text("Branch");
+                header.Cell().Element(CellStyle).Text("Status");
+                header.Cell().Element(CellStyle).Text("Archiving Date");
+                header.Cell().Element(CellStyle).Text("Destruction Date");
+                header.Cell().Element(CellStyle).Text("Archive Period");
+                header.Cell().Element(CellStyle).Text("Sent By");
+
+
+                static IContainer CellStyle(IContainer container)
+                {
+                    return container
+                        .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                        .Border(1)
+                        .BorderColor(Colors.Grey.Lighten1)
+                        .Padding(5);
+                }
+            });
+
+
+            foreach (ExportWareouseContainersDto item in warehouseContainersList)
+            {
+                table.Cell().Element(CellStyle).Text(item.ContainerCode.ToString());
+                table.Cell().Element(CellStyle).Text(item.Branch);
+                table.Cell().Element(CellStyle).Text(item.StatusCode);
+                table.Cell().Element(CellStyle).Text(item.ArchivingDate.ToString());
+                table.Cell().Element(CellStyle).Text(item.DestructionDate.ToString());
+                table.Cell().Element(CellStyle).Text(item.ArchivingPeriod.ToString());
+                table.Cell().Element(CellStyle).Text(item.SentBy);
+
+                static IContainer CellStyle(IContainer container)
+                {
+                    return container
+                        .DefaultTextStyle(x => x.SemiBold().FontSize(9))
+                        .Border(1)
+                        .BorderColor(Colors.Grey.Lighten1)
+                        .Padding(5);
+                }
+            }
+        });
+    }
+
+    //public static void ComposeWarehouseReportFooter(IContainer container)
+    //{
+    //    container
+    //        .PaddingRight(15)
+    //        .Column(column =>
+    //        {
+    //            column.Item().PaddingBottom(70).AlignRight().Text(x =>
+    //            {
+    //                x.Span("Branch / Entity signature and seal");
+    //            });
+    //        });
+    //}
+    #endregion
+}
+====================================
+===========================
+]
 Let s come back to out latest project archiving and pdf generator.  as for our conversation of yesterday, i didnt take the code and didnt apply it, for the reason that i dont need from date and todate.  i will provide you my latest code and sql tables and stored procedures, to see where i stand by. Now what i need: 1) When uploading the excel file and inserting data in the database, i want to take these 3 things into consideration.  1- when printing the document put into User:  "SystemUser" if the field  of "BoxSentBy" in the excell file is empty, or the value in "BoxSentBy" if not empty. 2-  When inserting data into t_ContainerStatus, Holding entity should take the value of Code (indicated in the excel file) when the status is SENT  and "WH" when the status is RECEIVED or NOTFOUND (which is a new integrated Status) in the table lkp_Status and has no impact on my logic, only will be inserted in the databse staticcly without any other impact anywhere.  Accordingly and using Dapper , stored procedurs, BLL , Archiving Cotroller in the Back End, Configuration Controller in the Front end, using .net Core, and SQL. provide me with the changes that must take place. Here is my code. if any missing tell me to show it to you.
 
 
