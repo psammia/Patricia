@@ -1,3 +1,33 @@
+BLL ===================
+public void ImportOldBoxes(ImportOldBoxesReq req)
+{
+    DAL.DAL _dal = new();
+
+    DynamicParameters parameters = new DynamicParameters();
+
+    parameters.Add("P__Old_Boxes", GetOldBoxesDt(req.OldBoxesList).AsTableValuedParameter());
+    parameters.Add("P__User", req.BaseReq.CurrentUser); // This is correct
+
+    _dal.ExecuteQuery<Container>(
+        "usp_Insert_Into_All_Tables",
+        parameters,
+        CommandType.StoredProcedure,
+       CommandDirection.Update);
+}
+
+====front end validation
+new ColumnConfig
+{
+    Name = "BoxStatus",
+    DataType = CellDataType.Text,
+    IsRequired = true,
+    MaxLength = 10,
+    // Add validation to ensure only valid statuses
+    AllowedValues = new[] { "RECEIVED", "DESTROYED", "NOTFOUND" } // If you have this feature
+}
+
+
+
 -- =============================================
 -- Author:		<Patricia Sammia>
 -- Modified by: <Assistant>
