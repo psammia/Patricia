@@ -1,357 +1,344 @@
-BLL ===================
-public void ImportOldBoxes(ImportOldBoxesReq req)
+1. Create New Stored Procedure to Get Container Sent User
+First, let's create a stored procedure that will retrieve the correct user based on the container status history:
+sql-- =============================================
+-- Author:		<Assistant>
+-- Create date: <2025/11/07>
+-- Description:	<Get the user who sent the container, considering BoxSentBy logic>
+-- =============================================
+CREATE PROCEDURE [dbo].[usp_GetContainerSentByUserForPDF]
+    @ContainerCode NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Get the user who created the SENT status (this will be BoxSentBy or AlternaSystem)
+    SELECT TOP 1 
+        cs.CreatedBy AS SentByUser,
+        cs.CreatedDate AS SentDate,
+        cs.HoldingEntityCode,
+        c.Id AS ContainerId
+    FROM t_Container c
+    INNER JOIN t_ContainerStatus cs ON c.Id = cs.ContainerId
+    WHERE c.Code = @ContainerCode
+        AND cs.StatusCode = 'SENT'
+    ORDER BY cs.CreatedDate DESC;
+    
+    -- If no SENT status found, get the last user who modified the container
+    IF @@ROWCOUNT = 0
+    BEGIN
+        SELECT 
+            c.LastModifiedBy AS SentByUser,
+            c.LastModifiedDate AS SentDate,
+            c.Entity AS HoldingEntityCode,
+            c.Id AS ContainerId
+        FROM t_Container c
+        WHERE c.Code = @ContainerCode;
+    END
+END
+GO
+2. Update BLL Layer - Add Method to Get Sent By User
+Add this method to your BLL.cs:
+csharppublic ContainerSentByUserDto GetContainerSentByUserForPDF(string containerCode)
 {
     DAL.DAL _dal = new();
-
+    
     DynamicParameters parameters = new DynamicParameters();
-
-    parameters.Add("P__Old_Boxes", GetOldBoxesDt(req.OldBoxesList).AsTableValuedParameter());
-    parameters.Add("P__User", req.BaseReq.CurrentUser); // This is correct
-
-    _dal.ExecuteQuery<Container>(
-        "usp_Insert_Into_All_Tables",
+    parameters.Add("ContainerCode", containerCode);
+    
+    var result = _dal.ExecuteQuery<ContainerSentByUserDto>(
+        "usp_GetContainerSentByUserForPDF",
         parameters,
         CommandType.StoredProcedure,
-       CommandDirection.Update);
+        CommandDirection.Read
+    );
+    
+    return result?.FirstOrDefault();
 }
-
-====front end validation
-new ColumnConfig
+3. Create DTO for Container Sent By User
+Add this DTO class:
+csharppublic class ContainerSentByUserDto
 {
-    Name = "BoxStatus",
-    DataType = CellDataType.Text,
-    IsRequired = true,
-    MaxLength = 10,
-    // Add validation to ensure only valid statuses
-    AllowedValues = new[] { "RECEIVED", "DESTROYED", "NOTFOUND" } // If you have this feature
+    public string SentByUser { get; set; }
+    public DateTime SentDate { get; set; }
+    public string HoldingEntityCode { get; set; }
+    public int ContainerId { get; set; }
+}
+4. Update PDFGeneratorBackfillService
+Update the GeneratePDFForContainer method:
+csharppublic async Task<bool> GeneratePDFForContainer(string containerCode)
+{
+    try
+    {
+        _logger.LogInformation($"Starting PDF generation for container: {containerCode}");
+
+        // Get container data
+        var containerData = await GetContainerDataForPDF(containerCode);
+        if (containerData == null || !containerData.Any())
+        {
+            _logger.LogWarning($"No data found for container: {containerCode}");
+            return false;
+        }
+
+        var firstFile = containerData.First();
+        string documentType = firstFile.DocumentType;
+
+        // Get the user who sent the container (BoxSentBy or AlternaSystem)
+        var sentByInfo = GetContainerSentByUserForPDF(containerCode);
+        string user = sentByInfo?.SentByUser ?? "AlternaSystem";
+        
+        _logger.LogInformation($"Using user '{user}' for PDF generation of container {containerCode}");
+
+        // Determine entity for PDF generation
+        string entity = GetEntityForPDF(firstFile.CompanyCode);
+
+        // Generate PDF based on document type
+        byte[] pdfBytes = null;
+        string apiMethod = string.Empty;
+
+        if (documentType == "CUSTOMER")
+        {
+            pdfBytes = await GenerateCustomerDocPDF(containerData, containerCode, entity, user);
+            apiMethod = "GenerateCustomerDocPDFForArchive";
+        }
+        else if (documentType == "BRANCH")
+        {
+            pdfBytes = await GenerateBranchDocPDF(containerData, containerCode, entity, user);
+            apiMethod = "GenerateBranchDocPDFForArchive";
+        }
+        else if (documentType == "ENTITY")
+        {
+            pdfBytes = await GenerateEntityDocPDF(containerData, containerCode, entity, user);
+            apiMethod = "GenerateEntityDocPDFForArchive";
+        }
+
+        if (pdfBytes == null || pdfBytes.Length == 0)
+        {
+            _logger.LogError($"Failed to generate PDF for container: {containerCode}");
+            return false;
+        }
+
+        // Store PDF in database
+        bool stored = await StorePDFInDatabase(pdfBytes, containerCode, apiMethod, entity, user);
+        
+        if (stored)
+        {
+            _logger.LogInformation($"Successfully generated and stored PDF for container: {containerCode}");
+        }
+        
+        return stored;
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, $"Error generating PDF for container {containerCode}: {ex.Message}");
+        return false;
+    }
 }
 
-
-
--- =============================================
--- Author:		<Patricia Sammia>
--- Modified by: <Assistant>
--- Create date: <2025/10/30>
--- Modified date: <2025/11/07>
--- Description:	<Insert Data of Old Boxes - Updated for HoldingEntityCode and User logic>
--- =============================================
-ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250)
-AS 
-BEGIN 
-    SET NOCOUNT ON;
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
-
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
-
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
-
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
-
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
-            )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1
-        )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- Insert new File Type with auto-incrementing FileTypeCode
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
-        );
+private ContainerSentByUserDto GetContainerSentByUserForPDF(string containerCode)
+{
+    using (var connection = new SqlConnection(_configuration.GetConnectionString("ArchiveConnection")))
+    {
+        var parameters = new DynamicParameters();
+        parameters.Add("ContainerCode", containerCode);
         
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   input.[ArchivingPeriod]
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-            )
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-        FROM UniqueNewFileTypes;
-
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
-
-        -- Get the FileTypeCode for each file
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
+        return connection.QueryFirstOrDefault<ContainerSentByUserDto>(
+            "usp_GetContainerSentByUserForPDF",
+            parameters,
+            commandType: CommandType.StoredProcedure
         );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName];
+    }
+}
+5. Update PDF Generation Methods
+Update all three PDF generation methods to use the user parameter:
+csharpprivate async Task<byte[]> GenerateCustomerDocPDF(
+    List<ContainerFileDto> files, 
+    string containerCode, 
+    string entity, 
+    string user)
+{
+    try
+    {
+        var archivingPeriod = files.First().ArchivingPeriod;
+        bool unlimited = archivingPeriod == -1;
+        DateTime destructionDate = DateTime.Now.AddYears(archivingPeriod);
 
-        -- Insert Files
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
+        // Group files by DocumentType and collect customer IDs
+        var customerFiles = files
+            .GroupBy(f => f.FileName)
+            .Select(g => new
+            {
+                DocumentType = g.Key,
+                Id = g.Select(f => f.CustomerId?.ToString()).Where(id => id != null).ToList()
+            })
+            .ToList();
 
-        -- Map the inserted FileIds back to RowIds
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
+        var request = new
+        {
+            DestructionDate = unlimited ? "Unlimited" : destructionDate.ToString("dd/MM/yyyy"),
+            ContainerID = containerCode,
+            Entity = entity,
+            User = user,  // Use the retrieved user
+            CustomerFiles = customerFiles,
+            CreationDate = DateTime.Now.ToString("dd/MM/yyyy")
+        };
 
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
+        _logger.LogInformation($"Sending Customer PDF request for container {containerCode} with user {user}");
 
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
+        var response = await _httpClient.PostAsJsonAsync(
+            $"{_pdfServiceBaseUrl}GenerateCustomerDocPDFForArchive", 
+            request);
 
-        -- Insert Container File Relationship
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError($"PDF service error: {errorContent}");
+            return null;
+        }
 
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, $"Error generating customer PDF for container {containerCode}");
+        return null;
+    }
+}
 
-        -- ========================================
-        -- MODIFIED: Insert Container Status History
-        -- ========================================
-        
-        -- 1. Insert SENT status for all containers
-        -- HoldingEntityCode = Code from input (the branch/entity code)
-        -- User = BoxSentBy if not empty, otherwise AlternaSystem
-        -- Always inactive (isCurrentStatus = 0)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'SENT',
-               i.[Code],  -- CHANGED: Use Code instead of 'WH'
-               0,         -- Always inactive for SENT
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,  -- Use BoxSentBy or AlternaSystem
-               i.[BoxSentDate],
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
+private async Task<byte[]> GenerateBranchDocPDF(
+    List<ContainerFileDto> files, 
+    string containerCode, 
+    string entity, 
+    string user)
+{
+    try
+    {
+        var archivingPeriod = files.First().ArchivingPeriod;
+        bool unlimited = archivingPeriod == -1;
+        DateTime destructionDate = DateTime.Now.AddYears(archivingPeriod);
 
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Active only if final status is RECEIVED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'RECEIVED',
-               'WH',  -- CHANGED: Always 'WH' for RECEIVED
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
-               @SystemUser,  -- Always AlternaSystem for RECEIVED
-               DATEADD(MINUTE, 1, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')  -- ADDED: NOTFOUND
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
+        var branchFiles = files.Select(f => new
+        {
+            DocumentType = f.FileName,
+            FromDate = f.FromDate?.ToString("dd-MM-yyyy") ?? "",
+            ToDate = f.ToDate?.ToString("dd-MM-yyyy") ?? ""
+        }).ToList();
 
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'DESTROYED',
-               'WH',  -- Always 'WH' for DESTROYED
-               1,     -- Always active as final status
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
+        var request = new
+        {
+            DestructionDate = unlimited ? "Unlimited" : destructionDate.ToString("dd/MM/yyyy"),
+            ContainerID = containerCode,
+            Entity = entity,
+            User = user,  // Use the retrieved user
+            BranchFiles = branchFiles,
+            CreationDate = DateTime.Now.ToString("dd/MM/yyyy")
+        };
 
-        -- 4. NEW: Insert NOTFOUND status for containers with StatusCode NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'NOTFOUND',
-               'WH',  -- Always 'WH' for NOTFOUND
-               1,     -- Always active as final status
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'NOTFOUND'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'NOTFOUND'
-        );
+        _logger.LogInformation($"Sending Branch PDF request for container {containerCode} with user {user}");
 
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
+        var response = await _httpClient.PostAsJsonAsync(
+            $"{_pdfServiceBaseUrl}GenerateBranchDocPDFForArchive", 
+            request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError($"PDF service error: {errorContent}");
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, $"Error generating branch PDF for container {containerCode}");
+        return null;
+    }
+}
+
+private async Task<byte[]> GenerateEntityDocPDF(
+    List<ContainerFileDto> files, 
+    string containerCode, 
+    string entity, 
+    string user)
+{
+    try
+    {
+        var archivingPeriod = files.First().ArchivingPeriod;
+        bool unlimited = archivingPeriod == -1;
+        DateTime destructionDate = DateTime.Now.AddYears(archivingPeriod);
+
+        var entityFiles = files.Select(f => new
+        {
+            DocumentType = f.FileName,
+            DocumentDescription = f.AdditionalInfo ?? string.Empty
+        }).ToList();
+
+        var request = new
+        {
+            DestructionDate = unlimited ? "Unlimited" : destructionDate.ToString("dd/MM/yyyy"),
+            ContainerID = containerCode,
+            Entity = entity,
+            User = user,  // Use the retrieved user
+            EntityFiles = entityFiles,
+            CreationDate = DateTime.Now.ToString("dd/MM/yyyy")
+        };
+
+        _logger.LogInformation($"Sending Entity PDF request for container {containerCode} with user {user}");
+
+        var response = await _httpClient.PostAsJsonAsync(
+            $"{_pdfServiceBaseUrl}GenerateEntityDocPDFForArchive", 
+            request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError($"PDF service error: {errorContent}");
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, $"Error generating entity PDF for container {containerCode}");
+        return null;
+    }
+}
+6. Update StorePDFInDatabase Method
+csharpprivate async Task<bool> StorePDFInDatabase(
+    byte[] pdfBytes, 
+    string containerCode, 
+    string apiMethod, 
+    string entity, 
+    string user)
+{
+    try
+    {
+        using (var connection = new SqlConnection(_configuration.GetConnectionString("ArchiveConnection")))
+        {
+            await connection.OpenAsync();
+
+            var parameters = new DynamicParameters();
+            parameters.Add("@PDF", pdfBytes);
+            parameters.Add("@Request", $"{{\"ContainerID\": \"{containerCode}\"}}");
+            parameters.Add("@ApiMethod", apiMethod);
+            parameters.Add("@BranchList", (string)null);
+            parameters.Add("@Entity", entity);
+            parameters.Add("@User", user);  // Pass the correct user
+
+            await connection.ExecuteAsync(
+                "usp_InsertPDF",
+                parameters,
+                commandType: CommandType.StoredProcedure
+            );
+
+            _logger.LogInformation($"PDF stored in database for container {containerCode} by user {user}");
+            return true;
+        }
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, $"Error storing PDF in database for container {containerCode}");
+        return false;
+    }
+}
