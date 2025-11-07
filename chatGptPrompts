@@ -1,322 +1,327 @@
-// ========================================
-// FILE: Models/Request.cs (ADD TO EXISTING)
-// ========================================
-namespace BLL.Models
-{
-    #region Update Application Status Request
-    public class Update_ApplicationStatus_Request
-    {
-        public required BaseRequest BaseRequest { get; set; }
-        public String CorrelationId { get; set; } = string.Empty;
-        public String External_Id { get; set; } = string.Empty;
-        public Int32 StatusId { get; set; } = 2;
-    }
-    #endregion
-}
-
-// ========================================
-// FILE: Models/Response.cs (ADD TO EXISTING)
-// ========================================
-namespace BLL.Models
-{
-    #region Update Application Status Response
-    public class Update_ApplicationStatus_Response
-    {
-        public BaseResponse BaseResponse { get; set; } = new BaseResponse();
-        public Application? UpdatedApplication { get; set; }
-    }
-    #endregion
-}
-
-// ========================================
-// FILE: BLL/Bll.cs (ADD TO EXISTING CLASS)
-// ========================================
-namespace BLL
-{
-    public partial class Bll
-    {
-        #region Update Application Status
-        public async Task<Application?> Update_ApplicationStatus(Update_ApplicationStatus_Request request)
-        {
-            DapperDal dal = new DapperDal(_globalSettings.ConnString);
-            DynamicParameters parameters = new DynamicParameters();
-            
-            parameters.Add("P__CorrelationId", request.CorrelationId);
-            parameters.Add("P__External_Id", request.External_Id);
-            parameters.Add("P__StatusId", request.StatusId);
-
-            IEnumerable<Application> res = await dal.ExecuteQueryAsync<Application>(
-                "usp_UpdateApplicationStatus",
-                parameters,
-                CommandType.StoredProcedure,
-                DapperDal.CommandDirection.Update);
-
-            return res.FirstOrDefault();
-        }
-        #endregion
-    }
-}
-
-// ========================================
-// FILE: Controllers/OnBoardingController.cs (ADD TO EXISTING)
-// ========================================
-namespace Alterna_OnBoarding.Controllers
-{
-    public partial class OnBoardingController
-    {
-        #region Update Application Status
-        [HttpPost]
-        [Route("Update_ApplicationStatus")]
-        public async Task<Update_ApplicationStatus_Response> Update_ApplicationStatus([FromBody] Update_ApplicationStatus_Request request)
-        {
-            Update_ApplicationStatus_Response response = new Update_ApplicationStatus_Response()
-            {
-                BaseResponse = new BaseResponse()
-                {
-                    CorrelationId = request.BaseRequest.CorrelationId,
-                    ReturnCode = _responseCodesDictionary["200"].Content,
-                    ReturnDescription = _responseCodesDictionary["200"].Description
-                }
-            };
-
-            CorrelationInfo correlationInfo = new CorrelationInfo()
-            {
-                CorrelationId = request.BaseRequest.CorrelationId,
-                RDirection = RequestDirection.Request,
-                RequestURL = "UpdateApplicationStatus",
-                UserName = _globalSettings.AppUsername
-            };
-
-            try
-            {
-                #region DataGuard
-                List<KeyValuePair<DataIntegrityCheckfunctions, Property>> dataGuardDict =
-                [
-                    new(DataIntegrityCheckfunctions.IS_CORRELATION_ID_INVALID, new Property()
-                    {
-                        PropName = "CorrelationId",
-                        PropValue = correlationInfo.CorrelationId
-                    }),
-                    new(DataIntegrityCheckfunctions.IS_STRING_EMPTY, new Property()
-                    {
-                        PropName = "CorrelationId",
-                        PropValue = request.CorrelationId
-                    }),
-                    new(DataIntegrityCheckfunctions.IS_STRING_EMPTY, new Property()
-                    {
-                        PropName = "External_Id",
-                        PropValue = request.External_Id
-                    })
-                ];
-
-                // Validate StatusId
-                if (request.StatusId <= 0)
-                {
-                    throw new SGBLBadRequestException("StatusId must be greater than 0");
-                }
-
-                DataIntegrityCheck(dataGuardDict);
-                #endregion
-
-                correlationInfo.Reserved = "UpdateApplicationStatus has been called with the following Request";
-                LogInfoJson(request, correlationInfo);
-
-                // Call BLL method
-                Application? updatedApp = await _bll.Update_ApplicationStatus(request);
-
-                // Check if application was found and updated
-                if (updatedApp == null)
-                {
-                    response.BaseResponse.ReturnCode = _responseCodesDictionary["404"].Content;
-                    response.BaseResponse.ReturnDescription = "Application not found with provided CorrelationId and External_Id";
-                    
-                    correlationInfo.RDirection = RequestDirection.Response;
-                    correlationInfo.Reserved = "Application not found";
-                    LogInfoJson(response, correlationInfo);
-                    
-                    return response;
-                }
-
-                // Set response data
-                response.UpdatedApplication = updatedApp;
-
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = "UpdateApplicationStatus replied with the following response";
-                LogInfoJson(response, correlationInfo);
-
-                return response;
-            }
-            catch (SGBLBadRequestException ex)
-            {
-                StringBuilder sb = new(_responseCodesDictionary["400"].Description);
-                sb.Replace("{0}", ex.Message);
-
-                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
-                response.BaseResponse.ReturnCode = _responseCodesDictionary["400"].Content;
-                response.BaseResponse.ReturnDescription = sb.ToString();
-                
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = ex.Message;
-                LogErrorJson(response, correlationInfo, ex);
-
-                return response;
-            }
-            catch (Exception ex)
-            {
-                StringBuilder sb = new(_responseCodesDictionary["500"].Description);
-                sb.Replace("{0}", ex.Message);
-
-                response.BaseResponse.CorrelationId = request.BaseRequest.CorrelationId;
-                response.BaseResponse.ReturnCode = _responseCodesDictionary["500"].Content;
-                response.BaseResponse.ReturnDescription = sb.ToString();
-
-                correlationInfo.RDirection = RequestDirection.Response;
-                correlationInfo.Reserved = ex.Message;
-                LogErrorJson(response, correlationInfo, ex);
-
-                return response;
-            }
-        }
-        #endregion
-    }
-}
-
-// ========================================
-// FILE: Database/usp_UpdateApplicationStatus.sql
-// ========================================
-/*
-USE [Alterna.OnBoarding]
-GO
-
--- =====================================================================
--- Author:      Patricia Sammia
--- Create date: 03-10-2025
--- Description: Update Application Status by CorrelationId and External_Id
--- =====================================================================
-CREATE OR ALTER PROCEDURE [dbo].[usp_UpdateApplicationStatus]
-(
-    @P__CorrelationId NVARCHAR(250),
-    @P__External_Id NVARCHAR(10),
-    @P__StatusId INT
-)
-AS
-BEGIN
+-- =============================================
+-- Author:		<Patricia Sammia>
+-- Modified by: <Assistant>
+-- Create date: <2025/10/30>
+-- Modified date: <2025/11/07>
+-- Description:	<Insert Data of Old Boxes - Updated for HoldingEntityCode and User logic>
+-- =============================================
+ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
+	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
+	@P__User NVARCHAR(250)
+AS 
+BEGIN 
     SET NOCOUNT ON;
+	SELECT 1;  
+    DECLARE @Now DATETIME = GETDATE(); 
+    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
 
-    DECLARE @AppId BIGINT;
+    BEGIN TRY 
+        BEGIN TRANSACTION; 
 
-    BEGIN TRY
-        -- Check if application exists
-        SELECT @AppId = Id
-        FROM dbo.t_Application
-        WHERE CorrelationId = @P__CorrelationId
-          AND External_Id = @P__External_Id;
+        -- Insert new Company (only if Code doesn't already exist)
+        INSERT INTO [dbo].[t_Company] 
+        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Company] comp 
+            WHERE comp.[Code] = input.[Code]
+        );
 
-        -- If application not found, return empty result
-        IF @AppId IS NULL
-        BEGIN
-            SELECT 
-                CAST(NULL AS BIGINT) AS Id,
-                CAST(NULL AS NVARCHAR(250)) AS CorrelationId,
-                CAST(NULL AS NVARCHAR(10)) AS External_Id,
-                CAST(NULL AS INT) AS StatusId
-            WHERE 1 = 0;
-            RETURN;
-        END
+        -- Temp tables to hold inserted IDs and link them back to input data 
+        DECLARE @InsertedContainers TABLE( 
+            RowId INT, 
+            ContainerId INT 
+        ); 
 
-        -- Update the application status
-        UPDATE dbo.t_Application
-        SET 
-            StatusId = @P__StatusId,
-            LastModifiedBy = 'AlternaSysUser',
-            LastModifiedDate = GETDATE()
-        WHERE Id = @AppId;
+        DECLARE @InsertedFiles TABLE( 
+            RowId INT, 
+            FileId INT 
+        ); 
 
-        -- Return updated application
-        SELECT 
-            Id,
-            CorrelationId,
-            External_Id,
-            StatusId
-        FROM dbo.t_Application
-        WHERE Id = @AppId;
+        -- Insert Containers with unique Code + CompanyCode combination
+        WITH UniqueContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
+                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
+            FROM @P__Old_Boxes input
+            WHERE NOT EXISTS (
+                SELECT 1 FROM [dbo].[t_Container] cont
+                WHERE cont.[Code] = input.[BoxRef]
+                AND cont.[CompanyCode] = input.[Code]
+            )
+        ),
+        ContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
+            FROM UniqueContainerSource
+            WHERE rn = 1
+        )
+        MERGE [dbo].[t_Container] AS target
+        USING ContainerSource AS source ON 1=0
+        WHEN NOT MATCHED THEN
+            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
+            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
+        OUTPUT source.RowId, inserted.Id
+        INTO @InsertedContainers(RowId, ContainerId);
 
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(4000),
-                @ErrorSeverity INT,
-                @ErrorState INT;
+        -- Capture existing container IDs for ALL rows (including duplicates within input)
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, cont.Id
+        FROM @P__Old_Boxes input
+        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
+            AND cont.[CompanyCode] = input.[Code]
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
-        SELECT
-            @ErrorMessage = ERROR_MESSAGE(),
-            @ErrorSeverity = ERROR_SEVERITY(),
-            @ErrorState = ERROR_STATE();
+        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, ic.ContainerId
+        FROM @P__Old_Boxes input
+        INNER JOIN @InsertedContainers ic ON EXISTS (
+            SELECT 1 FROM @P__Old_Boxes input2 
+            WHERE input2.RowId = ic.RowId 
+            AND input2.BoxRef = input.BoxRef
+            AND input2.Code = input.Code
+        )
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
-        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
-    END CATCH
-END
-GO
-*/
+        -- Insert new File Type with auto-incrementing FileTypeCode
+        DECLARE @NewFileTypes TABLE (
+            Description NVARCHAR(250),
+            Entity NVARCHAR(50),
+            ArchivingPeriod INT,
+            NextCode INT
+        );
+        
+        DECLARE @MaxFileTypeCode INT;
+        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
+        FROM [dbo].[lkp_FileType] 
+        WHERE ISNUMERIC(Code) = 1;
+        
+        WITH UniqueNewFileTypes AS (
+            SELECT DISTINCT 
+                   input.[FileName] as Description,
+                   input.[Code] as Entity,
+                   input.[ArchivingPeriod]
+            FROM @P__Old_Boxes input
+            WHERE NOT EXISTS (
+                SELECT 1 FROM [dbo].[lkp_FileType] ft
+                WHERE ft.[Description] = input.[FileName]
+                AND ft.[Entity] = input.[Code]
+            )
+        )
+        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
+        SELECT Description, 
+               Entity, 
+               ArchivingPeriod,
+               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
+        FROM UniqueNewFileTypes;
 
-// ========================================
-// Sample Request/Response
-// ========================================
-/*
-POST /api/OnBoarding/Update_ApplicationStatus
-Content-Type: application/json
+        INSERT INTO [dbo].[lkp_FileType] 
+        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
+               nft.Entity,
+               'Not Branch' as Category,
+               nft.Description,
+               0 as HasDate,
+               0 as IsCustomer,
+               nft.ArchivingPeriod,
+               @SystemUser,
+               @Now,
+               @SystemUser,
+               @Now
+        FROM @NewFileTypes nft;
 
-REQUEST (Default StatusId = 2):
-{
-  "baseRequest": {
-    "correlationId": "12345-67890-ABCDE-2025"
-  },
-  "correlationId": "12345-67890-ABCDE-2025",
-  "external_Id": "EXT12345",
-  "statusId": 2
-}
+        -- Get the FileTypeCode for each file
+        DECLARE @FileTypeCodes TABLE (
+            RowId INT,
+            FileTypeCode NVARCHAR(50)
+        );
+        
+        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
+        SELECT input.RowId, ft.Code
+        FROM @P__Old_Boxes input
+        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
+            AND ft.[Description] = input.[FileName];
 
-REQUEST (Custom StatusId):
-{
-  "baseRequest": {
-    "correlationId": "12345-67890-ABCDE-2025"
-  },
-  "correlationId": "12345-67890-ABCDE-2025",
-  "external_Id": "EXT12345",
-  "statusId": 3
-}
+        -- Insert Files
+        INSERT INTO [dbo].[t_File] 
+        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
+        OUTPUT inserted.Id
+        INTO @InsertedFiles(FileId)
+        SELECT null, 
+               input.FileName, 
+               ftc.FileTypeCode, 
+               'FINAL', 
+               input.Code, 
+               null, 
+               null, 
+               input.AdditionalInfo, 
+               0, 
+               @SystemUser, 
+               @Now, 
+               @SystemUser, 
+               @Now
+        FROM @P__Old_Boxes input
+        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
+        ORDER BY input.RowId;
 
-RESPONSE (Success):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "200",
-    "returnDescription": "Success"
-  },
-  "updatedApplication": {
-    "id": 1001,
-    "correlationId": "12345-67890-ABCDE-2025",
-    "external_Id": "EXT12345",
-    "statusId": 2
-  }
-}
+        -- Map the inserted FileIds back to RowIds
+        DECLARE @RowIdMapping TABLE (
+            RowId INT,
+            FileId INT,
+            RowNum INT
+        );
 
-RESPONSE (Not Found):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "404",
-    "returnDescription": "Application not found with provided CorrelationId and External_Id"
-  },
-  "updatedApplication": null
-}
+        INSERT INTO @RowIdMapping (RowId, RowNum)
+        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
+        FROM @P__Old_Boxes;
 
-RESPONSE (Bad Request):
-{
-  "baseResponse": {
-    "correlationId": "12345-67890-ABCDE-2025",
-    "returnCode": "400",
-    "returnDescription": "Bad Request: StatusId must be greater than 0"
-  },
-  "updatedApplication": null
-}
-*/
+        WITH NumberedInsertedFiles AS (
+            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
+            FROM @InsertedFiles
+        )
+        UPDATE @InsertedFiles
+        SET RowId = rm.RowId
+        FROM @InsertedFiles if_target
+        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
+        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
+
+        -- Insert Container File Relationship
+        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
+        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
+        FROM @InsertedFiles f
+        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
+            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
+        );
+
+        -- Insert new Sequence only if Owner doesn't already exist
+        INSERT INTO [dbo].[t_Sequence] 
+        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Sequence] seq
+            WHERE seq.[Owner] = input.[Code]
+        )
+        AND input.[Code] NOT IN (
+            SELECT i2.[Code] 
+            FROM @P__Old_Boxes i2 
+            WHERE i2.RowId < input.RowId
+        );
+
+        -- ========================================
+        -- MODIFIED: Insert Container Status History
+        -- ========================================
+        
+        -- 1. Insert SENT status for all containers
+        -- HoldingEntityCode = Code from input (the branch/entity code)
+        -- User = BoxSentBy if not empty, otherwise AlternaSystem
+        -- Always inactive (isCurrentStatus = 0)
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'SENT',
+               i.[Code],  -- CHANGED: Use Code instead of 'WH'
+               0,         -- Always inactive for SENT
+               CASE 
+                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
+                   ELSE i.[BoxSentBy] 
+               END,  -- Use BoxSentBy or AlternaSystem
+               i.[BoxSentDate],
+               CASE 
+                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
+                   ELSE i.[BoxSentBy] 
+               END,
+               i.[BoxSentDate]
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'SENT'
+        );
+
+        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
+        -- HoldingEntityCode = 'WH'
+        -- User = AlternaSystem always
+        -- Active only if final status is RECEIVED
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'RECEIVED',
+               'WH',  -- CHANGED: Always 'WH' for RECEIVED
+               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
+               @SystemUser,  -- Always AlternaSystem for RECEIVED
+               DATEADD(MINUTE, 1, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 1, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')  -- ADDED: NOTFOUND
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'RECEIVED'
+        );
+
+        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
+        -- HoldingEntityCode = 'WH'
+        -- User = AlternaSystem always
+        -- Always active (final status)
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'DESTROYED',
+               'WH',  -- Always 'WH' for DESTROYED
+               1,     -- Always active as final status
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] = 'DESTROYED'
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'DESTROYED'
+        );
+
+        -- 4. NEW: Insert NOTFOUND status for containers with StatusCode NOTFOUND
+        -- HoldingEntityCode = 'WH'
+        -- User = AlternaSystem always
+        -- Always active (final status)
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'NOTFOUND',
+               'WH',  -- Always 'WH' for NOTFOUND
+               1,     -- Always active as final status
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] = 'NOTFOUND'
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'NOTFOUND'
+        );
+
+        COMMIT TRANSACTION; 
+    END TRY 
+    BEGIN CATCH 
+        ROLLBACK TRANSACTION; 
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
+        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
+        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
+    END CATCH 
+END;
