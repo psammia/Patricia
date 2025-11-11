@@ -1,3 +1,110 @@
+before i procedd with the last changes, i want to provide you with my DownloadPDF in BLL.cs Archiving Project, which is different fron what you gave me as code, give me the right version code:        public String DownloadPDF(DownloadPDFReq downloadPDFReq)
+        {
+            OnPreEventDownloadPDF?.Invoke(ref downloadPDFReq);
+            // Auto-detect document type if not provided
+            if (downloadPDFReq.DocumentType == null)
+            {
+                downloadPDFReq.DocumentType = DetectDocumentType(downloadPDFReq.ContainerID);
+            }
+            String data = JsonConvert.SerializeObject(downloadPDFReq);
+            HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+            HttpClient client = new();
+            String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ??
+                                    throw new SGBLInternalServerException(
+                                        "PDF Service not initialized please Contact Support");
+            Task<HttpResponseMessage>
+                Request = client.PostAsync($"{PDFRequestBase}RedownloadDocPDFForArchive", content);
+            Request.Wait();
+            Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+            responseString.Wait();
+            String Ret = responseString.Result;
+            OnPostEventDownloadPDF?.Invoke(ref Ret, ref downloadPDFReq);
+            return Ret;
+        }Show morePerfect! Your existing code is actually very good and already structured correctly. I just need to add better error handling and make sure it's using the right request model. Here's the corrected version:
+csharppublic String DownloadPDF(DownloadPDFReq downloadPDFReq)
+{
+    try
+    {
+        OnPreEventDownloadPDF?.Invoke(ref downloadPDFReq);
+        
+        // Auto-detect document type if not provided
+        if (downloadPDFReq.DocumentType == null)
+        {
+            downloadPDFReq.DocumentType = DetectDocumentType(downloadPDFReq.ContainerID);
+        }
+
+        // Create the request for PDF Generator
+        RedownloadDocPDFForArchiveRequest pdfRequest = new()
+        {
+            ContainerID = downloadPDFReq.ContainerID
+        };
+
+        String data = JsonConvert.SerializeObject(pdfRequest);
+        HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+        HttpClient client = new();
+        String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ??
+                                throw new SGBLInternalServerException(
+                                    "PDF Service not initialized please Contact Support");
+
+        Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}RedownloadDocPDFForArchive", content);
+        Request.Wait();
+
+        // Check if the request was successful
+        if (!Request.Result.IsSuccessStatusCode)
+        {
+            Task<String> errorString = Request.Result.Content.ReadAsStringAsync();
+            errorString.Wait();
+            throw new SGBLInternalServerException(
+                $"PDF Service returned error: {Request.Result.StatusCode} - {errorString.Result}");
+        }
+
+        Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+        responseString.Wait();
+        String Ret = responseString.Result;
+
+        // Validate response is not empty
+        if (String.IsNullOrWhiteSpace(Ret))
+        {
+            throw new SGBLInternalServerException(
+                $"PDF Service returned empty response for container {downloadPDFReq.ContainerID}");
+        }
+
+        OnPostEventDownloadPDF?.Invoke(ref Ret, ref downloadPDFReq);
+        
+        return Ret;
+    }
+    catch (SGBLInternalServerException)
+    {
+        throw; // Re-throw custom exceptions as-is
+    }
+    catch (Exception ex)
+    {
+        throw new SGBLInternalServerException(
+            $"Failed to download PDF for container {downloadPDFReq.ContainerID}: {ex.Message}", ex);
+    }
+}
+Key Changes Made:
+
+Wrapped in try-catch for better error handling
+Changed the serialization to use RedownloadDocPDFForArchiveRequest instead of the full DownloadPDFReq (the PDF Generator expects only ContainerID)
+Added success check for the HTTP response
+Added validation for empty response
+Kept all your existing logic including:
+
+OnPreEventDownloadPDF event
+DetectDocumentType call
+OnPostEventDownloadPDF event
+
+
+
+Add the RedownloadDocPDFForArchiveRequest Model
+Make sure you have this model in your Archiving Project Models:
+csharppublic class RedownloadDocPDFForArchiveRequest
+{
+    public string ContainerID { get; set; }
+}
+This version maintains your exact pattern and structure while adding proper error handling and using the correct request model for the PDF Generator API.
+--------------------------------
 3-+-----------------------
         public String DownloadPDF(DownloadPDFReq downloadPDFReq)
         {
