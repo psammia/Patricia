@@ -1,7 +1,6 @@
 An unhandled exception occurred while processing the request.
 ErrorHandler: Exception of type 'Alterna.Archive.Core.Global.ErrorHandler' was thrown.
 Alterna.Archive.Core.Controllers.FilesController.ReDownloadSendPDF(string boxReference) in FilesController.cs, line 209
-
 Stack Query Cookies Headers Routing
 ErrorHandler: Exception of type 'Alterna.Archive.Core.Global.ErrorHandler' was thrown.
 Alterna.Archive.Core.Controllers.FilesController.ReDownloadSendPDF(string boxReference) in FilesController.cs
@@ -24,4 +23,202 @@ Microsoft.AspNetCore.Diagnostics.StatusCodePagesMiddleware.Invoke(HttpContext co
 Microsoft.AspNetCore.Session.SessionMiddleware.Invoke(HttpContext context)
 Microsoft.AspNetCore.Session.SessionMiddleware.Invoke(HttpContext context)
 Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
-Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)Show moreThe error message is not very descriptive. We need to see what the actual exception is. Let me help you add better error logging and handling to identify the root cause.
+Step 1: Add Detailed Logging to FileController
+Update your ReDownloadSendPDF method in FilesController.cs to log the actual error:
+csharppublic ActionResult ReDownloadSendPDF(String boxReference)
+{
+    string correlationId = Guid.NewGuid().ToString();
+    
+    try
+    {
+        DownloadPDFModel model = new();
+        DownloadPDFRes downloadPDFRes = Common.ApiCall<DownloadPDFRes>(new DownloadPDFReq()
+        {
+            BaseReq = new BaseRequest(HttpContext, GetSession("ArchiveData")),
+            ContainerID = boxReference
+        }, "DownloadPDF");
+
+        // Log the response for debugging
+        System.Diagnostics.Debug.WriteLine($"PDF Response - IsNull: {downloadPDFRes.Resp is null}, Length: {downloadPDFRes.Resp?.Length ?? 0}");
+        System.Diagnostics.Debug.WriteLine($"HTTP Response Code: {downloadPDFRes.WebResp.HttpResponseCode}");
+        System.Diagnostics.Debug.WriteLine($"Response Message: {downloadPDFRes.WebResp.ResponseMessage}");
+
+        if (downloadPDFRes.Resp is null || downloadPDFRes.Resp.Length == 0)
+        {
+            string errorMsg = $"Invalid PDF or PDF not found for container: {boxReference}. Response Message: {downloadPDFRes.WebResp.ResponseMessage}";
+            
+            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
+            HttpContext.Session.SetString("ErrorMessage", errorMsg);
+
+            // Log the actual error
+            System.Diagnostics.Debug.WriteLine($"ERROR: {errorMsg}");
+
+            throw new ErrorHandler(new ErrorModel() 
+            { 
+                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
+                ErrorMessage = errorMsg
+            });
+        }
+
+        String PDF = downloadPDFRes.Resp ?? String.Empty;
+
+        if (String.IsNullOrWhiteSpace(PDF))
+        {
+            string errorMsg = $"Empty PDF response for container: {boxReference}";
+            
+            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
+            HttpContext.Session.SetString("ErrorMessage", errorMsg);
+
+            System.Diagnostics.Debug.WriteLine($"ERROR: {errorMsg}");
+
+            throw new ErrorHandler(new ErrorModel() 
+            { 
+                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
+                ErrorMessage = "PDF Server returned empty response" 
+            });
+        }
+
+        // Validate that PDF string contains valid hexadecimal characters
+        if (!System.Text.RegularExpressions.Regex.IsMatch(PDF, @"^[0-9A-Fa-f]+$"))
+        {
+            string errorMsg = $"Invalid PDF format for container: {boxReference}. PDF does not contain valid hexadecimal characters.";
+            
+            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
+            HttpContext.Session.SetString("ErrorMessage", errorMsg);
+
+            System.Diagnostics.Debug.WriteLine($"ERROR: {errorMsg}");
+            System.Diagnostics.Debug.WriteLine($"PDF Content (first 100 chars): {PDF.Substring(0, Math.Min(100, PDF.Length))}");
+
+            throw new ErrorHandler(new ErrorModel() 
+            { 
+                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
+                ErrorMessage = "PDF response is not in valid hexadecimal format" 
+            });
+        }
+
+        Byte[] bytearray = new Byte[PDF.Length / 2];
+        for (Int32 i = 0; i < PDF.Length; i += 2)
+        {
+            bytearray[i / 2] = Convert.ToByte(PDF.Substring(i, 2), 16);
+        }
+
+        String ModifiedRef = boxReference;
+        Regex specialCharacters = new("""
+                                        [<]|[>]|[:]|["]|[/]|[\\]|[|]|[?]|[*]
+                                        """);
+        ModifiedRef = specialCharacters.Replace(ModifiedRef, "_");
+        
+        FileContentResult fileContentResult = new(bytearray, "application/pdf")
+        {
+            FileDownloadName = $"{ModifiedRef}_{DateTime.Now:yyyy-MM-dd hh-mm-ss}.pdf"
+        };
+
+        return fileContentResult;
+    }
+    catch (ErrorHandler)
+    {
+        throw; // Re-throw ErrorHandler exceptions as-is
+    }
+    catch (Exception ex)
+    {
+        // Log the full exception details
+        System.Diagnostics.Debug.WriteLine($"CRITICAL ERROR in ReDownloadSendPDF for {boxReference}:");
+        System.Diagnostics.Debug.WriteLine($"Exception Type: {ex.GetType().Name}");
+        System.Diagnostics.Debug.WriteLine($"Exception Message: {ex.Message}");
+        System.Diagnostics.Debug.WriteLine($"Stack Trace: {ex.StackTrace}");
+        if (ex.InnerException != null)
+        {
+            System.Diagnostics.Debug.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+        }
+
+        HttpContext.Session.SetString("CorrelationId", correlationId);
+        HttpContext.Session.SetString("ErrorMessage", ex.Message);
+
+        throw new ErrorHandler(new ErrorModel() 
+        { 
+            ErrorCorrelationId = correlationId, 
+            ErrorMessage = $"Failed to download PDF: {ex.Message}" 
+        });
+    }
+}
+Step 2: Check the Backend API - DownloadPDF Endpoint
+The issue might be in the Archiving Project backend. Make sure your DownloadPDF endpoint is properly calling the PDF Generator's RedownloadDocPDFForArchive method.
+Can you share your DownloadPDF method from the Archiving project backend (Archiving.cs or similar)?
+It should look something like this:
+csharp[HttpPost]
+[Route("DownloadPDF")]
+public DownloadPDFRes DownloadPDF(DownloadPDFReq req)
+{
+    DownloadPDFRes response = new DownloadPDFRes()
+    {
+        Req = req,
+    };
+
+    CorrelationInfo correlationInfo = new()
+    {
+        CorrelationId = req.BaseReq.CorrelationId,
+        RDirection = RequestDirection.Request,
+        RequestURL = "DownloadPDF",
+        UserName = req.BaseReq.CurrentUser
+    };
+
+    try
+    {
+        LogInfo("DownloadPDF Has been called", correlationInfo);
+
+        // Call PDF Generator Service
+        RedownloadDocPDFForArchiveRequest pdfRequest = new()
+        {
+            ContainerID = req.ContainerID
+        };
+
+        String data = JsonConvert.SerializeObject(pdfRequest);
+        HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
+        HttpClient client = new();
+        String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ?? 
+            throw new Exception("PDF Service not initialized");
+
+        Task<HttpResponseMessage> Request = client.PostAsync(
+            $"{PDFRequestBase}RedownloadDocPDFForArchive", content);
+
+        Request.Wait();
+        Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
+        responseString.Wait();
+
+        response.Resp = responseString.Result;
+        response.WebResp.CorrelationId = req.BaseReq.CorrelationId;
+        response.WebResp.User = req.BaseReq.CurrentUser;
+        response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+
+        return response;
+    }
+    catch (Exception ex)
+    {
+        response.WebResp.CorrelationId = req.BaseReq.CorrelationId;
+        response.WebResp.User = req.BaseReq.CurrentUser;
+        response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+        response.WebResp.ResponseMessage = ex.Message;
+
+        LogError(ex.Message, correlationInfo, ex);
+
+        return response;
+    }
+}
+Step 3: Verify PDF Generator Controller
+Make sure your PDF Generator BaseController has the RedownloadDocPDFForArchive endpoint properly set up as you showed earlier.
+Step 4: Check Your App Logs
+After adding the debug logging, run the application and check:
+
+Visual Studio Output window (Debug messages)
+Application logs
+IIS logs (if using IIS)
+
+The debug statements will tell us exactly where the error is occurring and what the actual error message is.
+Can you run the application with these logging changes and share:
+
+The debug output from Visual Studio's Output window
+The actual error message that gets logged
+Your DownloadPDF backend method if it's different from what I showed above
+
+This will help us pinpoint the exact issue!
