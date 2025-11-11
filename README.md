@@ -58,7 +58,8 @@ csharppublic class RedownloadDocPDFForArchiveRequest
 }
 Step 3: Complete PDF Generator RedownloadDocPDFForArchive Method
 Make sure your PDF Generator BLL.ALTERNA.cs has this complete implementation:
-csharppublic byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest request)
+csharp
+public byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest request)
 {
     try
     {
@@ -165,7 +166,8 @@ private void UpdatePDFBinary(string containerID, byte[] pdfBytes)
 }
 Step 4: Add GetBoxSentByUser to PDF Generator BLL
 Add this to your PDF Generator BLL.ALTERNA.cs:
-csharppublic string GetBoxSentByUser(string containerCode)
+csharp
+public string GetBoxSentByUser(string containerCode)
 {
     try
     {
@@ -204,7 +206,8 @@ csharppublic class BoxSentByUserDto
 }
 Step 6: Verify SQL Stored Procedure usp_UpdatePDFBinary exists
 Make sure this stored procedure exists (create it if it doesn't):
-sqlCREATE PROCEDURE [dbo].[usp_UpdatePDFBinary]
+sql
+CREATE PROCEDURE [dbo].[usp_UpdatePDFBinary]
     @BoxReference NVARCHAR(MAX),
     @PDF VARBINARY(MAX)
 AS
@@ -234,7 +237,8 @@ Uses GetBoxSentByUser() to get the correct user from BoxSentBy field
 
 Returns hex string back through the chain
 
-This maintains your exact pattern and should resolve the issue!RetryPbefore i procedd with the last changes, i want to provide you with my DownloadPDF in BLL.cs Archiving Project, which is different fron what you gave me as code, give me the right version code:        public String DownloadPDF(DownloadPDFReq downloadPDFReq)
+This maintains your exact pattern and should resolve the issue!RetryP
+before i procedd with the last changes, i want to provide you with my DownloadPDF in BLL.cs Archiving Project, which is different fron what you gave me as code, give me the right version code:        public String DownloadPDF(DownloadPDFReq downloadPDFReq)
         {
             OnPreEventDownloadPDF?.Invoke(ref downloadPDFReq);
             // Auto-detect document type if not provided
