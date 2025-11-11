@@ -1,3 +1,141 @@
+2--------------------------
+As for the step 2 i have this version of Download API in the backend in Archiving Project:
+        [HttpPost]
+        [Route("DownloadPDF")]
+        public DownloadPDFRes DownloadPDF(DownloadPDFReq downloadPDFReq)
+        {
+            DownloadPDFRes response = new()
+            {
+                Req = downloadPDFReq
+            };
+
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = downloadPDFReq.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "DownloadPDF",
+                UserName = downloadPDFReq.BaseReq.CurrentUser
+            };
+
+            try
+            {
+                String CorrelationId = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CorrelationId;
+                String CurrentUser = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : downloadPDFReq.BaseReq.CurrentUser;
+
+                if (String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) && String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch))
+                {
+                    throw new SGBLBadRequestException($"{nameof(DownloadPDFReq.BaseReq.CurrentEntity)} and {nameof(DownloadPDFReq.BaseReq.CurrentBranch)} Cannot Be null or empty");
+                }
+
+                String CurrentEntity = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentEntity) ? String.Empty : downloadPDFReq.BaseReq.CurrentEntity;
+                String CurrentBranch = String.IsNullOrEmpty(downloadPDFReq.BaseReq.CurrentBranch) ? String.Empty : downloadPDFReq.BaseReq.CurrentBranch;
+
+                LogInfo("DownloadPDF Has been called with the following Request", correlationInfo);
+                LogInfoJson(downloadPDFReq, correlationInfo);
+
+                correlationInfo.RDirection = RequestDirection.Processing;
+
+                #region Data Guard Check
+                using (BLL.BLL oBLL = new(CurrentUser))
+                {
+                    LogInfo("Data guard checks have started", correlationInfo);
+
+                    Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
+                    {
+                        { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(downloadPDFReq) }
+                    };
+
+                    oBLL.DataIntegrityCheck(DataGuardDictionnary);
+
+                    LogInfo("Data guard check successful", correlationInfo);
+
+                    LogInfo("Start of UpdateConfiguration call", correlationInfo);
+
+                    response.Resp = oBLL.DownloadPDF(downloadPDFReq);
+
+                    if (response.Resp == null)
+                    {
+                        throw new SGBLInternalServerException($"Failed to get box reference");
+                    }
+
+                    response.WebResp.CorrelationId = CorrelationId;
+                    response.WebResp.User = CurrentUser;
+                    response.WebResp.Entity = CurrentEntity;
+                    response.WebResp.Branch = CurrentBranch;
+                    response.WebResp.HttpResponseCode = HttpStatusCode.OK;
+
+                    correlationInfo.RDirection = RequestDirection.Response;
+
+                    LogInfo("GetCustomer Has Replied with the Following response", correlationInfo);
+                    LogInfoJson(response, correlationInfo);
+                    LogInfo("Calling the GetCustomer is completed", correlationInfo);
+                }
+
+                return response;
+                #endregion
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : downloadPDFReq.BaseReq.CurrentEntity!;
+                response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : downloadPDFReq.BaseReq.CurrentBranch!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                //this was added in case correlation Id was invalid(null or Empty)
+                correlationInfo.CorrelationId = response.WebResp.CorrelationId;
+                //this was added in case Username was invalid(null or Empty)
+                correlationInfo.UserName = response.WebResp.User;
+
+                //don't forget to change status code in case of exception
+                correlationInfo.StatusCode = HttpStatusCode.BadRequest;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (SGBLInternalServerException ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.NoContent;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.Message, correlationInfo, ex);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.WebResp.CorrelationId = downloadPDFReq.BaseReq.CorrelationId!;
+                response.WebResp.User = downloadPDFReq.BaseReq.CurrentUser!;
+                response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
+                response.WebResp.ResponseMessage = ex.StackTrace;
+
+                correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
+                correlationInfo.RDirection = RequestDirection.Response;
+
+                LogError(ex.StackTrace, correlationInfo);
+                LogErrorJson(response, correlationInfo, ex);
+
+                return response;
+            }
+        }
+
+ Question: Give the right version using the same pattern to resolve the previous issue when trying to download pdf
+
+ Step 3 : Provide me with exact code.
+
+
+
+1---------------------
 An unhandled exception occurred while processing the request.
 ErrorHandler: Exception of type 'Alterna.Archive.Core.Global.ErrorHandler' was thrown.
 Alterna.Archive.Core.Controllers.FilesController.ReDownloadSendPDF(string boxReference) in FilesController.cs, line 209
@@ -26,7 +164,8 @@ Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext co
 Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)Show moreThe error message is not very descriptive. We need to see what the actual exception is. Let me help you add better error logging and handling to identify the root cause.
 Step 1: Add Detailed Logging to FileController
 Update your ReDownloadSendPDF method in FilesController.cs to log the actual error:
-csharppublic ActionResult ReDownloadSendPDF(String boxReference)
+csharp
+public ActionResult ReDownloadSendPDF(String boxReference)
 {
     string correlationId = Guid.NewGuid().ToString();
     
@@ -146,7 +285,8 @@ Step 2: Check the Backend API - DownloadPDF Endpoint
 The issue might be in the Archiving Project backend. Make sure your DownloadPDF endpoint is properly calling the PDF Generator's RedownloadDocPDFForArchive method.
 Can you share your DownloadPDF method from the Archiving project backend (Archiving.cs or similar)?
 It should look something like this:
-csharp[HttpPost]
+csharp
+[HttpPost]
 [Route("DownloadPDF")]
 public DownloadPDFRes DownloadPDF(DownloadPDFReq req)
 {
