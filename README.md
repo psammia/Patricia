@@ -1,3 +1,34 @@
+public string GetBoxSentByUser(string containerCode)
+{
+    DynamicParameters parameters = new();
+    parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
+
+    using (DAL.DAL dal = new(Catalog_Archive, out var res))
+    {
+        var command = ConfigurationManager.AppSettings["Get_BoxSentBy_User_SP"] ?? "usp_GetBoxSentByUser";
+        
+        var result = dal.ExecuteQuery<BoxSentByUserDto>(command, parameters);
+
+        var userDto = result?.FirstOrDefault();
+
+        return userDto?.BoxSentBy ?? throw new Exception($"BoxSentBy user not found for container {containerCode}");
+    }
+}
+And add this to your Web.config in the PDF Generator Project:
+xml<appSettings>
+    <!-- Existing settings -->
+    <add key="Insert_PDF_SP" value="usp_InsertPDF" />
+    <add key="Get_PDF_Binary_SP" value="usp_GetPDFVarBinaryByBoxReference" />
+    <add key="Get_PDF_Request_SP" value="usp_GetPDFRequestByBoxReference" />
+    <add key="Update_PDF_Binary_SP" value="usp_UpdatePDFBinary" />
+    
+    <!-- Add this new one -->
+    <add key="Get_BoxSentBy_User_SP" value="usp_GetBoxSentByUser" />
+</appSettings>
+Now it matches the exact same pattern as all your other stored procedure calls! 🎯RetryClaude can make mistakes. Please double-check responses.
+
+
+
 
 19.11.2025
 ----------------
