@@ -1,3 +1,60 @@
+
+19.11.2025
+----------------
+    private void UpdatePDFBinaryInDatabase(byte[] pdfBytes, string requestJson, string apiMethod, string user)
+    {
+        try
+        {
+            // Extract entity from request
+            dynamic requestObj = JsonConvert.DeserializeObject<dynamic>(requestJson);
+            string entity = requestObj?.Entity ?? "Unknown";
+
+            DynamicParameters dynamicParameters = new();
+            dynamicParameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
+            dynamicParameters.Add("Request", requestJson, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("ApiMethod", apiMethod, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("BranchList", "N/A", DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("Entity", entity, DbType.String, ParameterDirection.Input);
+            dynamicParameters.Add("User", user, DbType.String, ParameterDirection.Input);
+
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
+                dal.ExecuteQuery(command, dynamicParameters);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Failed to update PDF binary in database: {ex.Message}");
+        }
+    }
+
+        public string GetBoxSentByUser(string containerCode)
+    {
+            DynamicParameters parameters = new();
+            parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
+
+            using (DAL.DAL dal = new(Catalog_Archive, out var res))
+            {
+                var result = dal.ExecuteQuery<BoxSentByUserDto>(
+                    "usp_GetBoxSentByUser",
+                    parameters
+                );
+
+                var userDto = result?.FirstOrDefault();
+
+            return userDto?.BoxSentBy?? throw new Exception($"BoxSentBy user not found for container {containerCode}");
+
+            }
+    }
+    public class BoxSentByUserDto
+    {
+        public string BoxSentBy { get; set; } = string.Empty;
+    }
+
+
+
+
 Perfect! I can see you're calling oBLL.DownloadPDF(downloadPDFReq) which should be in your BLL. Let me provide you with the complete solution following your exact pattern.
 Step 1: Add DownloadPDF Method to BLL.cs (Archiving Project)
 Add this method to your BLL.cs in the Archiving Project:
