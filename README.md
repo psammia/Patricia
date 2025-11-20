@@ -1,21 +1,9 @@
-USE [Alterna.Archive]
-GO
-/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables]    Script Date: 20/11/2025 9:16:39 AM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
--- =============================================
--- Author:		<Patricia Sammia>
--- Create date: <2025/10/30>
--- Description:	<Insert Data of Old Boxes into all tables due to excel file upload>
--- =============================================
 ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
 	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
 	@P__User NVARCHAR(250)
 AS 
 BEGIN 
-    SET NOCOUNT ON;
+    SET NOCOUNT ON
 	SELECT 1;  
     DECLARE @Now DATETIME = GETDATE(); 
     DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
@@ -101,17 +89,19 @@ BEGIN
         FROM [dbo].[lkp_FileType] 
         WHERE ISNUMERIC(Code) = 1;
         
+        -- Get distinct Entity+Description combinations, taking the first ArchivingPeriod encountered
         WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT 
+            SELECT 
                    input.[FileName] as Description,
                    input.[Code] as Entity,
-                   input.[ArchivingPeriod]
+                   MIN(input.[ArchivingPeriod]) as ArchivingPeriod
             FROM @P__Old_Boxes input
             WHERE NOT EXISTS (
                 SELECT 1 FROM [dbo].[lkp_FileType] ft
                 WHERE ft.[Description] = input.[FileName]
                 AND ft.[Entity] = input.[Code]
             )
+            GROUP BY input.[FileName], input.[Code]
         )
         INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
         SELECT Description, 
