@@ -1,3 +1,77 @@
+Coming Back to our previous chats, and returning back to our project Archiving . Same logic. We newly  included a new logic. Some file type that will be added to lkp_FileType table,  with a new flag (new field added to the table), canbeused=1 for new filetype , =0 to oldone.
+I will provide with a code to a view in the Configuration Menu, where we can edit Files, we have to add a new column to the datatable. CanBeUsed, disabled at first, then will enabled when user click on edit button. I want to add at the end of the table. 
+
+Here is the code complete, view, partial view, controller and action, front end. back end controller with  BLL and the Stored procedures. make what is needed.
+
+I'll help you add the CanBeUsed column to the FileType management interface. Here are all the necessary modifications:
+
+1. Database Changes
+Add Column to Table (if not already added)
+sql
+-- Add CanBeUsed column to lkp_FileType table if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.columns 
+               WHERE object_id = OBJECT_ID(N'[dbo].[lkp_FileType]') 
+               AND name = 'CanBeUsed')
+BEGIN
+    ALTER TABLE [dbo].[lkp_FileType]
+    ADD [CanBeUsed] BIT NOT NULL DEFAULT 0
+END
+GO
+Update Stored Procedure - usp_GetAllFileType
+sql
+ALTER PROCEDURE [dbo].[usp_GetAllFileType] 
+AS 
+BEGIN 
+    SELECT 
+        Id, 
+        Code, 
+        Entity, 
+        Description, 
+        Category, 
+        HasDate, 
+        IsCustomer, 
+        ArchivingPeriod, 
+        CanBeUsed 
+    FROM lkp_FileType 
+END
+Update Stored Procedure - usp_Insert_Into_All_Tables
+Modify the INSERT INTO lkp_FileType section to set CanBeUsed = 1 for new entries:
+
+sql
+INSERT INTO [dbo].[lkp_FileType] 
+([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
+       nft.Entity,
+       'Not Branch' as Category,
+       nft.Description,
+       0 as HasDate,
+       0 as IsCustomer,
+       nft.ArchivingPeriod,
+       1 as CanBeUsed,  -- NEW: Set to 1 for newly imported file types
+       @SystemUser,
+       @Now,
+       @SystemUser,
+       @Now
+FROM @NewFileTypes nft;
+2. Model Changes
+FileType.cs (Model)
+csharp
+public class FileType
+{
+    public int Id { get; set; }
+    public string Code { get; set; }
+    public string Entity { get; set; }
+    public string Description { get; set; }
+    public string Category { get; set; }
+    public bool HasDate { get; set; }
+    public bool IsCustomer { get; set; }
+    public int ArchivingPeriod { get; set; }
+    public bool CanBeUsed { get; set; }  // NEW PROPERTY
+    public bool IsBranch { get; set; }
+}
+3. View Changes
+_FileTypeManagementTable.cshtml (Partial View)
+cshtml
 @using Alterna.Archive.Core.Models.TableModel
 @using Alterna.Archive.Core.Models
 @model FileTypeModel
@@ -16,40 +90,632 @@
         </tr>
     </thead>
     <tbody>
-        @if (Model.FileTypeList.Count > 0)
-        {
-            StaticFileTypeModel.FileTypeList = Model.FileTypeList;
-            for (int i = 0; i < Model.FileTypeList.Count; i++)
-            {
-                String entityTableTdId = "EntityTableTd" + Model.FileTypeList[i].Id;
-                String hiddenClass = !Model.FileTypeList[i].IsBranch && !Model.FileTypeList[i].IsCustomer ? "" : "hidden";
+        
+@if
+ 
+(
+Model
+.
+FileTypeList
+.
+Count 
+>
+ 
+0
+)
 
-                <tr>
-                    <td>
-                        <div style="text-align: center; cursor:pointer" onclick="editRow(this,@Model.FileTypeList[i].Id,@i)">
-                            <span class="fa-regular fa-pen-to-square" title="Edit Details"></span>
-                        </div>
-                    </td>
-                    @{
-                        String CodeName = $"{Model.FileTypeList[i].Code} - {Model.FileTypeList[i].Description}";
-                        String tdId = $"Code-{Model.FileTypeList[i].Id.ToString()}";
-                    }
+        
+{
 
-                    <td id="@tdId">@CodeName</td>
+            StaticFileTypeModel
+.
+FileTypeList 
+=
+ Model
+.
+FileTypeList
+;
 
-                    <td>
-                        @Html.DropDownListFor(model => model.FileTypeList[i].Entity, @Model.EntityList, @Model.FileTypeList[i].Entity, new { @id = "Entity" + @Model.FileTypeList[i].Id, @disabled = "disabled", @class = hiddenClass })
-                    </td>
+            
+for
+ 
+(
+int
+ i 
+=
+ 
+0
+;
+ i 
+<
+ Model
+.
+FileTypeList
+.
+Count
+;
+ i
+++
+)
 
-                    <td>@Html.EditorFor(model => model.FileTypeList[i].Description, new { htmlAttributes = new { @id = "Description" + @Model.FileTypeList[i].Id, @disabled = "disabled" } })</td>
+            
+{
 
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].IsBranch, new { @id = "IsBranch" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].IsCustomer, new { @id = "IsCustomer" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                    <td>@Html.EditorFor(model => model.FileTypeList[i].ArchivingPeriod, new { htmlAttributes = new { @type = "number", @min = "0", @step = "1", @id = "ArchivingPeriod" + @Model.FileTypeList[i].Id, @disabled = "disabled" } })</td>
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].CanBeUsed, new { @id = "CanBeUsed" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                </tr>
-            }
-        }
+                
+String
+ entityTableTdId 
+=
+ 
+"EntityTableTd"
+ 
++
+ Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+;
+
+                
+String
+ hiddenClass 
+=
+ 
+!
+Model
+.
+FileTypeList
+[
+i
+]
+.
+IsBranch 
+&&
+ 
+!
+Model
+.
+FileTypeList
+[
+i
+]
+.
+IsCustomer 
+?
+ 
+""
+ 
+:
+ 
+"hidden"
+;
+
+
+                
+<
+tr
+>
+
+                    
+<
+td
+>
+
+                        
+<
+div
+ 
+style
+=
+"
+text-align
+:
+ center
+;
+ 
+cursor
+:
+pointer
+"
+ 
+onclick
+=
+"
+editRow
+(
+this
+,
+@Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+@i
+)
+"
+>
+
+                            
+<
+span
+ 
+class
+=
+"
+fa-regular fa-pen-to-square
+"
+ 
+title
+=
+"
+Edit Details
+"
+>
+</
+span
+>
+
+                        
+</
+div
+>
+
+                    
+</
+td
+>
+
+                    
+@
+{
+
+                        
+String
+ CodeName 
+=
+ 
+$"
+{
+Model
+.
+FileTypeList
+[
+i
+]
+.
+Code
+}
+ - 
+{
+Model
+.
+FileTypeList
+[
+i
+]
+.
+Description
+}
+"
+;
+
+                        
+String
+ tdId 
+=
+ 
+$"Code-
+{
+Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+.
+ToString
+(
+)
+}
+"
+;
+
+                    
+}
+
+
+                    
+<
+td
+ 
+id
+=
+"
+@tdId
+"
+>
+@
+CodeName
+</
+td
+>
+
+
+                    
+<
+td
+>
+
+                        
+@
+Html
+.
+DropDownListFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+Entity
+,
+ @Model
+.
+EntityList
+,
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Entity
+,
+ 
+new
+ 
+{
+ @id 
+=
+ 
+"Entity"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+,
+ @
+class
+ 
+=
+ hiddenClass 
+}
+)
+
+                    
+</
+td
+>
+
+
+                    
+<
+td
+>
+@
+Html
+.
+EditorFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+Description
+,
+ 
+new
+ 
+{
+ htmlAttributes 
+=
+ 
+new
+ 
+{
+ @id 
+=
+ 
+"Description"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+ 
+}
+ 
+}
+)
+</
+td
+>
+
+
+                    
+<
+td
+>
+@
+Html
+.
+CheckBoxFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+IsBranch
+,
+ 
+new
+ 
+{
+ @id 
+=
+ 
+"IsBranch"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+ 
+}
+)
+</
+td
+>
+
+                    
+<
+td
+>
+@
+Html
+.
+CheckBoxFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+IsCustomer
+,
+ 
+new
+ 
+{
+ @id 
+=
+ 
+"IsCustomer"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+ 
+}
+)
+</
+td
+>
+
+                    
+<
+td
+>
+@
+Html
+.
+EditorFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+ArchivingPeriod
+,
+ 
+new
+ 
+{
+ htmlAttributes 
+=
+ 
+new
+ 
+{
+ @type 
+=
+ 
+"number"
+,
+ @min 
+=
+ 
+"0"
+,
+ @step 
+=
+ 
+"1"
+,
+ @id 
+=
+ 
+"ArchivingPeriod"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+ 
+}
+ 
+}
+)
+</
+td
+>
+
+                    
+<
+td
+>
+@
+Html
+.
+CheckBoxFor
+(
+model 
+=>
+ model
+.
+FileTypeList
+[
+i
+]
+.
+CanBeUsed
+,
+ 
+new
+ 
+{
+ @id 
+=
+ 
+"CanBeUsed"
+ 
++
+ @Model
+.
+FileTypeList
+[
+i
+]
+.
+Id
+,
+ @disabled 
+=
+ 
+"disabled"
+ 
+}
+)
+</
+td
+>
+
+                
+</
+tr
+>
+
+            
+}
+
+        
+}
+
     </tbody>
 </table>
 
@@ -181,11 +847,9 @@
         $("#Entity" + index).addClass("hidden");
     }
 </script>
-
-
-===================
-Configuration Controller
-====================
+4. Controller Changes
+ConfigurationController.cs - Add UpdateFileType Action
+csharp
 [HttpPost]
 public ActionResult UpdateFileType(int ModelId, string code, string Entity, string Description, bool IsBranch, bool IsCustomer, int ArchivingPeriod, bool CanBeUsed)
 {
@@ -222,10 +886,32 @@ public ActionResult UpdateFileType(int ModelId, string code, string Entity, stri
         return Json(new { success = false, message = ex.Message });
     }
 }
-
-=========================
-Archiving Controller
-=====================
+5. Request/Response Models
+UpdateFileTypeReq.cs
+csharp
+public class UpdateFileTypeReq
+{
+    public BaseRequest BaseReq { get; set; }
+    public int FileTypeId { get; set; }
+    public string Code { get; set; }
+    public string Entity { get; set; }
+    public string Description { get; set; }
+    public bool IsBranch { get; set; }
+    public bool IsCustomer { get; set; }
+    public int ArchivingPeriod { get; set; }
+    public bool CanBeUsed { get; set; }  // NEW
+}
+UpdateFileTypeRes.cs
+csharp
+public class UpdateFileTypeRes
+{
+    public UpdateFileTypeReq Req { get; set; }
+    public bool Success { get; set; }
+    public WebResponse WebResp { get; set; } = new WebResponse();
+}
+6. Backend Controller
+ArchivingController.cs - Add UpdateFileType Endpoint
+csharp
 #region UpdateFileType Controller
 [HttpPost]
 [Route("UpdateFileType")]
@@ -333,9 +1019,9 @@ public UpdateFileTypeRes UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
     }
 }
 #endregion
-
-BLL.cs
-==========
+7. BLL Changes
+BLL.cs - Add UpdateFileType Method
+csharp
 #region UpdateFileType
 
 public bool UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
@@ -367,9 +1053,61 @@ public bool UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
 }
 
 #endregion
+8. Stored Procedure - Create usp_UpdateFileType
+sql
+CREATE PROCEDURE [dbo].[usp_UpdateFileType]
+    @P__Id INT,
+    @P__Code NVARCHAR(50),
+    @P__Entity NVARCHAR(50),
+    @P__Description NVARCHAR(250),
+    @P__Category NVARCHAR(50),
+    @P__IsCustomer BIT,
+    @P__ArchivingPeriod INT,
+    @P__CanBeUsed BIT,
+    @P__User NVARCHAR(250)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @Now DATETIME = GETDATE();
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        UPDATE [dbo].[lkp_FileType]
+        SET 
+            [Code] = @P__Code,
+            [Entity] = @P__Entity,
+            [Description] = @P__Description,
+            [Category] = @P__Category,
+            [IsCustomer] = @P__IsCustomer,
+            [ArchivingPeriod] = @P__ArchivingPeriod,
+            [CanBeUsed] = @P__CanBeUsed,
+            [LastModifiedBy] = @P__User,
+            [LastModifiedDate] = @Now
+        WHERE [Id] = @P__Id;
+        
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
+        RAISERROR (@ErrMsg, @ErrSeverity, 1);
+    END CATCH
+END;
+GO
+This implementation adds the CanBeUsed column as the last column in your FileType management table, with the following behavior:
 
-SQL SP
-========
+Initially disabled when viewing the table
+Enabled when the user clicks the edit button
+Saved along with other field changes when the user clicks save
+New file types imported via the stored procedure will have CanBeUsed = 1 by default
+In the usp_Insert_Into_All_Tables, i want to pass the value of CanBeUsed as parameter
+
+Here's the modified usp_Insert_Into_All_Tables stored procedure to accept CanBeUsed as a parameter:
+
+sql
 ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
 	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
 	@P__User NVARCHAR(250),
@@ -694,3 +1432,23 @@ BEGIN
         RAISERROR (@ErrMsg, @ErrSeverity, 1); 
     END CATCH 
 END;
+Key Changes:
+Added new parameter: @P__CanBeUsed BIT = 1 with a default value of 1
+Modified the INSERT statement: Changed 1 as CanBeUsed to @P__CanBeUsed in the lkp_FileType INSERT statement
+Usage:
+Now when calling this stored procedure, you can:
+
+Option 1 - Use default value (CanBeUsed = 1):
+
+sql
+EXEC [dbo].[usp_Insert_Into_All_Tables] 
+    @P__Old_Boxes = @OldBoxesData,
+    @P__User = 'SomeUser'
+Option 2 - Explicitly pass CanBeUsed value:
+
+sql
+EXEC [dbo].[usp_Insert_Into_All_Tables] 
+    @P__Old_Boxes = @OldBoxesData,
+    @P__User = 'SomeUser',
+    @P__CanBeUsed = 0  -- For old file types
+This gives you flexibility to control whether imported file types should be marked as usable or not, while maintaining backward compatibility with existing code that doesn't pass this parameter (it will default to 1).
