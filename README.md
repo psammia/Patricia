@@ -1,3 +1,62 @@
+Answer on  3rd request:
+----------------------
+-- ========================================
+-- MODIFIED: Insert new File Type with CanBeUsed from Excel or Parameter
+-- ========================================
+DECLARE @NewFileTypes TABLE (
+    Description NVARCHAR(250),
+    Entity NVARCHAR(50),
+    ArchivingPeriod INT,
+    CanBeUsed BIT,
+    NextCode INT
+);
+
+DECLARE @MaxFileTypeCode INT;
+SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
+FROM [dbo].[lkp_FileType] 
+WHERE ISNUMERIC(Code) = 1;
+
+-- Get distinct Entity+Description combinations
+-- Use CanBeUsed from Excel if any row has it set to 1, otherwise use parameter default
+WITH UniqueNewFileTypes AS (
+    SELECT 
+           input.[FileName] as Description,
+           input.[Code] as Entity,
+           MIN(input.[ArchivingPeriod]) as ArchivingPeriod,
+           MAX(CAST(input.[CanBeUsed] AS INT)) as CanBeUsedInt  -- Cast BIT to INT for MAX
+    FROM @P__Old_Boxes input
+    WHERE NOT EXISTS (
+        SELECT 1 FROM [dbo].[lkp_FileType] ft
+        WHERE ft.[Description] = input.[FileName]
+        AND ft.[Entity] = input.[Code]
+    )
+    GROUP BY input.[FileName], input.[Code]
+)
+INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, CanBeUsed, NextCode)
+SELECT Description, 
+       Entity, 
+       ArchivingPeriod,
+       CASE WHEN CanBeUsedInt = 1 THEN 1 ELSE @P__CanBeUsed END as CanBeUsed,  -- Convert back to BIT
+       @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
+FROM UniqueNewFileTypes;
+
+INSERT INTO [dbo].[lkp_FileType] 
+([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
+       nft.Entity,
+       'Not Branch' as Category,
+       nft.Description,
+       0 as HasDate,
+       0 as IsCustomer,
+       nft.ArchivingPeriod,
+       nft.CanBeUsed,
+       @SystemUser,
+       @Now,
+       @SystemUser,
+       @Now
+FROM @NewFileTypes nft;
+-------
+
 3rd request
 ---------------
 in usp_Insert_Into_All_Tables, i will be adding a new param that is CanBeUsed, set as 0 default vakue. this value can be changed in the FileTypeManagement option in Configuration Menu. I need the modified code to  integrate the CanBeUsed new field in the ExcelFile that is uploaded.I'll help you integrate the CanBeUsed field into the Excel upload process for usp_Insert_Into_All_Tables. Here are the modifications needed:
