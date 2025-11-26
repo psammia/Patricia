@@ -1,3 +1,275 @@
+Answer on 26-11-25
+===========================================================
+in _FileTypeManagement.cshtml when i edit the row, and change the checkbox value of CanBeUsed, the save button does not save the value in the database, on save it looks like it has change, but when refreshing the page, the old value come back,.The issue is likely in your JavaScript - the CanBeUsed checkbox value might not be captured correctly in the saveRow function. Let me provide you with a corrected version of the JavaScript section:
+Updated JavaScript in _FileTypeManagementTable.cshtml
+Replace the entire <script> section with this corrected version:
+cshtml<script>
+    $(document).ready(() => {
+        $("#example").DataTable({
+            pagingType: 'full_numbers'
+        });
+    });
+
+    function editRow(element, id, index) {
+        let row = $(element).closest('tr');
+        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
+        var prevData = {
+            Entity: entity,
+            Description: $('#Description' + id)[0].value,
+            IsBranch: $('#IsBranch' + id)[0].checked,
+            IsCustomer: $('#IsCustomer' + id)[0].checked,
+            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
+            CanBeUsed: $('#CanBeUsed' + id)[0].checked
+        };
+        sessionStorage.setItem('Ftt' + id, JSON.stringify(prevData))
+        row.find('td:first-child').html('<div style="text-align: center;"><span style="cursor:pointer; color:green" class="fa-regular fa-floppy-disk" onclick="saveRow(this,' + id + ',' + index + ')" title="Save Details"></span>&nbsp;&nbsp;<span style="cursor:pointer; color:red" class="fa-solid fa-xmark" onclick="stopEdit(this,' + id + ')" title="Cancel"></span></div>');
+        Fields_Switch(id, false)
+    }
+
+    function stopEdit(element, id) {
+        var data = sessionStorage.getItem('Ftt' + id);
+        var prevData = JSON.parse(data);
+        let row = $(element).closest('tr');
+        row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
+        Fields_Switch(id, true)
+        if (!prevData.IsCustomer && !prevData.IsBranch) {
+            AddEntitySelectElementToDataTable(id);
+        } else {
+            RemoveEntitySelectElementToDataTable(id);
+        }
+        $('#Entity' + id)[0].value = prevData.Entity;
+        $('#Description' + id)[0].value = prevData.Description;
+        $('#IsBranch' + id)[0].checked = prevData.IsBranch;
+        $('#IsCustomer' + id)[0].checked = prevData.IsCustomer;
+        $('#ArchivingPeriod' + id)[0].value = prevData.ArchivingPeriod;
+        $('#CanBeUsed' + id)[0].checked = prevData.CanBeUsed;
+    }
+
+    function saveRow(element, id, Aindex) {
+        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
+        let code = $("#Code-" + id).html();
+        let match = code.match(/\d+/);
+        if (match) {
+            code = match[0];
+        }
+        
+        // IMPORTANT: Get the current checkbox state
+        let canBeUsed = $('#CanBeUsed' + id).is(':checked');
+        
+        var dat = {
+            ModelId: id,
+            code: code,
+            Entity: entity,
+            Description: $('#Description' + id)[0].value,
+            IsBranch: $('#IsBranch' + id)[0].checked,
+            IsCustomer: $('#IsCustomer' + id)[0].checked,
+            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
+            CanBeUsed: canBeUsed  // FIXED: Use the variable instead of accessing the DOM again
+        };
+        
+        console.log('Saving data:', dat); // Debug: Check what's being sent
+        
+        $.ajax({
+            type: 'POST',
+            url: '/Configuration/UpdateFileType/',
+            data: dat,
+            dataType: 'json',  // CHANGED: Expect JSON response
+            success: function (data) {
+                console.log('Server response:', data); // Debug: Check server response
+                let row = $(element).closest('tr');
+                row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
+                Fields_Switch(id, true);
+                
+                // Update session storage with new values
+                var newData = {
+                    Entity: entity,
+                    Description: $('#Description' + id)[0].value,
+                    IsBranch: $('#IsBranch' + id)[0].checked,
+                    IsCustomer: $('#IsCustomer' + id)[0].checked,
+                    ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
+                    CanBeUsed: canBeUsed
+                };
+                sessionStorage.setItem('Ftt' + id, JSON.stringify(newData));
+            },
+            error: function (xhr) {
+                console.log('Error:', xhr.responseText); // Debug: Check error
+                alert('Error updating file type: ' + xhr.responseText);
+            }
+        });
+    }
+
+    function Fields_Switch(id, x) {
+        $('#Description' + id).prop('disabled', x);
+        $('#IsCustomer' + id).prop('disabled', x);
+        $('#ArchivingPeriod' + id).prop('disabled', x);
+        $('#IsBranch' + id).prop('disabled', x);
+        $('#Entity' + id).prop('disabled', x);
+        $('#CanBeUsed' + id).prop('disabled', x);
+    }
+
+    $('*[id*=IsBranch]').on('click', function () {
+        let elementId = $(this).attr('id');
+        let index = elementId.match(/\d+/);
+        if (index !== null && index.length > 0) {
+            index = elementId.match(/\d+/)[0];
+        } else {
+            return;
+        }
+        if (!$("#IsBranch" + index)[0].checked) {
+            $('#IsCustomer' + index).prop('checked', false).change();
+        }
+        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
+            AddEntitySelectElementToDataTable(index);
+        } else {
+            RemoveEntitySelectElementToDataTable(index);
+        }
+    });
+
+    $('*[id*=IsCustomer]').on('click', function () {
+        let elementId = $(this).attr('id');
+        let index = elementId.match(/\d+/);
+        if (index !== null && index.length > 0) {
+            index = elementId.match(/\d+/)[0];
+        } else {
+            return;
+        }
+        if ($("#IsCustomer" + index)[0].checked) {
+            $('#IsBranch' + index).prop('checked', true).change();
+        }
+        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
+            AddEntitySelectElementToDataTable(index);
+        } else {
+            RemoveEntitySelectElementToDataTable(index);
+        }
+    });
+
+    function AddEntitySelectElementToDataTable(index) {
+        $("#Entity" + index).removeClass("hidden");
+    }
+
+    function RemoveEntitySelectElementToDataTable(index) {
+        $("#Entity" + index).addClass("hidden");
+    }
+</script>
+Also Update Your Controller Action
+Make sure your UpdateFileType action in ConfigurationController.cs returns proper JSON:
+csharp[HttpPost]
+public ActionResult UpdateFileType(int ModelId, string code, string Entity, string Description, bool IsBranch, bool IsCustomer, int ArchivingPeriod, bool CanBeUsed)
+{
+    try
+    {
+        String session = GetSession("ArchiveData");
+        
+        // Log the incoming values for debugging
+        System.Diagnostics.Debug.WriteLine($"UpdateFileType called - ModelId: {ModelId}, CanBeUsed: {CanBeUsed}");
+        
+        UpdateFileTypeReq request = new UpdateFileTypeReq()
+        {
+            BaseReq = new BaseRequest(HttpContext, session, false),
+            FileTypeId = ModelId,
+            Code = code,
+            Entity = Entity,
+            Description = Description,
+            IsBranch = IsBranch,
+            IsCustomer = IsCustomer,
+            ArchivingPeriod = ArchivingPeriod,
+            CanBeUsed = CanBeUsed
+        };
+
+        UpdateFileTypeRes response = Common.ApiCall<UpdateFileTypeRes>(request, "UpdateFileType");
+
+        if (response.WebResp.HttpResponseCode == HttpStatusCode.OK)
+        {
+            return Json(new { success = true, message = "File Type updated successfully" }, JsonRequestBehavior.AllowGet);
+        }
+        else
+        {
+            return Json(new { success = false, message = response.WebResp.ResponseMessage }, JsonRequestBehavior.AllowGet);
+        }
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"Error in UpdateFileType: {ex.Message}");
+        return Json(new { success = false, message = ex.Message }, JsonRequestBehavior.AllowGet);
+    }
+}
+Verify Your Stored Procedure
+Make sure the stored procedure is correctly updating the CanBeUsed field:
+sqlALTER PROCEDURE [dbo].[usp_UpdateFileType]
+    @P__Id INT,
+    @P__Code NVARCHAR(50),
+    @P__Entity NVARCHAR(50),
+    @P__Description NVARCHAR(250),
+    @P__Category NVARCHAR(50),
+    @P__IsCustomer BIT,
+    @P__ArchivingPeriod INT,
+    @P__CanBeUsed BIT,
+    @P__User NVARCHAR(250)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @Now DATETIME = GETDATE();
+    DECLARE @RowsAffected INT = 0;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        -- Debug: Log the values
+        PRINT 'Updating FileType Id: ' + CAST(@P__Id AS NVARCHAR(10)) + ', CanBeUsed: ' + CAST(@P__CanBeUsed AS NVARCHAR(1));
+        
+        UPDATE [dbo].[lkp_FileType]
+        SET 
+            [Code] = @P__Code,
+            [Entity] = @P__Entity,
+            [Description] = @P__Description,
+            [Category] = @P__Category,
+            [IsCustomer] = @P__IsCustomer,
+            [ArchivingPeriod] = @P__ArchivingPeriod,
+            [CanBeUsed] = @P__CanBeUsed,
+            [LastModifiedBy] = @P__User,
+            [LastModifiedDate] = @Now
+        WHERE [Id] = @P__Id;
+        
+        SET @RowsAffected = @@ROWCOUNT;
+        
+        COMMIT TRANSACTION;
+        
+        SELECT @RowsAffected as RowsAffected;
+        
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
+        RAISERROR (@ErrMsg, @ErrSeverity, 1);
+    END CATCH
+END;
+GO
+Testing Steps:
+
+Open your browser's Developer Console (F12)
+Edit a row and change the CanBeUsed checkbox
+Click Save
+Check the Console for the two debug messages:
+
+Saving data: - Should show CanBeUsed: true or CanBeUsed: false
+Server response: - Should show the server's response
+
+
+Check your server logs for the debug output
+
+The key changes:
+
+Used .is(':checked') instead of [0].checked for more reliability
+Changed AJAX dataType to 'json' to properly handle JSON responses
+Added debug console.log statements to track the data flow
+Updated session storage after successful save
+Added JsonRequestBehavior.AllowGet to the controller
+
+This should fix the issue with the CanBeUsed checkbox value not being saved properly.
+
+============================================================
 Coming Back to our previous chats, and returning back to our project Archiving . Same logic. We newly  included a new logic. Some file type that will be added to lkp_FileType table,  with a new flag (new field added to the table), canbeused=1 for new filetype , =0 to oldone.
 I will provide with a code to a view in the Configuration Menu, where we can edit Files, we have to add a new column to the datatable. CanBeUsed, disabled at first, then will enabled when user click on edit button. I want to add at the end of the table. 
 
