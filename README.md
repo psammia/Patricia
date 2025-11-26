@@ -1,3 +1,92 @@
+/ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
+	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
+	@P__User NVARCHAR(250),
+	@P__CanBeUsed BIT = 0
+AS 
+BEGIN 
+    SET NOCOUNT ON
+	SELECT 1;  
+    DECLARE @Now DATETIME = GETDATE(); 
+    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
+
+    BEGIN TRY 
+        BEGIN TRANSACTION; 
+
+        -- Insert new Company (only if Code doesn't already exist)
+        INSERT INTO [dbo].[t_Company] 
+        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Company] comp 
+            WHERE comp.[Code] = input.[Code]
+        );
+
+        -- Temp tables to hold inserted IDs and link them back to input data 
+        DECLARE @InsertedContainers TABLE( 
+            RowId INT, 
+            ContainerId INT 
+        ); 
+
+        DECLARE @InsertedFiles TABLE( 
+            RowId INT, 
+            FileId INT 
+        ); 
+
+        -- Insert Containers with unique Code + CompanyCode combination
+        WITH UniqueContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
+                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
+            FROM @P__Old_Boxes input
+            WHERE NOT EXISTS (
+                SELECT 1 FROM [dbo].[t_Container] cont
+                WHERE cont.[Code] = input.[BoxRef]
+                AND cont.[CompanyCode] = input.[Code]
+            )
+        ),
+        ContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
+            FROM UniqueContainerSource
+            WHERE rn = 1
+        )
+        MERGE [dbo].[t_Container] AS target
+        USING ContainerSource AS source ON 1=0
+        WHEN NOT MATCHED THEN
+            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
+            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
+        OUTPUT source.RowId, inserted.Id
+        INTO @InsertedContainers(RowId, ContainerId);
+
+        -- Capture existing container IDs for ALL rows (including duplicates within input)
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, cont.Id
+        FROM @P__Old_Boxes input
+        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
+            AND cont.[CompanyCode] = input.[Code]
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
+
+        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, ic.ContainerId
+        FROM @P__Old_Boxes input
+        INNER JOIN @InsertedContainers ic ON EXISTS (
+            SELECT 1 FROM @P__Old_Boxes input2 
+            WHERE input2.RowId = ic.RowId 
+            AND input2.BoxRef = input.BoxRef
+            AND input2.Code = input.Code
+        )
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
+
+        -- ========================================
+        -- MODIFIED: Insert new File Type - Uniqueness on Entity, Desc
+
+
+
+
+
+///////////////////////////////
+
+
 ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
 	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
 	@P__User NVARCHAR(250),
