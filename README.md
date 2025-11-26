@@ -1,3 +1,475 @@
+3rd request
+---------------
+in usp_Insert_Into_All_Tables, i will be adding a new param that is CanBeUsed, set as 0 default vakue. this value can be changed in the FileTypeManagement option in Configuration Menu. I need the modified code to  integrate the CanBeUsed new field in the ExcelFile that is uploaded.I'll help you integrate the CanBeUsed field into the Excel upload process for usp_Insert_Into_All_Tables. Here are the modifications needed:
+1. Table-Valued Parameter (TVP) Definition
+First, check if your TVP TVP_Old_Boxes includes a CanBeUsed column. If not, you need to alter it:
+sql-- Check current definition first
+sp_help 'TVP_Old_Boxes'
+
+-- If CanBeUsed doesn't exist, you need to DROP and RECREATE the type
+-- (You can't ALTER a table type, you must recreate it)
+
+-- Drop the type (make sure no procedures are using it first, or drop them temporarily)
+DROP TYPE [dbo].[TVP_Old_Boxes]
+GO
+
+-- Recreate with CanBeUsed field
+CREATE TYPE [dbo].[TVP_Old_Boxes] AS TABLE
+(
+    RowId INT,
+    BoxRef NVARCHAR(50),
+    Code NVARCHAR(50),
+    CompanyName NVARCHAR(250),
+    Mnemonic NVARCHAR(50),
+    StatusCode NVARCHAR(50),
+    BoxSentDate DATETIME,
+    BoxSentBy NVARCHAR(250),
+    FileName NVARCHAR(250),
+    ArchivingPeriod INT,
+    AdditionalInfo NVARCHAR(MAX),
+    IsActive BIT,
+    LastIndex INT,
+    CanBeUsed BIT  -- ADD THIS FIELD
+)
+GO
+2. Modified Stored Procedure - usp_Insert_Into_All_Tables
+sqlALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
+	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
+	@P__User NVARCHAR(250),
+	@P__CanBeUsed BIT = 0  -- Default value is 0
+AS 
+BEGIN 
+    SET NOCOUNT ON
+	SELECT 1;  
+    DECLARE @Now DATETIME = GETDATE(); 
+    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
+
+    BEGIN TRY 
+        BEGIN TRANSACTION; 
+
+        -- Insert new Company (only if Code doesn't already exist)
+        INSERT INTO [dbo].[t_Company] 
+        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Company] comp 
+            WHERE comp.[Code] = input.[Code]
+        );
+
+        -- Temp tables to hold inserted IDs and link them back to input data 
+        DECLARE @InsertedContainers TABLE( 
+            RowId INT, 
+            ContainerId INT 
+        ); 
+
+        DECLARE @InsertedFiles TABLE( 
+            RowId INT, 
+            FileId INT 
+        ); 
+
+        -- Insert Containers with unique Code + CompanyCode combination
+        WITH UniqueContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
+                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
+            FROM @P__Old_Boxes input
+            WHERE NOT EXISTS (
+                SELECT 1 FROM [dbo].[t_Container] cont
+                WHERE cont.[Code] = input.[BoxRef]
+                AND cont.[CompanyCode] = input.[Code]
+            )
+        ),
+        ContainerSource AS (
+            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
+            FROM UniqueContainerSource
+            WHERE rn = 1
+        )
+        MERGE [dbo].[t_Container] AS target
+        USING ContainerSource AS source ON 1=0
+        WHEN NOT MATCHED THEN
+            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
+            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
+        OUTPUT source.RowId, inserted.Id
+        INTO @InsertedContainers(RowId, ContainerId);
+
+        -- Capture existing container IDs for ALL rows (including duplicates within input)
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, cont.Id
+        FROM @P__Old_Boxes input
+        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
+            AND cont.[CompanyCode] = input.[Code]
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
+
+        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
+        INSERT INTO @InsertedContainers(RowId, ContainerId)
+        SELECT input.RowId, ic.ContainerId
+        FROM @P__Old_Boxes input
+        INNER JOIN @InsertedContainers ic ON EXISTS (
+            SELECT 1 FROM @P__Old_Boxes input2 
+            WHERE input2.RowId = ic.RowId 
+            AND input2.BoxRef = input.BoxRef
+            AND input2.Code = input.Code
+        )
+        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
+
+        -- ========================================
+        -- MODIFIED: Insert new File Type with CanBeUsed from Excel or Parameter
+        -- ========================================
+        DECLARE @NewFileTypes TABLE (
+            Description NVARCHAR(250),
+            Entity NVARCHAR(50),
+            ArchivingPeriod INT,
+            CanBeUsed BIT,  -- ADD THIS FIELD
+            NextCode INT
+        );
+        
+        DECLARE @MaxFileTypeCode INT;
+        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
+        FROM [dbo].[lkp_FileType] 
+        WHERE ISNUMERIC(Code) = 1;
+        
+        -- Get distinct Entity+Description combinations
+        -- Use CanBeUsed from Excel if provided, otherwise use parameter default
+        WITH UniqueNewFileTypes AS (
+            SELECT 
+                   input.[FileName] as Description,
+                   input.[Code] as Entity,
+                   MIN(input.[ArchivingPeriod]) as ArchivingPeriod,
+                   COALESCE(MAX(input.[CanBeUsed]), @P__CanBeUsed) as CanBeUsed  -- MODIFIED: Use Excel value or parameter
+            FROM @P__Old_Boxes input
+            WHERE NOT EXISTS (
+                SELECT 1 FROM [dbo].[lkp_FileType] ft
+                WHERE ft.[Description] = input.[FileName]
+                AND ft.[Entity] = input.[Code]
+            )
+            GROUP BY input.[FileName], input.[Code]
+        )
+        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, CanBeUsed, NextCode)
+        SELECT Description, 
+               Entity, 
+               ArchivingPeriod,
+               CanBeUsed,  -- ADD THIS LINE
+               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
+        FROM UniqueNewFileTypes;
+
+        INSERT INTO [dbo].[lkp_FileType] 
+        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
+               nft.Entity,
+               'Not Branch' as Category,
+               nft.Description,
+               0 as HasDate,
+               0 as IsCustomer,
+               nft.ArchivingPeriod,
+               nft.CanBeUsed,  -- MODIFIED: Use value from temp table
+               @SystemUser,
+               @Now,
+               @SystemUser,
+               @Now
+        FROM @NewFileTypes nft;
+
+        -- Get the FileTypeCode for each file
+        DECLARE @FileTypeCodes TABLE (
+            RowId INT,
+            FileTypeCode NVARCHAR(50)
+        );
+        
+        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
+        SELECT input.RowId, ft.Code
+        FROM @P__Old_Boxes input
+        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
+            AND ft.[Description] = input.[FileName];
+
+        -- Insert Files
+        INSERT INTO [dbo].[t_File] 
+        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
+        OUTPUT inserted.Id
+        INTO @InsertedFiles(FileId)
+        SELECT null, 
+               input.FileName, 
+               ftc.FileTypeCode, 
+               'FINAL', 
+               input.Code, 
+               null, 
+               null, 
+               input.AdditionalInfo, 
+               0, 
+               @SystemUser, 
+               @Now, 
+               @SystemUser, 
+               @Now
+        FROM @P__Old_Boxes input
+        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
+        ORDER BY input.RowId;
+
+        -- Map the inserted FileIds back to RowIds
+        DECLARE @RowIdMapping TABLE (
+            RowId INT,
+            FileId INT,
+            RowNum INT
+        );
+
+        INSERT INTO @RowIdMapping (RowId, RowNum)
+        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
+        FROM @P__Old_Boxes;
+
+        WITH NumberedInsertedFiles AS (
+            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
+            FROM @InsertedFiles
+        )
+        UPDATE @InsertedFiles
+        SET RowId = rm.RowId
+        FROM @InsertedFiles if_target
+        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
+        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
+
+        -- Insert Container File Relationship
+        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
+        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
+        FROM @InsertedFiles f
+        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
+            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
+        );
+
+        -- Insert new Sequence only if Owner doesn't already exist
+        INSERT INTO [dbo].[t_Sequence] 
+        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Sequence] seq
+            WHERE seq.[Owner] = input.[Code]
+        )
+        AND input.[Code] NOT IN (
+            SELECT i2.[Code] 
+            FROM @P__Old_Boxes i2 
+            WHERE i2.RowId < input.RowId
+        );
+
+        -- ========================================
+        -- Insert Container Status History
+        -- ========================================
+        
+        -- 1. Insert SENT status for all containers
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'SENT',
+               i.[Code],
+               0,
+               CASE 
+                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
+                   ELSE i.[BoxSentBy] 
+               END,
+               i.[BoxSentDate],
+               CASE 
+                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
+                   ELSE i.[BoxSentBy] 
+               END,
+               i.[BoxSentDate]
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'SENT'
+        );
+
+        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'RECEIVED',
+               'WH',
+               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
+               @SystemUser,
+               DATEADD(MINUTE, 1, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 1, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'RECEIVED'
+        );
+
+        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'DESTROYED',
+               'WH',
+               1,
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] = 'DESTROYED'
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'DESTROYED'
+        );
+
+        -- 4. Insert NOTFOUND status for containers with StatusCode NOTFOUND
+        INSERT INTO [dbo].[t_ContainerStatus] 
+        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT 
+               c.ContainerId,
+               'NOTFOUND',
+               'WH',
+               1,
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate]),
+               @SystemUser,
+               DATEADD(MINUTE, 2, i.[BoxSentDate])
+        FROM @InsertedContainers c
+        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
+        WHERE i.[StatusCode] = 'NOTFOUND'
+        AND NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
+            WHERE cs.[ContainerId] = c.ContainerId 
+            AND cs.[StatusCode] = 'NOTFOUND'
+        );
+
+        COMMIT TRANSACTION; 
+    END TRY 
+    BEGIN CATCH 
+        ROLLBACK TRANSACTION; 
+        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
+        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
+        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
+    END CATCH 
+END;
+3. C# Model for Excel Import (Update your model)
+csharppublic class OldBoxModel
+{
+    public int RowId { get; set; }
+    public string BoxRef { get; set; }
+    public string Code { get; set; }
+    public string CompanyName { get; set; }
+    public string Mnemonic { get; set; }
+    public string StatusCode { get; set; }
+    public DateTime BoxSentDate { get; set; }
+    public string BoxSentBy { get; set; }
+    public string FileName { get; set; }
+    public int ArchivingPeriod { get; set; }
+    public string AdditionalInfo { get; set; }
+    public bool IsActive { get; set; }
+    public int LastIndex { get; set; }
+    public bool CanBeUsed { get; set; }  // ADD THIS PROPERTY
+}
+4. Excel Reading Logic (Example with EPPlus or similar)
+csharp// In your Excel import method, add column for CanBeUsed
+public List<OldBoxModel> ReadExcelFile(string filePath)
+{
+    List<OldBoxModel> boxes = new List<OldBoxModel>();
+    
+    using (var package = new ExcelPackage(new FileInfo(filePath)))
+    {
+        var worksheet = package.Workbook.Worksheets[0];
+        int rowCount = worksheet.Dimension.Rows;
+        
+        for (int row = 2; row <= rowCount; row++) // Start from row 2 (skip header)
+        {
+            var box = new OldBoxModel
+            {
+                RowId = row - 1,
+                BoxRef = worksheet.Cells[row, 1].Value?.ToString(),
+                Code = worksheet.Cells[row, 2].Value?.ToString(),
+                CompanyName = worksheet.Cells[row, 3].Value?.ToString(),
+                Mnemonic = worksheet.Cells[row, 4].Value?.ToString(),
+                StatusCode = worksheet.Cells[row, 5].Value?.ToString(),
+                BoxSentDate = Convert.ToDateTime(worksheet.Cells[row, 6].Value),
+                BoxSentBy = worksheet.Cells[row, 7].Value?.ToString(),
+                FileName = worksheet.Cells[row, 8].Value?.ToString(),
+                ArchivingPeriod = Convert.ToInt32(worksheet.Cells[row, 9].Value),
+                AdditionalInfo = worksheet.Cells[row, 10].Value?.ToString(),
+                IsActive = Convert.ToBoolean(worksheet.Cells[row, 11].Value),
+                LastIndex = Convert.ToInt32(worksheet.Cells[row, 12].Value),
+                CanBeUsed = worksheet.Cells[row, 13].Value != null ? Convert.ToBoolean(worksheet.Cells[row, 13].Value) : false  // ADD THIS - Column 13 for CanBeUsed, default to false if empty
+            };
+            
+            boxes.Add(box);
+        }
+    }
+    
+    return boxes;
+}
+5. BLL Method to Call Stored Procedure
+csharppublic void InsertIntoAllTables(List<OldBoxModel> oldBoxes, string user, bool canBeUsedDefault = false)
+{
+    DAL.DAL iDAL = new();
+    
+    // Create DataTable from list
+    DataTable dt = new DataTable();
+    dt.Columns.Add("RowId", typeof(int));
+    dt.Columns.Add("BoxRef", typeof(string));
+    dt.Columns.Add("Code", typeof(string));
+    dt.Columns.Add("CompanyName", typeof(string));
+    dt.Columns.Add("Mnemonic", typeof(string));
+    dt.Columns.Add("StatusCode", typeof(string));
+    dt.Columns.Add("BoxSentDate", typeof(DateTime));
+    dt.Columns.Add("BoxSentBy", typeof(string));
+    dt.Columns.Add("FileName", typeof(string));
+    dt.Columns.Add("ArchivingPeriod", typeof(int));
+    dt.Columns.Add("AdditionalInfo", typeof(string));
+    dt.Columns.Add("IsActive", typeof(bool));
+    dt.Columns.Add("LastIndex", typeof(int));
+    dt.Columns.Add("CanBeUsed", typeof(bool));  // ADD THIS COLUMN
+    
+    foreach (var box in oldBoxes)
+    {
+        dt.Rows.Add(
+            box.RowId,
+            box.BoxRef,
+            box.Code,
+            box.CompanyName,
+            box.Mnemonic,
+            box.StatusCode,
+            box.BoxSentDate,
+            box.BoxSentBy,
+            box.FileName,
+            box.ArchivingPeriod,
+            box.AdditionalInfo,
+            box.IsActive,
+            box.LastIndex,
+            box.CanBeUsed  // ADD THIS VALUE
+        );
+    }
+    
+    DynamicParameters parameters = new DynamicParameters();
+    parameters.Add("@P__Old_Boxes", dt.AsTableValuedParameter("TVP_Old_Boxes"));
+    parameters.Add("@P__User", user);
+    parameters.Add("@P__CanBeUsed", canBeUsedDefault);  // ADD THIS PARAMETER
+    
+    iDAL.ExecuteQuery<object>("usp_Insert_Into_All_Tables", parameters, CommandType.StoredProcedure, CommandDirection.Select);
+}
+Summary
+The logic now works as follows:
+
+Excel has CanBeUsed column: The value from Excel will be used for that specific FileType
+Excel doesn't have CanBeUsed column (or it's empty): The @P__CanBeUsed parameter value (default 0) will be used
+Priority: Excel value > Parameter value > Default (0)
+
+The COALESCE(MAX(input.[CanBeUsed]), @P__CanBeUsed) in the SQL ensures that if Excel has a value, it's used; otherwise, the parameter default is used.
+Excel Template should have this column order:
+
+Column 13: CanBeUsed (optional - can be 0/1 or TRUE/FALSE or blank)
+
+If the column is not in Excel, you can handle it in your C# code by always setting CanBeUsed = false when reading.
+-----------------
+
 2nd request on 26-11-2025
 ==========================
 My Existing Code as:
