@@ -1,3190 +1,2519 @@
-ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250),
-	@P__CanBeUsed BIT = 0
-AS 
-BEGIN 
-    SET NOCOUNT ON
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
-
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
-
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
-
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
-
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
-            )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1
-        )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- ========================================
-        -- MODIFIED: Insert new File Type - Uniqueness on Entity, Description, AND ArchivingPeriod
-        -- ========================================
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
-        );
-        
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Get distinct Entity+Description+ArchivingPeriod combinations
-        WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   input.[ArchivingPeriod]
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-                AND ft.[ArchivingPeriod] = input.[ArchivingPeriod]  -- ADDED: Check ArchivingPeriod too
-            )
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description, ArchivingPeriod) as NextCode
-        FROM UniqueNewFileTypes;
-
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @P__CanBeUsed,
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
-
-        -- Get the FileTypeCode for each file
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName]
-            AND ft.[ArchivingPeriod] = input.[ArchivingPeriod];  -- ADDED: Match on ArchivingPeriod too
-
-        -- Insert Files
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
-
-        -- Map the inserted FileIds back to RowIds
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
-
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
-
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
-
-        -- Insert Container File Relationship
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
-
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
-
-        -- ========================================
-        -- Insert Container Status History
-        -- ========================================
-        
-        -- 1. Insert SENT status for all containers
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'SENT',
-               i.[Code],
-               0,
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate],
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
-
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'RECEIVED',
-               'WH',
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
-
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'DESTROYED',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
-
-        -- 4. Insert NOTFOUND status for containers with StatusCode NOTFOUND
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'NOTFOUND',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'NOTFOUND'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'NOTFOUND'
-        );
-
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
-
-
-
-
-
-///////////////////////////////
-
-
-ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250),
-	@P__CanBeUsed BIT = 0  -- NEW PARAMETER with default value of 0
-AS 
-BEGIN 
-    SET NOCOUNT ON
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
-
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
-
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
-
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
-
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
-            )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1
-        )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- Insert new File Type with auto-incrementing FileTypeCode
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
-        );
-        
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Get distinct Entity+Description combinations, taking the first ArchivingPeriod encountered
-        WITH UniqueNewFileTypes AS (
-            SELECT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   MIN(input.[ArchivingPeriod]) as ArchivingPeriod
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-            )
-            GROUP BY input.[FileName], input.[Code]
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-        FROM UniqueNewFileTypes;
-
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @P__CanBeUsed,  -- MODIFIED: Use parameter value
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
-
-        -- Get the FileTypeCode for each file
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName];
-
-        -- Insert Files
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
-
-        -- Map the inserted FileIds back to RowIds
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
-
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
-
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
-
-        -- Insert Container File Relationship
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
-
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
-
-        -- ========================================
-        -- Insert Container Status History
-        -- ========================================
-        
-        -- 1. Insert SENT status for all containers
-        -- HoldingEntityCode = Code from input (the branch/entity code)
-        -- User = BoxSentBy if not empty, otherwise AlternaSystem
-        -- Always inactive (isCurrentStatus = 0)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'SENT',
-               i.[Code],
-               0,
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate],
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
-
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Active only if final status is RECEIVED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'RECEIVED',
-               'WH',
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
-
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'DESTROYED',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
-
-        -- 4. Insert NOTFOUND status for containers with StatusCode NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'NOTFOUND',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'NOTFOUND'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'NOTFOUND'
-        );
-
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
-
-
-
-
-Answer on  3rd request:
-----------------------
--- ========================================
--- MODIFIED: Insert new File Type with CanBeUsed from Excel or Parameter
--- ========================================
-DECLARE @NewFileTypes TABLE (
-    Description NVARCHAR(250),
-    Entity NVARCHAR(50),
-    ArchivingPeriod INT,
-    CanBeUsed BIT,
-    NextCode INT
-);
-
-DECLARE @MaxFileTypeCode INT;
-SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-FROM [dbo].[lkp_FileType] 
-WHERE ISNUMERIC(Code) = 1;
-
--- Get distinct Entity+Description combinations
--- Use CanBeUsed from Excel if any row has it set to 1, otherwise use parameter default
-WITH UniqueNewFileTypes AS (
-    SELECT 
-           input.[FileName] as Description,
-           input.[Code] as Entity,
-           MIN(input.[ArchivingPeriod]) as ArchivingPeriod,
-           MAX(CAST(input.[CanBeUsed] AS INT)) as CanBeUsedInt  -- Cast BIT to INT for MAX
-    FROM @P__Old_Boxes input
-    WHERE NOT EXISTS (
-        SELECT 1 FROM [dbo].[lkp_FileType] ft
-        WHERE ft.[Description] = input.[FileName]
-        AND ft.[Entity] = input.[Code]
-    )
-    GROUP BY input.[FileName], input.[Code]
-)
-INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, CanBeUsed, NextCode)
-SELECT Description, 
-       Entity, 
-       ArchivingPeriod,
-       CASE WHEN CanBeUsedInt = 1 THEN 1 ELSE @P__CanBeUsed END as CanBeUsed,  -- Convert back to BIT
-       @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-FROM UniqueNewFileTypes;
-
-INSERT INTO [dbo].[lkp_FileType] 
-([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-       nft.Entity,
-       'Not Branch' as Category,
-       nft.Description,
-       0 as HasDate,
-       0 as IsCustomer,
-       nft.ArchivingPeriod,
-       nft.CanBeUsed,
-       @SystemUser,
-       @Now,
-       @SystemUser,
-       @Now
-FROM @NewFileTypes nft;
--------
-
-3rd request
----------------
-in usp_Insert_Into_All_Tables, i will be adding a new param that is CanBeUsed, set as 0 default vakue. this value can be changed in the FileTypeManagement option in Configuration Menu. I need the modified code to  integrate the CanBeUsed new field in the ExcelFile that is uploaded.I'll help you integrate the CanBeUsed field into the Excel upload process for usp_Insert_Into_All_Tables. Here are the modifications needed:
-1. Table-Valued Parameter (TVP) Definition
-First, check if your TVP TVP_Old_Boxes includes a CanBeUsed column. If not, you need to alter it:
-sql-- Check current definition first
-sp_help 'TVP_Old_Boxes'
-
--- If CanBeUsed doesn't exist, you need to DROP and RECREATE the type
--- (You can't ALTER a table type, you must recreate it)
-
--- Drop the type (make sure no procedures are using it first, or drop them temporarily)
-DROP TYPE [dbo].[TVP_Old_Boxes]
-GO
-
--- Recreate with CanBeUsed field
-CREATE TYPE [dbo].[TVP_Old_Boxes] AS TABLE
-(
-    RowId INT,
-    BoxRef NVARCHAR(50),
-    Code NVARCHAR(50),
-    CompanyName NVARCHAR(250),
-    Mnemonic NVARCHAR(50),
-    StatusCode NVARCHAR(50),
-    BoxSentDate DATETIME,
-    BoxSentBy NVARCHAR(250),
-    FileName NVARCHAR(250),
-    ArchivingPeriod INT,
-    AdditionalInfo NVARCHAR(MAX),
-    IsActive BIT,
-    LastIndex INT,
-    CanBeUsed BIT  -- ADD THIS FIELD
-)
-GO
-2. Modified Stored Procedure - usp_Insert_Into_All_Tables
-sqlALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250),
-	@P__CanBeUsed BIT = 0  -- Default value is 0
-AS 
-BEGIN 
-    SET NOCOUNT ON
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
-
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
-
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
-
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
-
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
-            )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1
-        )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- ========================================
-        -- MODIFIED: Insert new File Type with CanBeUsed from Excel or Parameter
-        -- ========================================
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            CanBeUsed BIT,  -- ADD THIS FIELD
-            NextCode INT
-        );
-        
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Get distinct Entity+Description combinations
-        -- Use CanBeUsed from Excel if provided, otherwise use parameter default
-        WITH UniqueNewFileTypes AS (
-            SELECT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   MIN(input.[ArchivingPeriod]) as ArchivingPeriod,
-                   COALESCE(MAX(input.[CanBeUsed]), @P__CanBeUsed) as CanBeUsed  -- MODIFIED: Use Excel value or parameter
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-            )
-            GROUP BY input.[FileName], input.[Code]
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, CanBeUsed, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               CanBeUsed,  -- ADD THIS LINE
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-        FROM UniqueNewFileTypes;
-
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               nft.CanBeUsed,  -- MODIFIED: Use value from temp table
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
-
-        -- Get the FileTypeCode for each file
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName];
-
-        -- Insert Files
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
-
-        -- Map the inserted FileIds back to RowIds
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
-
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
-
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
-
-        -- Insert Container File Relationship
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
-
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
-
-        -- ========================================
-        -- Insert Container Status History
-        -- ========================================
-        
-        -- 1. Insert SENT status for all containers
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'SENT',
-               i.[Code],
-               0,
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate],
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
-
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'RECEIVED',
-               'WH',
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
-
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'DESTROYED',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
-
-        -- 4. Insert NOTFOUND status for containers with StatusCode NOTFOUND
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'NOTFOUND',
-               'WH',
-               1,
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'NOTFOUND'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'NOTFOUND'
-        );
-
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
-3. C# Model for Excel Import (Update your model)
-csharppublic class OldBoxModel
-{
-    public int RowId { get; set; }
-    public string BoxRef { get; set; }
-    public string Code { get; set; }
-    public string CompanyName { get; set; }
-    public string Mnemonic { get; set; }
-    public string StatusCode { get; set; }
-    public DateTime BoxSentDate { get; set; }
-    public string BoxSentBy { get; set; }
-    public string FileName { get; set; }
-    public int ArchivingPeriod { get; set; }
-    public string AdditionalInfo { get; set; }
-    public bool IsActive { get; set; }
-    public int LastIndex { get; set; }
-    public bool CanBeUsed { get; set; }  // ADD THIS PROPERTY
-}
-4. Excel Reading Logic (Example with EPPlus or similar)
-csharp// In your Excel import method, add column for CanBeUsed
-public List<OldBoxModel> ReadExcelFile(string filePath)
-{
-    List<OldBoxModel> boxes = new List<OldBoxModel>();
-    
-    using (var package = new ExcelPackage(new FileInfo(filePath)))
-    {
-        var worksheet = package.Workbook.Worksheets[0];
-        int rowCount = worksheet.Dimension.Rows;
-        
-        for (int row = 2; row <= rowCount; row++) // Start from row 2 (skip header)
-        {
-            var box = new OldBoxModel
-            {
-                RowId = row - 1,
-                BoxRef = worksheet.Cells[row, 1].Value?.ToString(),
-                Code = worksheet.Cells[row, 2].Value?.ToString(),
-                CompanyName = worksheet.Cells[row, 3].Value?.ToString(),
-                Mnemonic = worksheet.Cells[row, 4].Value?.ToString(),
-                StatusCode = worksheet.Cells[row, 5].Value?.ToString(),
-                BoxSentDate = Convert.ToDateTime(worksheet.Cells[row, 6].Value),
-                BoxSentBy = worksheet.Cells[row, 7].Value?.ToString(),
-                FileName = worksheet.Cells[row, 8].Value?.ToString(),
-                ArchivingPeriod = Convert.ToInt32(worksheet.Cells[row, 9].Value),
-                AdditionalInfo = worksheet.Cells[row, 10].Value?.ToString(),
-                IsActive = Convert.ToBoolean(worksheet.Cells[row, 11].Value),
-                LastIndex = Convert.ToInt32(worksheet.Cells[row, 12].Value),
-                CanBeUsed = worksheet.Cells[row, 13].Value != null ? Convert.ToBoolean(worksheet.Cells[row, 13].Value) : false  // ADD THIS - Column 13 for CanBeUsed, default to false if empty
-            };
-            
-            boxes.Add(box);
-        }
-    }
-    
-    return boxes;
-}
-5. BLL Method to Call Stored Procedure
-csharppublic void InsertIntoAllTables(List<OldBoxModel> oldBoxes, string user, bool canBeUsedDefault = false)
-{
-    DAL.DAL iDAL = new();
-    
-    // Create DataTable from list
-    DataTable dt = new DataTable();
-    dt.Columns.Add("RowId", typeof(int));
-    dt.Columns.Add("BoxRef", typeof(string));
-    dt.Columns.Add("Code", typeof(string));
-    dt.Columns.Add("CompanyName", typeof(string));
-    dt.Columns.Add("Mnemonic", typeof(string));
-    dt.Columns.Add("StatusCode", typeof(string));
-    dt.Columns.Add("BoxSentDate", typeof(DateTime));
-    dt.Columns.Add("BoxSentBy", typeof(string));
-    dt.Columns.Add("FileName", typeof(string));
-    dt.Columns.Add("ArchivingPeriod", typeof(int));
-    dt.Columns.Add("AdditionalInfo", typeof(string));
-    dt.Columns.Add("IsActive", typeof(bool));
-    dt.Columns.Add("LastIndex", typeof(int));
-    dt.Columns.Add("CanBeUsed", typeof(bool));  // ADD THIS COLUMN
-    
-    foreach (var box in oldBoxes)
-    {
-        dt.Rows.Add(
-            box.RowId,
-            box.BoxRef,
-            box.Code,
-            box.CompanyName,
-            box.Mnemonic,
-            box.StatusCode,
-            box.BoxSentDate,
-            box.BoxSentBy,
-            box.FileName,
-            box.ArchivingPeriod,
-            box.AdditionalInfo,
-            box.IsActive,
-            box.LastIndex,
-            box.CanBeUsed  // ADD THIS VALUE
-        );
-    }
-    
-    DynamicParameters parameters = new DynamicParameters();
-    parameters.Add("@P__Old_Boxes", dt.AsTableValuedParameter("TVP_Old_Boxes"));
-    parameters.Add("@P__User", user);
-    parameters.Add("@P__CanBeUsed", canBeUsedDefault);  // ADD THIS PARAMETER
-    
-    iDAL.ExecuteQuery<object>("usp_Insert_Into_All_Tables", parameters, CommandType.StoredProcedure, CommandDirection.Select);
-}
-Summary
-The logic now works as follows:
-
-Excel has CanBeUsed column: The value from Excel will be used for that specific FileType
-Excel doesn't have CanBeUsed column (or it's empty): The @P__CanBeUsed parameter value (default 0) will be used
-Priority: Excel value > Parameter value > Default (0)
-
-The COALESCE(MAX(input.[CanBeUsed]), @P__CanBeUsed) in the SQL ensures that if Excel has a value, it's used; otherwise, the parameter default is used.
-Excel Template should have this column order:
-
-Column 13: CanBeUsed (optional - can be 0/1 or TRUE/FALSE or blank)
-
-If the column is not in Excel, you can handle it in your C# code by always setting CanBeUsed = false when reading.
------------------
-
-2nd request on 26-11-2025
-==========================
-My Existing Code as:
-BLL.cs
---------
-        public FileType UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
-        {
-            DAL.DAL iDAL = new();
-
-            FileType Ret = new();
-
-            OnPreEventUpdateFileType?.Invoke(ref updateFileTypeReq);
-
-            DynamicParameters param = new();
-
-            param.Add("Id", updateFileTypeReq.Id);
-            param.Add("Code", updateFileTypeReq.Code);
-            param.Add("Entity", updateFileTypeReq.Entity);
-            param.Add("Description", updateFileTypeReq.Description);
-            param.Add("Category", updateFileTypeReq.Category);
-            param.Add("HasDate", updateFileTypeReq.HasDate);
-            param.Add("IsCustomer", updateFileTypeReq.IsCustomer);
-            param.Add("ArchivingPeriod", updateFileTypeReq.ArchivingPeriod);
-            param.Add("CanBeUsed", updateFileTypeReq.CanBeUsed);
-            param.Add("User", updateFileTypeReq.BaseReq.CurrentUser);
-
-            Ret = iDAL.ExecuteQuery<FileType>("usp_UpdateFileType", param, CommandType.StoredProcedure,
-                CommandDirection.Update).FirstOrDefault()!;
-
-            OnPostEventUpdateFileType?.Invoke(ref Ret, ref updateFileTypeReq);
-
-            return Ret;
-        }
-
-Configuration.cs (As front end Controller)
------------------
-        public Boolean UpdateFileType(Int32 ModelID, String code, String Entity, String Description, Boolean IsBranch, Boolean IsCustomer, String ArchivingPeriod)
-        {
-            if (!Int32.TryParse(ArchivingPeriod, out Int32 AP))
-            {
-                AP = -2;
-            }
-
-            if (Entity is null)
-            {
-                Entity = String.Empty;
-            }
-
-            UpdateFileTypeReq updateFileTypeReq = new()
-            {
-                BaseReq = new BaseRequest(HttpContext, GetSession("ArchiveData")),
-                Id = ModelID,
-                Code = code,
-                Entity = Entity,
-                Description = Description,
-                IsCustomer = IsCustomer,
-                HasDate = !IsCustomer,
-                Category = (IsBranch == true) ? "Branch" : "Not Branch",
-                ArchivingPeriod = AP
-            };
-            UpdateFileTypeRes resp = new();
-            resp = Common.ApiCall<UpdateFileTypeRes>(updateFileTypeReq, "UpdateFileType");
-            return true;
-        }
-BLL.cs
---------
-        public FileType UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
-        {
-            DAL.DAL iDAL = new();
-
-            FileType Ret = new();
-
-            OnPreEventUpdateFileType?.Invoke(ref updateFileTypeReq);
-
-            DynamicParameters param = new();
-
-            param.Add("Id", updateFileTypeReq.Id);
-            param.Add("Code", updateFileTypeReq.Code);
-            param.Add("Entity", updateFileTypeReq.Entity);
-            param.Add("Description", updateFileTypeReq.Description);
-            param.Add("Category", updateFileTypeReq.Category);
-            param.Add("HasDate", updateFileTypeReq.HasDate);
-            param.Add("IsCustomer", updateFileTypeReq.IsCustomer);
-            param.Add("ArchivingPeriod", updateFileTypeReq.ArchivingPeriod);
-            param.Add("CanBeUsed", updateFileTypeReq.CanBeUsed);
-            param.Add("User", updateFileTypeReq.BaseReq.CurrentUser);
-
-            Ret = iDAL.ExecuteQuery<FileType>("usp_UpdateFileType", param, CommandType.StoredProcedure,
-                CommandDirection.Update).FirstOrDefault()!;
-
-            OnPostEventUpdateFileType?.Invoke(ref Ret, ref updateFileTypeReq);
-
-            return Ret;
-        }
-
-_FileTypeManagementTable.cshtml (New code)
-@using Alterna.Archive.Core.Models.TableModel
-@using Alterna.Archive.Core.Models
-@model FileTypeModel
-
-<table id="example" class="table table-striped table-bordered" style="width:100%">
-    <thead>
-        <tr>
-            <th>Action</th>
-            <th>Code Name</th>
-            <th>Entity</th>
-            <th>Description</th>
-            <th>IsBranch</th>
-            <th>IsCustomer</th>
-            <th>ArchivingPeriod</th>
-            <th>CanBeUsed</th>
-        </tr>
-    </thead>
-    <tbody>
-        @if (Model.FileTypeList.Count > 0)
-        {
-            StaticFileTypeModel.FileTypeList = Model.FileTypeList;
-            for (int i = 0; i < Model.FileTypeList.Count; i++)
-            {
-                String entityTableTdId = "EntityTableTd" + Model.FileTypeList[i].Id;
-                String hiddenClass = !Model.FileTypeList[i].IsBranch && !Model.FileTypeList[i].IsCustomer ? "" : "hidden";
-
-                <tr>
-                    <td>
-                        <div style="text-align: center; cursor:pointer" onclick="editRow(this,@Model.FileTypeList[i].Id,@i)">
-                            <span class="fa-regular fa-pen-to-square" title="Edit Details"></span>
-                        </div>
-                    </td>
-                    @{
-                        String CodeName = $"{Model.FileTypeList[i].Code} - {Model.FileTypeList[i].Description}";
-                        String tdId = $"Code-{Model.FileTypeList[i].Id.ToString()}";
-                    }
-
-                    <td id="@tdId">@CodeName</td>
-
-                    <td>
-                        @Html.DropDownListFor(model => model.FileTypeList[i].Entity, @Model.EntityList, @Model.FileTypeList[i].Entity, new { @id = "Entity" + @Model.FileTypeList[i].Id, @disabled = "disabled", @class = hiddenClass })
-                    </td>
-
-                    <td>@Html.EditorFor(model => model.FileTypeList[i].Description, new { htmlAttributes = new { @id = "Description" + @Model.FileTypeList[i].Id, @disabled = "disabled" } })</td>
-
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].IsBranch, new { @id = "IsBranch" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].IsCustomer, new { @id = "IsCustomer" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                    <td>@Html.EditorFor(model => model.FileTypeList[i].ArchivingPeriod, new { htmlAttributes = new { @type = "number", @min = "0", @step = "1", @id = "ArchivingPeriod" + @Model.FileTypeList[i].Id, @disabled = "disabled" } })</td>
-                    <td>@Html.CheckBoxFor(model => model.FileTypeList[i].CanBeUsed, new { @id = "CanBeUsed" + @Model.FileTypeList[i].Id, @disabled = "disabled" })</td>
-                </tr>
-            }
-        }
-    </tbody>
-</table>
-
-<script>
-    $(document).ready(() => {
-        $("#example").DataTable({
-            pagingType: 'full_numbers'
-        });
-    });
-
-    function editRow(element, id, index) {
-        let row = $(element).closest('tr');
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        var prevData = {
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: $('#CanBeUsed' + id)[0].checked  // NEW
-        };
-        sessionStorage.setItem('Ftt' + id, JSON.stringify(prevData))
-        row.find('td:first-child').html('<div style="text-align: center;"><span style="cursor:pointer; color:green" class="fa-regular fa-floppy-disk" onclick="saveRow(this,' + id + ',' + index + ')" title="Save Details"></span>&nbsp;&nbsp;<span style="cursor:pointer; color:red" class="fa-solid fa-xmark" onclick="stopEdit(this,' + id + ')" title="Cancel"></span></div>');
-        Fields_Switch(id, false)
-    }
-
-    function stopEdit(element, id) {
-        var data = sessionStorage.getItem('Ftt' + id);
-        var prevData = JSON.parse(data);
-        let row = $(element).closest('tr');
-        row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-        Fields_Switch(id, true)
-        if (!prevData.IsCustomer && !prevData.IsBranch) {
-            AddEntitySelectElementToDataTable(id);
-        } else {
-            RemoveEntitySelectElementToDataTable(id);
-        }
-        $('#Entity' + id)[0].value = prevData.Entity;
-        $('#Description' + id)[0].value = prevData.Description;
-        $('#IsBranch' + id)[0].checked = prevData.IsBranch,
-            $('#IsCustomer' + id)[0].checked = prevData.IsCustomer;
-        $('#ArchivingPeriod' + id)[0].value = prevData.ArchivingPeriod;
-        $('#CanBeUsed' + id)[0].checked = prevData.CanBeUsed;  // NEW
-    }
-
-    function saveRow(element, id, Aindex) {
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        let code = $("#Code-" + id).html();
-        let match = code.match(/\d+/);
-        if (match) {
-            code = match[0];
-        }
-        var dat = {
-            ModelId: id,
-            code: code,
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: $('#CanBeUsed' + id)[0].checked  // NEW
-        };
-        $.ajax({
-            type: 'POST',
-            url: '/Configuration/UpdateFileType/',
-            data: dat,
-            dataType: 'html',
-            success: function (data) {
-                let row = $(element).closest('tr');
-                row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-                Fields_Switch(id, true)
-            },
-            error: function (xhr) {
-                $('#MainRenderLocation').html(xhr.responseText);
-            }
-        });
-    }
-
-    function Fields_Switch(id, x) {
-        $('#Description' + id).prop('disabled', x);
-        $('#IsCustomer' + id).prop('disabled', x);
-        $('#ArchivingPeriod' + id).prop('disabled', x);
-        $('#IsBranch' + id).prop('disabled', x);
-        $('#Entity' + id).prop('disabled', x);
-        $('#CanBeUsed' + id).prop('disabled', x);  // NEW
-    }
-
-    $('*[id*=IsBranch]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if (!$("#IsBranch" + index)[0].checked) {
-            $('#IsCustomer' + index).prop('checked', false).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    $('*[id*=IsCustomer]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if ($("#IsCustomer" + index)[0].checked) {
-            $('#IsBranch' + index).prop('checked', true).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    function AddEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).removeClass("hidden");
-    }
-
-    function RemoveEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).addClass("hidden");
-    }
-</script>
-----------------------------------------------------------------------------
-
-===========================
-Answer on 26-11-25
-===========================================================
-in _FileTypeManagement.cshtml when i edit the row, and change the checkbox value of CanBeUsed, the save button does not save the value in the database, on save it looks like it has change, but when refreshing the page, the old value come back,.The issue is likely in your JavaScript - the CanBeUsed checkbox value might not be captured correctly in the saveRow function. Let me provide you with a corrected version of the JavaScript section:
-Updated JavaScript in _FileTypeManagementTable.cshtml
-Replace the entire <script> section with this corrected version:
-cshtml<script>
-    $(document).ready(() => {
-        $("#example").DataTable({
-            pagingType: 'full_numbers'
-        });
-    });
-
-    function editRow(element, id, index) {
-        let row = $(element).closest('tr');
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        var prevData = {
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: $('#CanBeUsed' + id)[0].checked
-        };
-        sessionStorage.setItem('Ftt' + id, JSON.stringify(prevData))
-        row.find('td:first-child').html('<div style="text-align: center;"><span style="cursor:pointer; color:green" class="fa-regular fa-floppy-disk" onclick="saveRow(this,' + id + ',' + index + ')" title="Save Details"></span>&nbsp;&nbsp;<span style="cursor:pointer; color:red" class="fa-solid fa-xmark" onclick="stopEdit(this,' + id + ')" title="Cancel"></span></div>');
-        Fields_Switch(id, false)
-    }
-
-    function stopEdit(element, id) {
-        var data = sessionStorage.getItem('Ftt' + id);
-        var prevData = JSON.parse(data);
-        let row = $(element).closest('tr');
-        row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-        Fields_Switch(id, true)
-        if (!prevData.IsCustomer && !prevData.IsBranch) {
-            AddEntitySelectElementToDataTable(id);
-        } else {
-            RemoveEntitySelectElementToDataTable(id);
-        }
-        $('#Entity' + id)[0].value = prevData.Entity;
-        $('#Description' + id)[0].value = prevData.Description;
-        $('#IsBranch' + id)[0].checked = prevData.IsBranch;
-        $('#IsCustomer' + id)[0].checked = prevData.IsCustomer;
-        $('#ArchivingPeriod' + id)[0].value = prevData.ArchivingPeriod;
-        $('#CanBeUsed' + id)[0].checked = prevData.CanBeUsed;
-    }
-
-    function saveRow(element, id, Aindex) {
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        let code = $("#Code-" + id).html();
-        let match = code.match(/\d+/);
-        if (match) {
-            code = match[0];
-        }
-        
-        // IMPORTANT: Get the current checkbox state
-        let canBeUsed = $('#CanBeUsed' + id).is(':checked');
-        
-        var dat = {
-            ModelId: id,
-            code: code,
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: canBeUsed  // FIXED: Use the variable instead of accessing the DOM again
-        };
-        
-        console.log('Saving data:', dat); // Debug: Check what's being sent
-        
-        $.ajax({
-            type: 'POST',
-            url: '/Configuration/UpdateFileType/',
-            data: dat,
-            dataType: 'json',  // CHANGED: Expect JSON response
-            success: function (data) {
-                console.log('Server response:', data); // Debug: Check server response
-                let row = $(element).closest('tr');
-                row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-                Fields_Switch(id, true);
-                
-                // Update session storage with new values
-                var newData = {
-                    Entity: entity,
-                    Description: $('#Description' + id)[0].value,
-                    IsBranch: $('#IsBranch' + id)[0].checked,
-                    IsCustomer: $('#IsCustomer' + id)[0].checked,
-                    ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-                    CanBeUsed: canBeUsed
-                };
-                sessionStorage.setItem('Ftt' + id, JSON.stringify(newData));
-            },
-            error: function (xhr) {
-                console.log('Error:', xhr.responseText); // Debug: Check error
-                alert('Error updating file type: ' + xhr.responseText);
-            }
-        });
-    }
-
-    function Fields_Switch(id, x) {
-        $('#Description' + id).prop('disabled', x);
-        $('#IsCustomer' + id).prop('disabled', x);
-        $('#ArchivingPeriod' + id).prop('disabled', x);
-        $('#IsBranch' + id).prop('disabled', x);
-        $('#Entity' + id).prop('disabled', x);
-        $('#CanBeUsed' + id).prop('disabled', x);
-    }
-
-    $('*[id*=IsBranch]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if (!$("#IsBranch" + index)[0].checked) {
-            $('#IsCustomer' + index).prop('checked', false).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    $('*[id*=IsCustomer]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if ($("#IsCustomer" + index)[0].checked) {
-            $('#IsBranch' + index).prop('checked', true).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    function AddEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).removeClass("hidden");
-    }
-
-    function RemoveEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).addClass("hidden");
-    }
-</script>
-Also Update Your Controller Action
-Make sure your UpdateFileType action in ConfigurationController.cs returns proper JSON:
-csharp[HttpPost]
-public ActionResult UpdateFileType(int ModelId, string code, string Entity, string Description, bool IsBranch, bool IsCustomer, int ArchivingPeriod, bool CanBeUsed)
-{
-    try
-    {
-        String session = GetSession("ArchiveData");
-        
-        // Log the incoming values for debugging
-        System.Diagnostics.Debug.WriteLine($"UpdateFileType called - ModelId: {ModelId}, CanBeUsed: {CanBeUsed}");
-        
-        UpdateFileTypeReq request = new UpdateFileTypeReq()
-        {
-            BaseReq = new BaseRequest(HttpContext, session, false),
-            FileTypeId = ModelId,
-            Code = code,
-            Entity = Entity,
-            Description = Description,
-            IsBranch = IsBranch,
-            IsCustomer = IsCustomer,
-            ArchivingPeriod = ArchivingPeriod,
-            CanBeUsed = CanBeUsed
-        };
-
-        UpdateFileTypeRes response = Common.ApiCall<UpdateFileTypeRes>(request, "UpdateFileType");
-
-        if (response.WebResp.HttpResponseCode == HttpStatusCode.OK)
-        {
-            return Json(new { success = true, message = "File Type updated successfully" }, JsonRequestBehavior.AllowGet);
-        }
-        else
-        {
-            return Json(new { success = false, message = response.WebResp.ResponseMessage }, JsonRequestBehavior.AllowGet);
-        }
-    }
-    catch (Exception ex)
-    {
-        System.Diagnostics.Debug.WriteLine($"Error in UpdateFileType: {ex.Message}");
-        return Json(new { success = false, message = ex.Message }, JsonRequestBehavior.AllowGet);
-    }
-}
-Verify Your Stored Procedure
-Make sure the stored procedure is correctly updating the CanBeUsed field:
-sqlALTER PROCEDURE [dbo].[usp_UpdateFileType]
-    @P__Id INT,
-    @P__Code NVARCHAR(50),
-    @P__Entity NVARCHAR(50),
-    @P__Description NVARCHAR(250),
-    @P__Category NVARCHAR(50),
-    @P__IsCustomer BIT,
-    @P__ArchivingPeriod INT,
-    @P__CanBeUsed BIT,
-    @P__User NVARCHAR(250)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @Now DATETIME = GETDATE();
-    DECLARE @RowsAffected INT = 0;
-    
-    BEGIN TRY
-        BEGIN TRANSACTION;
-        
-        -- Debug: Log the values
-        PRINT 'Updating FileType Id: ' + CAST(@P__Id AS NVARCHAR(10)) + ', CanBeUsed: ' + CAST(@P__CanBeUsed AS NVARCHAR(1));
-        
-        UPDATE [dbo].[lkp_FileType]
-        SET 
-            [Code] = @P__Code,
-            [Entity] = @P__Entity,
-            [Description] = @P__Description,
-            [Category] = @P__Category,
-            [IsCustomer] = @P__IsCustomer,
-            [ArchivingPeriod] = @P__ArchivingPeriod,
-            [CanBeUsed] = @P__CanBeUsed,
-            [LastModifiedBy] = @P__User,
-            [LastModifiedDate] = @Now
-        WHERE [Id] = @P__Id;
-        
-        SET @RowsAffected = @@ROWCOUNT;
-        
-        COMMIT TRANSACTION;
-        
-        SELECT @RowsAffected as RowsAffected;
-        
-    END TRY
-    BEGIN CATCH
-        ROLLBACK TRANSACTION;
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
-        RAISERROR (@ErrMsg, @ErrSeverity, 1);
-    END CATCH
-END;
-GO
-Testing Steps:
-
-Open your browser's Developer Console (F12)
-Edit a row and change the CanBeUsed checkbox
-Click Save
-Check the Console for the two debug messages:
-
-Saving data: - Should show CanBeUsed: true or CanBeUsed: false
-Server response: - Should show the server's response
-
-
-Check your server logs for the debug output
-
-The key changes:
-
-Used .is(':checked') instead of [0].checked for more reliability
-Changed AJAX dataType to 'json' to properly handle JSON responses
-Added debug console.log statements to track the data flow
-Updated session storage after successful save
-Added JsonRequestBehavior.AllowGet to the controller
-
-This should fix the issue with the CanBeUsed checkbox value not being saved properly.
-
-============================================================
-Coming Back to our previous chats, and returning back to our project Archiving . Same logic. We newly  included a new logic. Some file type that will be added to lkp_FileType table,  with a new flag (new field added to the table), canbeused=1 for new filetype , =0 to oldone.
-I will provide with a code to a view in the Configuration Menu, where we can edit Files, we have to add a new column to the datatable. CanBeUsed, disabled at first, then will enabled when user click on edit button. I want to add at the end of the table. 
-
-Here is the code complete, view, partial view, controller and action, front end. back end controller with  BLL and the Stored procedures. make what is needed.
-
-I'll help you add the CanBeUsed column to the FileType management interface. Here are all the necessary modifications:
-
-1. Database Changes
-Add Column to Table (if not already added)
-sql
--- Add CanBeUsed column to lkp_FileType table if it doesn't exist
-IF NOT EXISTS (SELECT * FROM sys.columns 
-               WHERE object_id = OBJECT_ID(N'[dbo].[lkp_FileType]') 
-               AND name = 'CanBeUsed')
-BEGIN
-    ALTER TABLE [dbo].[lkp_FileType]
-    ADD [CanBeUsed] BIT NOT NULL DEFAULT 0
-END
-GO
-Update Stored Procedure - usp_GetAllFileType
-sql
-ALTER PROCEDURE [dbo].[usp_GetAllFileType] 
-AS 
-BEGIN 
-    SELECT 
-        Id, 
-        Code, 
-        Entity, 
-        Description, 
-        Category, 
-        HasDate, 
-        IsCustomer, 
-        ArchivingPeriod, 
-        CanBeUsed 
-    FROM lkp_FileType 
-END
-Update Stored Procedure - usp_Insert_Into_All_Tables
-Modify the INSERT INTO lkp_FileType section to set CanBeUsed = 1 for new entries:
-
-sql
-INSERT INTO [dbo].[lkp_FileType] 
-([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-       nft.Entity,
-       'Not Branch' as Category,
-       nft.Description,
-       0 as HasDate,
-       0 as IsCustomer,
-       nft.ArchivingPeriod,
-       1 as CanBeUsed,  -- NEW: Set to 1 for newly imported file types
-       @SystemUser,
-       @Now,
-       @SystemUser,
-       @Now
-FROM @NewFileTypes nft;
-2. Model Changes
-FileType.cs (Model)
-csharp
-public class FileType
-{
-    public int Id { get; set; }
-    public string Code { get; set; }
-    public string Entity { get; set; }
-    public string Description { get; set; }
-    public string Category { get; set; }
-    public bool HasDate { get; set; }
-    public bool IsCustomer { get; set; }
-    public int ArchivingPeriod { get; set; }
-    public bool CanBeUsed { get; set; }  // NEW PROPERTY
-    public bool IsBranch { get; set; }
-}
-3. View Changes
-_FileTypeManagementTable.cshtml (Partial View)
-cshtml
-@using Alterna.Archive.Core.Models.TableModel
-@using Alterna.Archive.Core.Models
-@model FileTypeModel
-
-<table id="example" class="table table-striped table-bordered" style="width:100%">
-    <thead>
-        <tr>
-            <th>Action</th>
-            <th>Code Name</th>
-            <th>Entity</th>
-            <th>Description</th>
-            <th>IsBranch</th>
-            <th>IsCustomer</th>
-            <th>ArchivingPeriod</th>
-            <th>CanBeUsed</th>
-        </tr>
-    </thead>
-    <tbody>
-        
-@if
- 
-(
-Model
-.
-FileTypeList
-.
-Count 
->
- 
-0
-)
-
-        
-{
-
-            StaticFileTypeModel
-.
-FileTypeList 
-=
- Model
-.
-FileTypeList
-;
-
-            
-for
- 
-(
-int
- i 
-=
- 
-0
-;
- i 
-<
- Model
-.
-FileTypeList
-.
-Count
-;
- i
-++
-)
-
-            
-{
-
-                
-String
- entityTableTdId 
-=
- 
-"EntityTableTd"
- 
-+
- Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-;
-
-                
-String
- hiddenClass 
-=
- 
-!
-Model
-.
-FileTypeList
-[
-i
-]
-.
-IsBranch 
-&&
- 
-!
-Model
-.
-FileTypeList
-[
-i
-]
-.
-IsCustomer 
-?
- 
-""
- 
-:
- 
-"hidden"
-;
-
-
-                
-<
-tr
->
-
-                    
-<
-td
->
-
-                        
-<
-div
- 
-style
-=
-"
-text-align
-:
- center
-;
- 
-cursor
-:
-pointer
-"
- 
-onclick
-=
-"
-editRow
-(
-this
-,
-@Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
-@i
-)
-"
->
-
-                            
-<
-span
- 
-class
-=
-"
-fa-regular fa-pen-to-square
-"
- 
-title
-=
-"
-Edit Details
-"
->
-</
-span
->
-
-                        
-</
-div
->
-
-                    
-</
-td
->
-
-                    
-@
-{
-
-                        
-String
- CodeName 
-=
- 
-$"
-{
-Model
-.
-FileTypeList
-[
-i
-]
-.
-Code
-}
- - 
-{
-Model
-.
-FileTypeList
-[
-i
-]
-.
-Description
-}
-"
-;
-
-                        
-String
- tdId 
-=
- 
-$"Code-
-{
-Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-.
-ToString
-(
-)
-}
-"
-;
-
-                    
-}
-
-
-                    
-<
-td
- 
-id
-=
-"
-@tdId
-"
->
-@
-CodeName
-</
-td
->
-
-
-                    
-<
-td
->
-
-                        
-@
-Html
-.
-DropDownListFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-Entity
-,
- @Model
-.
-EntityList
-,
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Entity
-,
- 
-new
- 
-{
- @id 
-=
- 
-"Entity"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
-,
- @
-class
- 
-=
- hiddenClass 
-}
-)
-
-                    
-</
-td
->
-
-
-                    
-<
-td
->
-@
-Html
-.
-EditorFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-Description
-,
- 
-new
- 
-{
- htmlAttributes 
-=
- 
-new
- 
-{
- @id 
-=
- 
-"Description"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
- 
-}
- 
-}
-)
-</
-td
->
-
-
-                    
-<
-td
->
-@
-Html
-.
-CheckBoxFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-IsBranch
-,
- 
-new
- 
-{
- @id 
-=
- 
-"IsBranch"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
- 
-}
-)
-</
-td
->
-
-                    
-<
-td
->
-@
-Html
-.
-CheckBoxFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-IsCustomer
-,
- 
-new
- 
-{
- @id 
-=
- 
-"IsCustomer"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
- 
-}
-)
-</
-td
->
-
-                    
-<
-td
->
-@
-Html
-.
-EditorFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-ArchivingPeriod
-,
- 
-new
- 
-{
- htmlAttributes 
-=
- 
-new
- 
-{
- @type 
-=
- 
-"number"
-,
- @min 
-=
- 
-"0"
-,
- @step 
-=
- 
-"1"
-,
- @id 
-=
- 
-"ArchivingPeriod"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
- 
-}
- 
-}
-)
-</
-td
->
-
-                    
-<
-td
->
-@
-Html
-.
-CheckBoxFor
-(
-model 
-=>
- model
-.
-FileTypeList
-[
-i
-]
-.
-CanBeUsed
-,
- 
-new
- 
-{
- @id 
-=
- 
-"CanBeUsed"
- 
-+
- @Model
-.
-FileTypeList
-[
-i
-]
-.
-Id
-,
- @disabled 
-=
- 
-"disabled"
- 
-}
-)
-</
-td
->
-
-                
-</
-tr
->
-
-            
-}
-
-        
-}
-
-    </tbody>
-</table>
-
-<script>
-    $(document).ready(() => {
-        $("#example").DataTable({
-            pagingType: 'full_numbers'
-        });
-    });
-
-    function editRow(element, id, index) {
-        let row = $(element).closest('tr');
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        var prevData = {
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: $('#CanBeUsed' + id)[0].checked  // NEW
-        };
-        sessionStorage.setItem('Ftt' + id, JSON.stringify(prevData))
-        row.find('td:first-child').html('<div style="text-align: center;"><span style="cursor:pointer; color:green" class="fa-regular fa-floppy-disk" onclick="saveRow(this,' + id + ',' + index + ')" title="Save Details"></span>&nbsp;&nbsp;<span style="cursor:pointer; color:red" class="fa-solid fa-xmark" onclick="stopEdit(this,' + id + ')" title="Cancel"></span></div>');
-        Fields_Switch(id, false)
-    }
-
-    function stopEdit(element, id) {
-        var data = sessionStorage.getItem('Ftt' + id);
-        var prevData = JSON.parse(data);
-        let row = $(element).closest('tr');
-        row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-        Fields_Switch(id, true)
-        if (!prevData.IsCustomer && !prevData.IsBranch) {
-            AddEntitySelectElementToDataTable(id);
-        } else {
-            RemoveEntitySelectElementToDataTable(id);
-        }
-        $('#Entity' + id)[0].value = prevData.Entity;
-        $('#Description' + id)[0].value = prevData.Description;
-        $('#IsBranch' + id)[0].checked = prevData.IsBranch,
-        $('#IsCustomer' + id)[0].checked = prevData.IsCustomer;
-        $('#ArchivingPeriod' + id)[0].value = prevData.ArchivingPeriod;
-        $('#CanBeUsed' + id)[0].checked = prevData.CanBeUsed;  // NEW
-    }
-
-    function saveRow(element, id, Aindex) {
-        let entity = ($('#IsBranch' + id)[0].checked || $('#IsCustomer' + id)[0].checked) ? '' : $('#Entity' + id).find(":selected").val();
-        let code = $("#Code-" + id).html();
-        let match = code.match(/\d+/);
-        if (match) {
-            code = match[0];
-        }
-        var dat = {
-            ModelId: id,
-            code: code,
-            Entity: entity,
-            Description: $('#Description' + id)[0].value,
-            IsBranch: $('#IsBranch' + id)[0].checked,
-            IsCustomer: $('#IsCustomer' + id)[0].checked,
-            ArchivingPeriod: $('#ArchivingPeriod' + id)[0].value,
-            CanBeUsed: $('#CanBeUsed' + id)[0].checked  // NEW
-        };
-        $.ajax({
-            type: 'POST',
-            url: '/Configuration/UpdateFileType/',
-            data: dat,
-            dataType: 'html',
-            success: function (data) {
-                let row = $(element).closest('tr');
-                row.find('td:first-child').html('<div style="text-align: center; cursor:pointer" onclick="editRow(this,' + id + ')"><span class="fa-regular fa-pen-to-square" title="Edit Details"></span></div>');
-                Fields_Switch(id, true)
-            },
-            error: function (xhr) {
-                $('#MainRenderLocation').html(xhr.responseText);
-            }
-        });
-    }
-
-    function Fields_Switch(id, x) {
-        $('#Description' + id).prop('disabled', x);
-        $('#IsCustomer' + id).prop('disabled', x);
-        $('#ArchivingPeriod' + id).prop('disabled', x);
-        $('#IsBranch' + id).prop('disabled', x);
-        $('#Entity' + id).prop('disabled', x);
-        $('#CanBeUsed' + id).prop('disabled', x);  // NEW
-    }
-
-    $('*[id*=IsBranch]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if (!$("#IsBranch" + index)[0].checked) {
-            $('#IsCustomer' + index).prop('checked', false).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    $('*[id*=IsCustomer]').on('click', function () {
-        let elementId = $(this).attr('id');
-        let index = elementId.match(/\d+/);
-        if (index !== null && index.length > 0) {
-            index = elementId.match(/\d+/)[0];
-        } else {
-            return;
-        }
-        if ($("#IsCustomer" + index)[0].checked) {
-            $('#IsBranch' + index).prop('checked', true).change();
-        }
-        if (!$('#IsCustomer' + index)[0].checked && !$('#IsBranch' + index)[0].checked) {
-            AddEntitySelectElementToDataTable(index);
-        } else {
-            RemoveEntitySelectElementToDataTable(index);
-        }
-    });
-
-    function AddEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).removeClass("hidden");
-    }
-
-    function RemoveEntitySelectElementToDataTable(index) {
-        $("#Entity" + index).addClass("hidden");
-    }
-</script>
-4. Controller Changes
-ConfigurationController.cs - Add UpdateFileType Action
-csharp
-[HttpPost]
-public ActionResult UpdateFileType(int ModelId, string code, string Entity, string Description, bool IsBranch, bool IsCustomer, int ArchivingPeriod, bool CanBeUsed)
-{
-    try
-    {
-        String session = GetSession("ArchiveData");
-        
-        UpdateFileTypeReq request = new UpdateFileTypeReq()
-        {
-            BaseReq = new BaseRequest(HttpContext, session, false),
-            FileTypeId = ModelId,
-            Code = code,
-            Entity = Entity,
-            Description = Description,
-            IsBranch = IsBranch,
-            IsCustomer = IsCustomer,
-            ArchivingPeriod = ArchivingPeriod,
-            CanBeUsed = CanBeUsed  // NEW
-        };
-
-        UpdateFileTypeRes response = Common.ApiCall<UpdateFileTypeRes>(request, "UpdateFileType");
-
-        if (response.WebResp.HttpResponseCode == HttpStatusCode.OK)
-        {
-            return Json(new { success = true, message = "File Type updated successfully" });
-        }
-        else
-        {
-            return Json(new { success = false, message = response.WebResp.ResponseMessage });
-        }
-    }
-    catch (Exception ex)
-    {
-        return Json(new { success = false, message = ex.Message });
-    }
-}
-5. Request/Response Models
-UpdateFileTypeReq.cs
-csharp
-public class UpdateFileTypeReq
-{
-    public BaseRequest BaseReq { get; set; }
-    public int FileTypeId { get; set; }
-    public string Code { get; set; }
-    public string Entity { get; set; }
-    public string Description { get; set; }
-    public bool IsBranch { get; set; }
-    public bool IsCustomer { get; set; }
-    public int ArchivingPeriod { get; set; }
-    public bool CanBeUsed { get; set; }  // NEW
-}
-UpdateFileTypeRes.cs
-csharp
-public class UpdateFileTypeRes
-{
-    public UpdateFileTypeReq Req { get; set; }
-    public bool Success { get; set; }
-    public WebResponse WebResp { get; set; } = new WebResponse();
-}
-6. Backend Controller
-ArchivingController.cs - Add UpdateFileType Endpoint
-csharp
-#region UpdateFileType Controller
-[HttpPost]
-[Route("UpdateFileType")]
-public UpdateFileTypeRes UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
-{
-    UpdateFileTypeRes response = new()
-    {
-        Req = updateFileTypeReq
-    };
-
-    CorrelationInfo correlationInfo = new()
-    {
-        CorrelationId = updateFileTypeReq.BaseReq.CorrelationId,
-        RDirection = RequestDirection.Request,
-        RequestURL = "UpdateFileType",
-        UserName = updateFileTypeReq.BaseReq.CurrentUser
-    };
-
-    try
-    {
-        String CorrelationId = String.IsNullOrEmpty(updateFileTypeReq.BaseReq.CorrelationId) ? throw new SGBLBadRequestException($"{nameof(CorrelationId)} Cannot Be null or empty") : updateFileTypeReq.BaseReq.CorrelationId;
-        String CurrentUser = String.IsNullOrEmpty(updateFileTypeReq.BaseReq.CurrentUser) ? throw new SGBLBadRequestException($"{nameof(CurrentUser)} Cannot Be null or empty") : updateFileTypeReq.BaseReq.CurrentUser;
-        String CurrentEntity = String.IsNullOrEmpty(updateFileTypeReq.BaseReq.CurrentEntity) ? String.Empty : updateFileTypeReq.BaseReq.CurrentEntity;
-        String CurrentBranch = String.IsNullOrEmpty(updateFileTypeReq.BaseReq.CurrentBranch) ? String.Empty : updateFileTypeReq.BaseReq.CurrentBranch;
-
-        LogInfo("UpdateFileType Has been called with the following Request", correlationInfo);
-        LogInfoJson(updateFileTypeReq, correlationInfo);
-
-        correlationInfo.RDirection = RequestDirection.Processing;
-
-        #region Data Guard Check
-        using (BLL.BLL oBLL = new(CurrentUser))
-        {
-            LogInfo("Data guard checks have started", correlationInfo);
-
-            Dictionary<DataIntegrityCheckFunctions, dynamic> DataGuardDictionnary = new()
-            {
-                { DataIntegrityCheckFunctions.CONTAINS_NULL, JsonConvert.SerializeObject(updateFileTypeReq) },
-            };
-
-            oBLL.DataIntegrityCheck(DataGuardDictionnary);
-
-            LogInfo("Data guard check successful", correlationInfo);
-
-            LogInfo("Start of UpdateFileType call", correlationInfo);
-
-            response.Success = oBLL.UpdateFileType(updateFileTypeReq);
-
-            if (!response.Success)
-            {
-                throw new SGBLInternalServerException($"Failed to update File Type");
-            }
-
-            response.WebResp.CorrelationId = CorrelationId;
-            response.WebResp.User = CurrentUser;
-            response.WebResp.Entity = CurrentEntity;
-            response.WebResp.Branch = CurrentBranch;
-            response.WebResp.HttpResponseCode = HttpStatusCode.OK;
-
-            correlationInfo.RDirection = RequestDirection.Response;
-
-            LogInfo("UpdateFileType Has Replied with the Following response", correlationInfo);
-            LogInfoJson(response, correlationInfo);
-            LogInfo("Calling the UpdateFileType is completed", correlationInfo);
-        }
-
-        return response;
-        #endregion
-    }
-    catch (SGBLBadRequestException ex)
-    {
-        response.WebResp.CorrelationId = ex.Message.Contains("CorrelationId") ? Guid.NewGuid().ToString() : updateFileTypeReq.BaseReq.CorrelationId!;
-        response.WebResp.User = ex.Message.Contains("CurrentUser") ? "BadUser" : updateFileTypeReq.BaseReq.CurrentUser!;
-        response.WebResp.Entity = ex.Message.Contains("CurrentEntity") ? "BadEntity" : updateFileTypeReq.BaseReq.CurrentEntity!;
-        response.WebResp.Branch = ex.Message.Contains("CurrentBranch") ? "BadBranch" : updateFileTypeReq.BaseReq.CurrentBranch!;
-        response.WebResp.HttpResponseCode = HttpStatusCode.BadRequest;
-        response.WebResp.ResponseMessage = ex.StackTrace;
-        response.Success = false;
-
-        correlationInfo.CorrelationId = response.WebResp.CorrelationId;
-        correlationInfo.UserName = response.WebResp.User;
-        correlationInfo.StatusCode = HttpStatusCode.BadRequest;
-        correlationInfo.RDirection = RequestDirection.Response;
-
-        LogError(ex.Message, correlationInfo, ex);
-        LogErrorJson(response, correlationInfo, ex);
-
-        return response;
-    }
-    catch (Exception ex)
-    {
-        response.WebResp.CorrelationId = updateFileTypeReq.BaseReq.CorrelationId!;
-        response.WebResp.User = updateFileTypeReq.BaseReq.CurrentUser!;
-        response.WebResp.HttpResponseCode = HttpStatusCode.InternalServerError;
-        response.WebResp.ResponseMessage = ex.StackTrace;
-        response.Success = false;
-
-        correlationInfo.StatusCode = HttpStatusCode.InternalServerError;
-        correlationInfo.RDirection = RequestDirection.Response;
-
-        LogError(ex.StackTrace, correlationInfo);
-        LogErrorJson(response, correlationInfo, ex);
-
-        return response;
-    }
-}
-#endregion
-7. BLL Changes
-BLL.cs - Add UpdateFileType Method
-csharp
-#region UpdateFileType
-
-public bool UpdateFileType(UpdateFileTypeReq updateFileTypeReq)
-{
-    DAL.DAL iDAL = new();
-    bool result = false;
-    
-    OnPreEventUpdateFileType?.Invoke(ref updateFileTypeReq);
-
-    Dictionary<string, object> parameters = new Dictionary<string, object>
-    {
-        { "@P__Id", updateFileTypeReq.FileTypeId },
-        { "@P__Code", updateFileTypeReq.Code },
-        { "@P__Entity", updateFileTypeReq.Entity },
-        { "@P__Description", updateFileTypeReq.Description },
-        { "@P__Category", updateFileTypeReq.IsBranch ? "Branch" : "Not Branch" },
-        { "@P__IsCustomer", updateFileTypeReq.IsCustomer },
-        { "@P__ArchivingPeriod", updateFileTypeReq.ArchivingPeriod },
-        { "@P__CanBeUsed", updateFileTypeReq.CanBeUsed },
-        { "@P__User", this.CurrentUser }
-    };
-
-    int rowsAffected = iDAL.ExecuteNonQuery("usp_UpdateFileType", parameters, CommandType.StoredProcedure);
-    result = rowsAffected > 0;
-    
-    OnPostEventUpdateFileType?.Invoke(ref result, ref updateFileTypeReq);
-    
-    return result;
-}
-
-#endregion
-8. Stored Procedure - Create usp_UpdateFileType
-sql
-CREATE PROCEDURE [dbo].[usp_UpdateFileType]
-    @P__Id INT,
-    @P__Code NVARCHAR(50),
-    @P__Entity NVARCHAR(50),
-    @P__Description NVARCHAR(250),
-    @P__Category NVARCHAR(50),
-    @P__IsCustomer BIT,
-    @P__ArchivingPeriod INT,
-    @P__CanBeUsed BIT,
-    @P__User NVARCHAR(250)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @Now DATETIME = GETDATE();
-    
-    BEGIN TRY
-        BEGIN TRANSACTION;
-        
-        UPDATE [dbo].[lkp_FileType]
-        SET 
-            [Code] = @P__Code,
-            [Entity] = @P__Entity,
-            [Description] = @P__Description,
-            [Category] = @P__Category,
-            [IsCustomer] = @P__IsCustomer,
-            [ArchivingPeriod] = @P__ArchivingPeriod,
-            [CanBeUsed] = @P__CanBeUsed,
-            [LastModifiedBy] = @P__User,
-            [LastModifiedDate] = @Now
-        WHERE [Id] = @P__Id;
-        
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        ROLLBACK TRANSACTION;
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY();
-        RAISERROR (@ErrMsg, @ErrSeverity, 1);
-    END CATCH
-END;
-GO
-This implementation adds the CanBeUsed column as the last column in your FileType management table, with the following behavior:
-
-Initially disabled when viewing the table
-Enabled when the user clicks the edit button
-Saved along with other field changes when the user clicks save
-New file types imported via the stored procedure will have CanBeUsed = 1 by default
-In the usp_Insert_Into_All_Tables, i want to pass the value of CanBeUsed as parameter
-
-Here's the modified usp_Insert_Into_All_Tables stored procedure to accept CanBeUsed as a parameter:
-
-sql
-ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables] 
-	@P__Old_Boxes [dbo].[TVP_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250),
-	@P__CanBeUsed BIT = 1  -- NEW PARAMETER with default value of 1
-AS 
-BEGIN 
-    SET NOCOUNT ON
-	SELECT 1;  
-    DECLARE @Now DATETIME = GETDATE(); 
-    DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
-
-    BEGIN TRY 
-        BEGIN TRANSACTION; 
-
-        -- Insert new Company (only if Code doesn't already exist)
-        INSERT INTO [dbo].[t_Company] 
-        ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Company] comp 
-            WHERE comp.[Code] = input.[Code]
-        );
-
-        -- Temp tables to hold inserted IDs and link them back to input data 
-        DECLARE @InsertedContainers TABLE( 
-            RowId INT, 
-            ContainerId INT 
-        ); 
-
-        DECLARE @InsertedFiles TABLE( 
-            RowId INT, 
-            FileId INT 
-        ); 
-
-        -- Insert Containers with unique Code + CompanyCode combination
-        WITH UniqueContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate,
-                   ROW_NUMBER() OVER (PARTITION BY BoxRef, Code ORDER BY RowId) as rn
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[t_Container] cont
-                WHERE cont.[Code] = input.[BoxRef]
-                AND cont.[CompanyCode] = input.[Code]
-            )
-        ),
-        ContainerSource AS (
-            SELECT RowId, BoxRef, Code, CompanyName, StatusCode, BoxSentDate
-            FROM UniqueContainerSource
-            WHERE rn = 1
-        )
-        MERGE [dbo].[t_Container] AS target
-        USING ContainerSource AS source ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT ([Code],[CompanyCode],[Entity],[CurrentLocation],[StatusCode],[ArchivingDate],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate],[isNotified])
-            VALUES (source.BoxRef, source.Code, source.CompanyName, '', source.StatusCode, source.BoxSentDate, 0, @SystemUser, @Now, @SystemUser, @Now, 1)
-        OUTPUT source.RowId, inserted.Id
-        INTO @InsertedContainers(RowId, ContainerId);
-
-        -- Capture existing container IDs for ALL rows (including duplicates within input)
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, cont.Id
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[t_Container] cont ON cont.[Code] = input.[BoxRef]
-            AND cont.[CompanyCode] = input.[Code]
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- For input rows with duplicate BoxRef + CompanyCode, map them to the inserted container
-        INSERT INTO @InsertedContainers(RowId, ContainerId)
-        SELECT input.RowId, ic.ContainerId
-        FROM @P__Old_Boxes input
-        INNER JOIN @InsertedContainers ic ON EXISTS (
-            SELECT 1 FROM @P__Old_Boxes input2 
-            WHERE input2.RowId = ic.RowId 
-            AND input2.BoxRef = input.BoxRef
-            AND input2.Code = input.Code
-        )
-        WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
-
-        -- Insert new File Type with auto-incrementing FileTypeCode
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            Entity NVARCHAR(50),
-            ArchivingPeriod INT,
-            NextCode INT
-        );
-        
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Get distinct Entity+Description combinations, taking the first ArchivingPeriod encountered
-        WITH UniqueNewFileTypes AS (
-            SELECT 
-                   input.[FileName] as Description,
-                   input.[Code] as Entity,
-                   MIN(input.[ArchivingPeriod]) as ArchivingPeriod
-            FROM @P__Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Description] = input.[FileName]
-                AND ft.[Entity] = input.[Code]
-            )
-            GROUP BY input.[FileName], input.[Code]
-        )
-        INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               Entity, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Entity, Description) as NextCode
-        FROM UniqueNewFileTypes;
-
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-               nft.Entity,
-               'Not Branch' as Category,
-               nft.Description,
-               0 as HasDate,
-               0 as IsCustomer,
-               nft.ArchivingPeriod,
-               @P__CanBeUsed,  -- MODIFIED: Use parameter value instead of hardcoded 1
-               @SystemUser,
-               @Now,
-               @SystemUser,
-               @Now
-        FROM @NewFileTypes nft;
-
-        -- Get the FileTypeCode for each file
-        DECLARE @FileTypeCodes TABLE (
-            RowId INT,
-            FileTypeCode NVARCHAR(50)
-        );
-        
-        INSERT INTO @FileTypeCodes (RowId, FileTypeCode)
-        SELECT input.RowId, ft.Code
-        FROM @P__Old_Boxes input
-        INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
-            AND ft.[Description] = input.[FileName];
-
-        -- Insert Files
-        INSERT INTO [dbo].[t_File] 
-        ([CustomerId],[Name],[FileTypeCode],[StatusCode],[CompanyCode],[FromDate],[ToDate],[AdditionalInfo],[isDeleted],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate])
-        OUTPUT inserted.Id
-        INTO @InsertedFiles(FileId)
-        SELECT null, 
-               input.FileName, 
-               ftc.FileTypeCode, 
-               'FINAL', 
-               input.Code, 
-               null, 
-               null, 
-               input.AdditionalInfo, 
-               0, 
-               @SystemUser, 
-               @Now, 
-               @SystemUser, 
-               @Now
-        FROM @P__Old_Boxes input
-        INNER JOIN @FileTypeCodes ftc ON ftc.RowId = input.RowId
-        ORDER BY input.RowId;
-
-        -- Map the inserted FileIds back to RowIds
-        DECLARE @RowIdMapping TABLE (
-            RowId INT,
-            FileId INT,
-            RowNum INT
-        );
-
-        INSERT INTO @RowIdMapping (RowId, RowNum)
-        SELECT RowId, ROW_NUMBER() OVER (ORDER BY RowId) as RowNum
-        FROM @P__Old_Boxes;
-
-        WITH NumberedInsertedFiles AS (
-            SELECT FileId, ROW_NUMBER() OVER (ORDER BY FileId) as RowNum
-            FROM @InsertedFiles
-        )
-        UPDATE @InsertedFiles
-        SET RowId = rm.RowId
-        FROM @InsertedFiles if_target
-        INNER JOIN NumberedInsertedFiles nif ON if_target.FileId = nif.FileId
-        INNER JOIN @RowIdMapping rm ON nif.RowNum = rm.RowNum;
-
-        -- Insert Container File Relationship
-        INSERT INTO [dbo].[t_CurrentContainerFileRelationship] 
-        ([FileId],[ContainerId],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT f.FileId, c.ContainerId, @SystemUser, @Now, @SystemUser, @Now
-        FROM @InsertedFiles f
-        INNER JOIN @InsertedContainers c ON f.RowId = c.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_CurrentContainerFileRelationship] rel
-            WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
-        );
-
-        -- Insert new Sequence only if Owner doesn't already exist
-        INSERT INTO [dbo].[t_Sequence] 
-        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Old_Boxes input
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
-        );
-
-        -- ========================================
-        -- MODIFIED: Insert Container Status History
-        -- ========================================
-        
-        -- 1. Insert SENT status for all containers
-        -- HoldingEntityCode = Code from input (the branch/entity code)
-        -- User = BoxSentBy if not empty, otherwise AlternaSystem
-        -- Always inactive (isCurrentStatus = 0)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'SENT',
-               i.[Code],  -- CHANGED: Use Code instead of 'WH'
-               0,         -- Always inactive for SENT
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,  -- Use BoxSentBy or AlternaSystem
-               i.[BoxSentDate],
-               CASE 
-                   WHEN LTRIM(RTRIM(ISNULL(i.[BoxSentBy], ''))) = '' THEN @SystemUser 
-                   ELSE i.[BoxSentBy] 
-               END,
-               i.[BoxSentDate]
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'SENT'
-        );
-
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Active only if final status is RECEIVED
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'RECEIVED',
-               'WH',  -- CHANGED: Always 'WH' for RECEIVED
-               CASE WHEN i.[StatusCode] = 'RECEIVED' THEN 1 ELSE 0 END,
-               @SystemUser,  -- Always AlternaSystem for RECEIVED
-               DATEADD(MINUTE, 1, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 1, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] IN ('RECEIVED', 'DESTROYED', 'NOTFOUND')  -- ADDED: NOTFOUND
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'RECEIVED'
-        );
-
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'DESTROYED',
-               'WH',  -- Always 'WH' for DESTROYED
-               1,     -- Always active as final status
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'DESTROYED'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'DESTROYED'
-        );
-
-        -- 4. NEW: Insert NOTFOUND status for containers with StatusCode NOTFOUND
-        -- HoldingEntityCode = 'WH'
-        -- User = AlternaSystem always
-        -- Always active (final status)
-        INSERT INTO [dbo].[t_ContainerStatus] 
-        ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT 
-               c.ContainerId,
-               'NOTFOUND',
-               'WH',  -- Always 'WH' for NOTFOUND
-               1,     -- Always active as final status
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate]),
-               @SystemUser,
-               DATEADD(MINUTE, 2, i.[BoxSentDate])
-        FROM @InsertedContainers c
-        INNER JOIN @P__Old_Boxes i ON c.RowId = i.RowId
-        WHERE i.[StatusCode] = 'NOTFOUND'
-        AND NOT EXISTS (
-            SELECT 1 FROM [dbo].[t_ContainerStatus] cs
-            WHERE cs.[ContainerId] = c.ContainerId 
-            AND cs.[StatusCode] = 'NOTFOUND'
-        );
-
-        COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-        ROLLBACK TRANSACTION; 
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE(); 
-        DECLARE @ErrSeverity INT = ERROR_SEVERITY(); 
-        RAISERROR (@ErrMsg, @ErrSeverity, 1); 
-    END CATCH 
-END;
-Key Changes:
-Added new parameter: @P__CanBeUsed BIT = 1 with a default value of 1
-Modified the INSERT statement: Changed 1 as CanBeUsed to @P__CanBeUsed in the lkp_FileType INSERT statement
-Usage:
-Now when calling this stored procedure, you can:
-
-Option 1 - Use default value (CanBeUsed = 1):
-
-sql
-EXEC [dbo].[usp_Insert_Into_All_Tables] 
-    @P__Old_Boxes = @OldBoxesData,
-    @P__User = 'SomeUser'
-Option 2 - Explicitly pass CanBeUsed value:
-
-sql
-EXEC [dbo].[usp_Insert_Into_All_Tables] 
-    @P__Old_Boxes = @OldBoxesData,
-    @P__User = 'SomeUser',
-    @P__CanBeUsed = 0  -- For old file types
-This gives you flexibility to control whether imported file types should be marked as usable or not, while maintaining backward compatibility with existing code that doesn't pass this parameter (it will default to 1).
+Table	Variable	Type
+BBSC_ACCNT_TYPE_NATS	ATNT_CODE	INT
+BBSC_ACCNT_TYPE_NATS	ATNT_B_DESC	Char50
+BBSC_ACCNT_TYPE_NATS	ATNT_S_DESC	Char50
+BBSC_ACCNT_TYPE_NATS	NODE_ID	Char25
+BBSC_ACCNT_TYPE_NATS	PROGRAM_ID	Char25
+BBSC_ACCNT_TYPE_NATS	USER_ID	Char25
+BBSC_ACCNT_TYPE_NATS	TIME_STAMP	Date
+BBSC_ACCOUNTING_DESCRIPTIONS	ACCD_CODE	INT
+BBSC_ACCOUNTING_DESCRIPTIONS	ACCD_B_DESC	Char50
+BBSC_ACCOUNTING_DESCRIPTIONS	ACCD_S_DESC	Char50
+BBSC_ACCOUNTING_DESCRIPTIONS	NODE_ID	Char25
+BBSC_ACCOUNTING_DESCRIPTIONS	PROGRAM_ID	Char25
+BBSC_ACCOUNTING_DESCRIPTIONS	USER_ID	Char25
+BBSC_ACCOUNTING_DESCRIPTIONS	TIME_STAMP	Date
+BBSC_ACCOUNTING_DESCRIPTIONS	ACCD_ABREV	Char25
+BBSC_ACCOUNTING_DESCRIPTIONS	ACCD_UNIT_PRICE	DEC
+BBSC_ACTIVITIES	ACTI_CODE	INT
+BBSC_ACTIVITIES	ACTI_B_DESC	Char50
+BBSC_ACTIVITIES	ACTI_S_DESC	Char50
+BBSC_ACTIVITIES	NODE_ID	Char25
+BBSC_ACTIVITIES	PROGRAM_ID	Char25
+BBSC_ACTIVITIES	USER_ID	Char25
+BBSC_ACTIVITIES	TIME_STAMP	Date
+BBSC_ACTIVITY_STATUS	ACTV_CODE	INT
+BBSC_ACTIVITY_STATUS	ACTV_B_DESC	Char50
+BBSC_ACTIVITY_STATUS	ACTV_S_DESC	Char50
+BBSC_ACTIVITY_STATUS	NODE_ID	Char25
+BBSC_ACTIVITY_STATUS	PROGRAM_ID	Char25
+BBSC_ACTIVITY_STATUS	USER_ID	Char25
+BBSC_ACTIVITY_STATUS	TIME_STAMP	Date
+BBSC_ACTIVITY_STATUS	ACTV_ADDR_FLG	Char25
+BBSC_ACTIVITY_STATUS	ACTV_ADTP_CODE	Char25
+BBSC_ADDRESS_TYPES	ADTP_CODE	INT
+BBSC_ADDRESS_TYPES	ADTP_B_DESC	Char50
+BBSC_ADDRESS_TYPES	ADTP_S_DESC	Char50
+BBSC_ADDRESS_TYPES	NODE_ID	Char25
+BBSC_ADDRESS_TYPES	PROGRAM_ID	Char25
+BBSC_ADDRESS_TYPES	USER_ID	Char25
+BBSC_ADDRESS_TYPES	TIME_STAMP	Date
+BBSC_ADDRESS_TYPES	ADTP_REQ_FLG	INT
+BBSC_ADDRESS_TYPES	ADTP_CONTACT_FLG	INT
+BBSC_BANK_BRANCHES	BANK_CODE	INT
+BBSC_BANK_BRANCHES	BBRH_CODE	INT
+BBSC_BANK_BRANCHES	BBRH_B_DESC	Char50
+BBSC_BANK_BRANCHES	BBRH_S_DESC	Char50
+BBSC_BANK_BRANCHES	NODE_ID	Char25
+BBSC_BANK_BRANCHES	PROGRAM_ID	Char25
+BBSC_BANK_BRANCHES	USER_ID	Char25
+BBSC_BANK_BRANCHES	TIME_STAMP	Date
+BBSC_BANK_BRANCHES	BBRH_CORR_CODE	Char25
+BBSC_BANK_STAFF_DEGREES	BSTD_CODE	INT
+BBSC_BANK_STAFF_DEGREES	BSTD_B_DESC	Char25
+BBSC_BANK_STAFF_DEGREES	BSTD_S_DESC	Char25
+BBSC_BANK_STAFF_DEGREES	NODE_ID	Char25
+BBSC_BANK_STAFF_DEGREES	PROGRAM_ID	Char25
+BBSC_BANK_STAFF_DEGREES	USER_ID	Char25
+BBSC_BANK_STAFF_DEGREES	TIME_STAMP	Date
+BBSC_BANKS	BANK_CODE	INT
+BBSC_BANKS	BANK_B_DESC	Char50
+BBSC_BANKS	BANK_S_DESC	Char50
+BBSC_BANKS	BANK_B_ABREV	Char25
+BBSC_BANKS	BANK_S_ABREV	Char25
+BBSC_BANKS	NODE_ID	Char25
+BBSC_BANKS	PROGRAM_ID	Char25
+BBSC_BANKS	USER_ID	Char25
+BBSC_BANKS	TIME_STAMP	Date
+BBSC_BANKS	BANK_ISO	Char25
+BBSC_BANKS	BANK_SWIFT	Char25
+BBSC_BANKS	BANK_AC_IND	INT
+BBSC_BANKS	BANK_ACC_MIN_LEN	INT
+BBSC_BANKS	BANK_ACC_MAX_LEN	INT
+BBSC_BANKS	BANK_ROUTING_NBR	INT
+BBSC_BANKS	BANK_CDAL_IND	INT
+BBSC_BANKS	BANK_CDAL_CODE	INT
+BBSC_BANKS	BANK_RJCT_BBRH_CODE	INT
+BBSC_BANKS	BANK_DFLT_RJCT_BBRH_ACC	Char25
+BBSC_BANKS	BANK_RET_BBRH_CODE	INT
+BBSC_BANKS	BANK_DFLT_RET_BBRH_ACC	Char25
+BBSC_BANKS	BANK_RJCT_RET_BBRH_CODE	INT
+BBSC_BANKS	BANK_BRCH_BIC_CODE	Char25
+BBSC_BLOCKING_REASONS	BLKR_CODE	INT
+BBSC_BLOCKING_REASONS	BLKR_B_DESC	Char50
+BBSC_BLOCKING_REASONS	BLKR_S_DESC	Char50
+BBSC_BLOCKING_REASONS	NODE_ID	Char25
+BBSC_BLOCKING_REASONS	PROGRAM_ID	Char25
+BBSC_BLOCKING_REASONS	USER_ID	Char25
+BBSC_BLOCKING_REASONS	TIME_STAMP	Date
+BBSC_BLOCKING_UNITS	BLKU_CODE	INT
+BBSC_BLOCKING_UNITS	BLKU_B_DESC	Char25
+BBSC_BLOCKING_UNITS	BLKU_S_DESC	Char25
+BBSC_BLOCKING_UNITS	NODE_ID	Char25
+BBSC_BLOCKING_UNITS	PROGRAM_ID	Char25
+BBSC_BLOCKING_UNITS	USER_ID	Char25
+BBSC_BLOCKING_UNITS	TIME_STAMP	Date
+BBSC_BRANCHES	BRCH_CODE	INT
+BBSC_BRANCHES	CLRG_CODE	INT
+BBSC_BRANCHES	BRCH_B_DESC	Char50
+BBSC_BRANCHES	BRCH_S_DESC	Char50
+BBSC_BRANCHES	BRCH_BR_NUM_AT_CB	INT
+BBSC_BRANCHES	BRCH_ICBS_BRANCH_FLG	INT
+BBSC_BRANCHES	BRCH_CLOSING_DATE	Date
+BBSC_BRANCHES	BRCH_COMPUTERIZED_FLG	INT
+BBSC_BRANCHES	BRCH_CURRENT_DATE	Date
+BBSC_BRANCHES	BRCH_LAST_INT_CAL_DATE	Date
+BBSC_BRANCHES	BRCH_LAST_PROCESS_DATE	Date
+BBSC_BRANCHES	BRCH_REMOTE_USER	Char25
+BBSC_BRANCHES	NODE_ID	Char25
+BBSC_BRANCHES	PROGRAM_ID	Char25
+BBSC_BRANCHES	USER_ID	Char25
+BBSC_BRANCHES	TIME_STAMP	Date
+BBSC_BRANCHES	BRCH_ABREV	Char25
+BBSC_BRANCHES	RREG_CODE	Char25
+BBSC_BRANCHES	BRCH_ADDRESS	Char25
+BBSC_BRANCHES	BRCH_WORK_DIR	Char25
+BBSC_BRANCHES	BRCH_STATUS	INT
+BBSC_BRANCHES	BRCH_CLASSIFICATION	Char25
+BBSC_BRANCHES	BRCH_ADDRESS1	Char25
+BBSC_BRANCHES	BRCH_ADDRESS2	Char25
+BBSC_BRANCHES	BRCH_ADDRESS3	Char25
+BBSC_BRANCHES	BRCH_ADDRESS4	Char25
+BBSC_BRANCHES	BRCH_PHONE1	Char25
+BBSC_BRANCHES	BRCH_PHONE2	Char25
+BBSC_BRANCHES	BRCH_PHONE3	Char25
+BBSC_BRANCHES	BRCH_PHONE4	Char25
+BBSC_BRANCHES	BRCH_PHONE5	Char25
+BBSC_BRANCHES	BRCH_CBK_APPROVAL	Char25
+BBSC_BRANCHES	BRCH_CBK_PERD_FEES	Char25
+BBSC_BRANCHES	BRCH_CBK_PERD_DUE	Char25
+BBSC_BRANCHES	BRCH_MINISTRY_PERD_FEES	Char25
+BBSC_BRANCHES	BRCH_MINISTRY_PERD_DUE	Char25
+BBSC_BRANCHES	BRCH_STMT_LANG	INT
+BBSC_BRANCHES	BRCH_CONNECT_STRING	Char25
+BBSC_BRANCHES	BRCH_LAST_INT_CAL_DATE2	Char25
+BBSC_BRANCHES	BRCH_HOST_NAME	Char25
+BBSC_BRANCHES	BRCH_ON_LINE	Char25
+BBSC_BRANCHES	BRCH_BR_DECL_AT_CB	INT
+BBSC_BRANCHES	INTC_CODE	Char25
+BBSC_BRANCHES	BRCH_BRANCH_O_C_IND	INT
+BBSC_BRANCHES	BRCH_SESSION_O_C_IND	INT
+BBSC_BRANCHES	BRCH_HLP_DSK	Char25
+BBSC_BRANCHES	BRCH_RPL_HLP_DSK	Char25
+BBSC_BRANCHES	BRCH_MNGR_DSK	Char25
+BBSC_BRANCHES	BRCH_MNGR_IND	INT
+BBSC_BRANCHES	BRCH_BRCH_SWIFT	Char25
+BBSC_BRANCHES	BRCH_SESSION_NBR	Char25
+BBSC_BRANCHES	BRCH_CHG_SESSION_DATE_IND	Char25
+BBSC_BRANCHES	BRCH_HOLIDAY_FLG	INT
+BBSC_BRANCHES	CRRG_CODE	INT
+BBSC_BRANCHES	BRCH_ABR_FLG	INT
+BBSC_BRANCHES	BRCH_IP_IND	INT
+BBSC_BRANCHES	BRCH_IP_FR_1	Char25
+BBSC_BRANCHES	BRCH_IP_FR_2	Char25
+BBSC_BRANCHES	BRCH_IP_FR_3	Char25
+BBSC_BRANCHES	BRCH_IP_FR_4	Char25
+BBSC_BRANCHES	BRCH_IP_TO_1	Char25
+BBSC_BRANCHES	BRCH_IP_TO_2	Char25
+BBSC_BRANCHES	BRCH_IP_TO_3	Char25
+BBSC_BRANCHES	BRCH_IP_TO_4	Char25
+BBSC_BRANCHES	BRCH_E_CURRENT_DATE	Date
+BBSC_BRANCHES	BRCH_E_STATUS	INT
+BBSC_BRANCHES	BRCH_OVR_IND	INT
+BBSC_BRANCHES	BRCH_CATEGORY_IND	INT
+BBSC_BRANCHES	BRCH_FUND_ENTITY	INT
+BBSC_BRANCHES	BRCH_PRINT_ODT_FLG	INT
+BBSC_BRANCHES	BRCH_MNGR_AML	Char25
+BBSC_BRANCHES	BRCH_PARENT	Char25
+BBSC_BRANCHES	BRCH_LEVEL	INT
+BBSC_BRANCHES	LCTY_CODE	INT
+BBSC_BRANCHES	SLTY_CODE	INT
+BBSC_BRANCHES	CSHC_CODE	Char25
+BBSC_BRANCHES	BRCH_WARH_FLG	INT
+BBSC_BRANCHES	BRCH_PRM_CLS_DATE	Char25
+BBSC_BRANCHES	BRCH_PRM_REPL_BRCH	Char25
+BBSC_BRANCHES	BRCH_TAXABLE_FLG	INT
+BBSC_BRANCHES	BRCH_SKIP_CLOSE_FLG	Char25
+BBSC_BRANCHES	BRCH_LONGITUDE	Char25
+BBSC_BRANCHES	BRCH_LATITUDE	Char25
+BBSC_BRANCHES	BRCH_IBAN_REFERENCE	Char25
+BBSC_BRCH_OFFICES	BRCH_CODE	INT
+BBSC_BRCH_OFFICES	BROF_CODE	INT
+BBSC_BRCH_OFFICES	BROF_B_DESC	Char25
+BBSC_BRCH_OFFICES	BROF_S_DESC	Char25
+BBSC_BRCH_OFFICES	NODE_ID	Char25
+BBSC_BRCH_OFFICES	PROGRAM_ID	Char25
+BBSC_BRCH_OFFICES	USER_ID	Char25
+BBSC_BRCH_OFFICES	TIME_STAMP	Date
+BBSC_BRCH_OFFICES	BCHM_CODE	Char25
+BBSC_BRCH_OFFICES	BCHM_BROF_CODE	Char25
+BBSC_CENTRAL_BANK_ECOS	CECO_CODE	INT
+BBSC_CENTRAL_BANK_ECOS	CECO_B_DESC	Char25
+BBSC_CENTRAL_BANK_ECOS	CECO_S_DESC	Char25
+BBSC_CENTRAL_BANK_ECOS	CECO_ISO	Char25
+BBSC_CENTRAL_BANK_ECOS	NODE_ID	Char25
+BBSC_CENTRAL_BANK_ECOS	PROGRAM_ID	Char25
+BBSC_CENTRAL_BANK_ECOS	USER_ID	Char25
+BBSC_CENTRAL_BANK_ECOS	TIME_STAMP	Date
+BBSC_CENTRAL_BANK_ECOS	CECO_REPORT_IND	Char25
+BBSC_CENTRAL_BANK_ECOS	CECO_ADD_TAX_PERC	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_NUM	INT
+BBSC_CHART_OF_ACCOUNTS	RESD_CODE	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_B_DESC	Char50
+BBSC_CHART_OF_ACCOUNTS	ACNT_S_DESC	Char50
+BBSC_CHART_OF_ACCOUNTS	ACNT_TYPE	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_ALLOWED_OPERATIONS	INT
+BBSC_CHART_OF_ACCOUNTS	NODE_ID	Char25
+BBSC_CHART_OF_ACCOUNTS	PROGRAM_ID	Char25
+BBSC_CHART_OF_ACCOUNTS	USER_ID	Char25
+BBSC_CHART_OF_ACCOUNTS	TIME_STAMP	Date
+BBSC_CHART_OF_ACCOUNTS	ACNT_ON_OFF_BAL	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_OVRD_FLG	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_OVRD_SIGN	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_CB_NUM	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_CSTC_IND	Char25
+BBSC_CHART_OF_ACCOUNTS	GLTY_CODE	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_AUTO_OPEN	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_PROFIT_DIST_FLG	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_CONF_IND	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_OVRD_REP_SIGN	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_OLD_NUM	Char25
+BBSC_CHART_OF_ACCOUNTS	ACNT_IE_SETTL_FLG	INT
+BBSC_CHART_OF_ACCOUNTS	ACNT_IE_INS_FLG	INT
+BBSC_CHECK_BOOK_TYPES	CBTP_CODE	INT
+BBSC_CHECK_BOOK_TYPES	CBTP_B_DESC	Char25
+BBSC_CHECK_BOOK_TYPES	CBTP_S_DESC	Char25
+BBSC_CHECK_BOOK_TYPES	CBTP_NUMBER_OF_CHECKS	INT
+BBSC_CHECK_BOOK_TYPES	NODE_ID	Char25
+BBSC_CHECK_BOOK_TYPES	PROGRAM_ID	Char25
+BBSC_CHECK_BOOK_TYPES	USER_ID	Char25
+BBSC_CHECK_BOOK_TYPES	TIME_STAMP	Date
+BBSC_CHECK_BOOK_TYPES	CBTP_ISO	Char25
+BBSC_CHECK_BOOK_TYPES	CBTP_FRESH_FLG	Char25
+BBSC_COMMISSION_TYPES	COMT_CODE	INT
+BBSC_COMMISSION_TYPES	COMT_B_DESC	Char25
+BBSC_COMMISSION_TYPES	COMT_S_DESC	Char25
+BBSC_COMMISSION_TYPES	NODE_ID	Char25
+BBSC_COMMISSION_TYPES	PROGRAM_ID	Char25
+BBSC_COMMISSION_TYPES	USER_ID	Char25
+BBSC_COMMISSION_TYPES	TIME_STAMP	Date
+BBSC_COMPANY_RATING	CORT_CODE	INT
+BBSC_COMPANY_RATING	CORT_B_DESC	Char25
+BBSC_COMPANY_RATING	CORT_S_DESC	Char25
+BBSC_COMPANY_RATING	NODE_ID	Char25
+BBSC_COMPANY_RATING	PROGRAM_ID	Char25
+BBSC_COMPANY_RATING	USER_ID	Char25
+BBSC_COMPANY_RATING	TIME_STAMP	Date
+BBSC_COMPANY_RATING	CORT_OLD_CODE	Char25
+BBSC_COMPANY_STATUS	CMST_CODE	INT
+BBSC_COMPANY_STATUS	CMST_B_DESC	Char25
+BBSC_COMPANY_STATUS	CMST_S_DESC	Char25
+BBSC_COMPANY_STATUS	NODE_ID	Char25
+BBSC_COMPANY_STATUS	PROGRAM_ID	Char25
+BBSC_COMPANY_STATUS	USER_ID	Char25
+BBSC_COMPANY_STATUS	TIME_STAMP	Date
+BBSC_COUNTRIES	CTRY_CODE	INT
+BBSC_COUNTRIES	RESD_CODE	INT
+BBSC_COUNTRIES	CTRY_B_DESC	Char25
+BBSC_COUNTRIES	CTRY_S_DESC	INT
+BBSC_COUNTRIES	CTRY_ISO	Char25
+BBSC_COUNTRIES	CTRY_COURRIER_FEES	Char25
+BBSC_COUNTRIES	CTRY_TELEX_FEES	Char25
+BBSC_COUNTRIES	CTRY_OTHER_FEES	Char25
+BBSC_COUNTRIES	NODE_ID	Char25
+BBSC_COUNTRIES	PROGRAM_ID	Char25
+BBSC_COUNTRIES	USER_ID	Char25
+BBSC_COUNTRIES	TIME_STAMP	Date
+BBSC_COUNTRIES	CTRY_B_DESC_2	Char25
+BBSC_COUNTRIES	CTRY_S_DESC_2	Char25
+BBSC_COUNTRIES	CTRY_TEL_CODE	INT
+BBSC_COUNTRIES	CTRY_TEL_FORMAT	Char25
+BBSC_COUNTRIES	CTRY_IBAN_FLG	INT
+BBSC_COUNTRIES	CTRY_INCOMING_IBAN_CTRL_IND	Char25
+BBSC_COUNTRIES	CTRY_CURR_CODE	INT
+BBSC_COUNTRIES	CTRY_RISKY_FLG	Char25
+BBSC_COUNTRIES	GRPC_CODE	INT
+BBSC_COUNTRIES	CTRY_APPLY_STP_FLG	INT
+BBSC_COUNTRIES	CTRY_CRS_FLG	INT
+BBSC_COUNTRIES	CTRY_CRS_BILATERAL_FLG	INT
+BBSC_COUNTRIES	CTRY_CRS_TIN_REQ_FLG	INT
+BBSC_COUNTRIES	CTRY_CRS_PHPR_TIN_FORMAT	Char25
+BBSC_COUNTRIES	CTRY_CRS_MRPR_TIN_FORMAT	Char25
+BBSC_COUNTRIES	CTRY_CRS_PHPR_TIN_FORMAT2	Char25
+BBSC_COUNTRIES	CTRY_CRS_PHPR_TIN_FORMAT3	Char25
+BBSC_COUNTRIES	CTRY_CRS_MRPR_TIN_FORMAT2	Char25
+BBSC_COUNTRIES	CTRY_HLIDAY_1	Char25
+BBSC_COUNTRIES	CTRY_HLIDAY_2	Char25
+BBSC_COUNTRIES	CTCG_CODE	INT
+BBSC_COUNTRIES	CTRY_ACTIVE_FLG	INT
+BBSC_COUNTRIES	CTRY_AREA_SUB_CODE	INT
+BBSC_COUNTRIES	CTRY_ALLOW_CHANNEL	INT
+BBSC_COUNTRIES	CTRY_ENCRYPT_FLG	Char25
+BBSC_COUNTRIES	CTRY_USER_LVL_DEC	Char25
+BBSC_COUNTRIES	CTRY_US_RELATED	INT
+BBSC_COUNTRIES	CTRY_PURP_ALLOW_26T	INT
+BBSC_COUNTRIES	CTRY_PURP_ALLOW_77B	INT
+BBSC_COUNTRIES	CTRY_PURP_CODE_REQ	INT
+BBSC_COURRIERS	CRER_CODE	INT
+BBSC_COURRIERS	CRER_B_DESC	Char25
+BBSC_COURRIERS	CRER_S_DESC	Char25
+BBSC_COURRIERS	NODE_ID	Char25
+BBSC_COURRIERS	PROGRAM_ID	Char25
+BBSC_COURRIERS	USER_ID	Char25
+BBSC_COURRIERS	TIME_STAMP	Date
+BBSC_CR_INTEREST_RATES	CIRT_CODE	INT
+BBSC_CR_INTEREST_RATES	CIRT_B_DESC	Char25
+BBSC_CR_INTEREST_RATES	CIRT_S_DESC	Char25
+BBSC_CR_INTEREST_RATES	NODE_ID	Char25
+BBSC_CR_INTEREST_RATES	PROGRAM_ID	Char25
+BBSC_CR_INTEREST_RATES	USER_ID	Char25
+BBSC_CR_INTEREST_RATES	TIME_STAMP	Date
+BBSC_CR_INTEREST_RATES	RATY_CODE	Char25
+BBSC_CR_INTEREST_RATES	CIRT_REPLACE_RATE_CODE_FLG	Char25
+BBSC_CR_INTEREST_RATES	CIRT_DB_CR_FLG	Char25
+BBSC_CR_INTEREST_RATES	CIRT_REPLACE_CODE	Char25
+BBSC_CTS_CLASSES	CTSC_CODE	INT
+BBSC_CTS_CLASSES	CTSC_B_DESC	Char50
+BBSC_CTS_CLASSES	CTSC_S_DESC	Char50
+BBSC_CTS_CLASSES	CTSC_AMNT	Dec
+BBSC_CTS_CLASSES	NODE_ID	Char25
+BBSC_CTS_CLASSES	PROGRAM_ID	Char25
+BBSC_CTS_CLASSES	USER_ID	Char25
+BBSC_CTS_CLASSES	TIME_STAMP	Date
+BBSC_CTS_CLASSES	CTSC_D_DB_LMT	INT
+BBSC_CTS_CLASSES	CTSC_D_CR_LMT	INT
+BBSC_CTS_CLASSES	CTSC_M_DB_LMT	INT
+BBSC_CTS_CLASSES	CTSC_M_CR_LMT	INT
+BBSC_CTS_CLASSES	CTSC_UPD_IND	INT
+BBSC_CTS_CLASSES	CTSC_CASH_AUTH_IND	INT
+BBSC_CTS_CLASSES	CTSC_D_AMNT	Char25
+BBSC_CURR_DESCS	CURR_CODE	INT
+BBSC_CURR_DESCS	LANG_CODE	INT
+BBSC_CURR_DESCS	CURD_DESC	Char25
+BBSC_CURR_DESCS	CURD_DEC_IND	Char25
+BBSC_CURR_DESCS	CURD_DEC_DESC	Char25
+BBSC_CURR_DESCS	NODE_ID	Char25
+BBSC_CURR_DESCS	PROGRAM_ID	Char25
+BBSC_CURR_DESCS	USER_ID	Char25
+BBSC_CURR_DESCS	TIME_STAMP	Date
+BBSC_CURR_RATE_REGIONS	CRRG_CODE	INT
+BBSC_CURR_RATE_REGIONS	CRRG_B_DESC	Char50
+BBSC_CURR_RATE_REGIONS	CRRG_S_DESC	Char50
+BBSC_CURR_RATE_REGIONS	NODE_ID	Char25
+BBSC_CURR_RATE_REGIONS	PROGRAM_ID	Char25
+BBSC_CURR_RATE_REGIONS	USER_ID	Char25
+BBSC_CURR_RATE_REGIONS	TIME_STAMP	Date
+BBSC_CURR_RATE_REGIONS	CRRG_HLIDAY_1	Char25
+BBSC_CURR_RATE_REGIONS	CRRG_HLIDAY_2	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_TYPE	INT
+BBSC_CUST_ACCNT_TYPES	ASPR_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ATNT_CODE	INT
+BBSC_CUST_ACCNT_TYPES	CRER_CODE	Char25
+BBSC_CUST_ACCNT_TYPES	ACNT_NUM	INT
+BBSC_CUST_ACCNT_TYPES	CIRT_CODE	INT
+BBSC_CUST_ACCNT_TYPES	DIRT_CODE	INT
+BBSC_CUST_ACCNT_TYPES	EXPN_CODE	Char25
+BBSC_CUST_ACCNT_TYPES	MODL_CODE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_DR_PERIODICITY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CR_PERIODICITY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_COMMISSION	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_EXPENSES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_COMM_PERIODICITY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_EXP_PERIODICITY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BALANCE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TAXES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SCALE_STAT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CONDITIONS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_B_DESC	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_S_DESC	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_B_ABREV	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_S_ABREV	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_PERM_INST_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHECKS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OVERDRAWING_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HIST_MONTHS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_I_C_MONTHS	INT
+BBSC_CUST_ACCNT_TYPES	NODE_ID	Char25
+BBSC_CUST_ACCNT_TYPES	PROGRAM_ID	Char25
+BBSC_CUST_ACCNT_TYPES	USER_ID	Char25
+BBSC_CUST_ACCNT_TYPES	TIME_STAMP	Date
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANGE_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_LIMIT_CR	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANGE_INT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INTEREST_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_PEN_RATE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DRM_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DRM_DAY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_LOAN_TYPE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_NO_LMT_INTBR	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AUTHORIZED_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DB_OTHBR_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_COMM_PERC	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_CARD_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_CR_LIMIT	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_COMMITMENT_FEE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_COMMITMENT_FEE_TYPE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_COMMITMENT_FEE_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_TYPE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_DORMANT_COMM_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DORMANT_COMM_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_IND2	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_PERD2	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_COMM_TYPE2	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_EXCLUSIVE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_DAY	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAIN_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAIN_MIN_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAIN_MLT_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAIN_MAX_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAT_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAT_MLT_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_INT_CLMT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_INT_CIRT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_AMNT_COND_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PSBK_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_TAX_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWD_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWD_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_IMPCT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_CIRT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_REN_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CLOSE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_SET_INT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_REN_INT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MOD_MAT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MOD_AMNT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MOD_RATE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ALLOW_CURR_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_ALLOW_CNAT_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_APPLY_CNAT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INT_MTD_DB_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INT_MTD_CR_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OVER_TAX_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OTHER_TAX_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_MIN_BAL_M_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_MIN_BAL_Y_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_ANY_D_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_MIN_BAL_M_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_MIN_BAL_Y_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_ANY_D_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLS_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_M_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_Y_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ANY_D_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRS_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_WHEN_NO_FUND_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_HUNT_ORDER_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_APPLY_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_BRCH	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_OTHER_BR	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_ATM	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_IVR	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_EBANK	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_SMS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHANNEL_WAP	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_WAIVE_INT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_INT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HIGH_DB_COM_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HIGH_DB_COM_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_APPLY_POST_DB	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHG_RATE_ADV	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLS_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLS_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_M_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_M_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_Y_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_Y_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ANY_D_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ANY_D_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRS_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRS_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CHECKS_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HUNT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HUNT_ORDER	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAINT_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ATM_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_IVR_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_LINES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_MODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FEES_PRD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRS_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OD_LIMIT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CONF_ACC_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PBK_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PRVLG_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAT_MIN_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_MAT_MAX_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ALLOW_AUTO_OPN	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_WTH_RATE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_WTH_PEN_MRG_RATE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_WTH_ALLOWED_DAYS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_WTH_MAT_START_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INIT_MRG_RENEWAL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SAME_TRM_PERD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TRM_PERD_FEES_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_POST_DAY_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_POST_DAY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_TYPE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_NOTICE_PERD_LEN	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_NOTICE_PERD_UNIT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_WITHD_CONF_PERD_LEN	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_WITHD_CONF_PERD_UNIT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_MIN_TRS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_BAL_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_PROF_WTHD_PERD_LEN	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_PROF_WTHD_PERD_UNIT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_MIN_CLR_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_WTHD_CLR_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_GL1	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_GL2	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_COST_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PER_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BANK_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_RISK_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CUST_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_NBR_BELOW_MIN_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_NBR_BELOW_MIN_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_NBR_BELOW_FEES_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_S_NBR_BELOW_IMPACT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SUSPENSE_ACTP	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NBR_BELOW_MIN_RATE_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_WTHD_MRG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLOSURE_FEES_PERC	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROF_ON_PROF_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NBR_PAYMENTS	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_TO_BANK	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_DB_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_DB_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_DB_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_DB_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_CR_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_CR_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_CR_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_CR_RES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_DB_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_DB_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_DB_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_DB_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_CR_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_CR_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_CR_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_CR_NRES	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_DB_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_DB_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_DB_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_DB_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_INTR_CR_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_INTR_CR_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_ACCR_CR_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ACCR_CR_CEE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_COMM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_COMM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_EXPN	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_EXPN	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_OVER_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_OVER_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_OTHER_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_OTHER_TAX	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_MAINT	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_COMMT	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_STMT	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_DRM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ATM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_CLOSURE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_IVR	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_MIN_MTH	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_MIN_YEAR	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_ON_DAY	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_TRS	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_CHECKBOOK	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_TERM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_CLOSING	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_DIST_MTH_YRL	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_TAX_GL	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_ADAD_MIN_TRS_FLG_1	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_RELEASE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_EBANKING_TRS_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ONLY_DORM_FEES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BLOCK_ACCNT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AML_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FUND_ACCNT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SHORT_ACC_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_TAX_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OVER_TAX_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_OTHER_TAX_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_ON_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_OFF_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_HIDE_ACC_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_VALID_TILL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLOSING_WITH_DRM_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLOSING_DAYS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BRCH_RESTRICTED_TO	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_POOL_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_POOL_CR_RATE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DEDITED_BY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CREDITED_BY	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AGE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AGE_FROM	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AGE_TO	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AMOUNT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_AMOUNT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAX_AMOUNT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BALANCE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAX_BALANCE_ALLOWED	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CERTIFICATE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CERTIFICATE_VALUE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAXIMUM_DB_PERCENT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAXIMUM_DB_CEILING	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SUBJECT_TO_DRAW	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MAXIMUM_DB_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ZAKAT_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NBR_MNTH	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DRM_BAL_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PAYMENT_COND_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_COMM_NRES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_COMM_NRES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_COMM_CEE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_COMM_CEE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_EXPN_NRES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_EXPN_NRES	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_AC_EXPN_CEE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_GL_EXPN_CEE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_POST_MTH	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_RISKY_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_ACCNT_CLASS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_LAST_MODIFICATION_DATE	Date
+BBSC_CUST_ACCNT_TYPES	ACTP_LAST_MODIFICATION_USER	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_FSTRMD_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_SCDRMD_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_TRS_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_CLS_ACC_FLG	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_ACNT_NUM	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_MTD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_THRESHOLD_AMNT	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_CONVERT_CERT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_CERT_ACTP	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_ACNT_NUM	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_ACCD_CODE	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_POS_PERD1	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_BONUS_POS_PERD2	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_POS_ACNT_NUM	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_POS_ACCD_CODE	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_CERT_BLOCK_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_CERT_INT_ACTP	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_CERT_CHARITY_GL	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_DEP_TYPE	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_MIN_DEP_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_MAX_DEP_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_DEP_UPTODAY_PERD	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_STMT_ADDR_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INI_DEP_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_INI_DEP_AMOUNT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_VALID_FROM	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_STOP_AFT	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_WTH_PERC	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_WTH_IND	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_RATE_IND	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_SUSP_IND	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWT_UNPINT_MNTHS	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWT_INT_PERC	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_INT_PERC	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRCL_UNPINT_MNTHS	char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWT_IMPCT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_IE_INS_FLG	INT
+BBSC_CUST_ACCNT_TYPES	STIT_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CLS_AFT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CLS_AFT_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_MATURITY_IND	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_MAX_ACTIVE_ACC	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_NOTICE_GRACE_DAYS	Char25
+BBSC_CUST_ACCNT_TYPES	GRAT_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWT_GRACE_DAYS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NOTICE_ACC_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NOTICE_PERD_LEN	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_NOTICE_PERD_UNIT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_BRCH_CUST_RESTR_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRNT_DAYS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_DB_IND_CACC	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_DB_IND_GL	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_DB_IND_CHCK	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CR_IND_CACC	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CR_IND_TRSF	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_CR_IND_CHCK	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SMS_DRM_CACC_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SMS_NBR_OF_DAYS	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_CLS_DRM_CACC_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_COMP_ACCR_SAME_DAY_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PERD_RATE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DEP_COMP_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_INT_PEN_RATE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_INT_GRACE_PRD	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWD_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_APPLY_NEW_RATE_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_REINVEST_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_DISTRIBUTE_COMM_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PROFIT_TO_SUSPENSE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_SCHD_AGE_TO	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_MIN_BAL_AMNT	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_E_STMT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_E_STMT_ASPR_CODE	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PAPER_STMT_FEE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PAPER_STMT_APPLY_FEE_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_PAPER_STMT_IND	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_FRESH_FLG	INT
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_SCND_TRS_PERD	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_SCND_TRS_ACNT_NUM	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_UMA_SCND_TRS_SMS_FLG	Char25
+BBSC_CUST_ACCNT_TYPES	BENF_CODE	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_NB_OF_DAYS	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FRESH_TYPE_FLG	Char25
+BBSC_CUST_ACCNT_TYPES	ACTP_FTD_PRWD_PERC	Char25
+BBSC_CUST_CATEGORIES	CCTG_CODE	INT
+BBSC_CUST_CATEGORIES	CCTG_B_DESC	Char25
+BBSC_CUST_CATEGORIES	CCTG_S_DESC	Char25
+BBSC_CUST_CATEGORIES	CCTG_TYPE	INT
+BBSC_CUST_CATEGORIES	NODE_ID	Char25
+BBSC_CUST_CATEGORIES	PROGRAM_ID	Char25
+BBSC_CUST_CATEGORIES	USER_ID	Char25
+BBSC_CUST_CATEGORIES	TIME_STAMP	Date
+BBSC_CUST_CATEGORIES	CCTG_CAOF_FLG	Char25
+BBSC_CUST_GROUP_TYPES	CGRT_CODE	INT
+BBSC_CUST_GROUP_TYPES	CGRT_B_DESC	Char25
+BBSC_CUST_GROUP_TYPES	CGRT_S_DESC	Char25
+BBSC_CUST_GROUP_TYPES	NODE_ID	Char25
+BBSC_CUST_GROUP_TYPES	PROGRAM_ID	Char25
+BBSC_CUST_GROUP_TYPES	USER_ID	Char25
+BBSC_CUST_GROUP_TYPES	TIME_STAMP	Date
+BBSC_CUST_GROUP_TYPES	CGRT_CDRS_IND	INT
+BBSC_CUST_NATURE	CNAT_CODE	INT
+BBSC_CUST_NATURE	CNAT_B_DESC	Char50
+BBSC_CUST_NATURE	CNAT_S_DESC	Char50
+BBSC_CUST_NATURE	CNAT_LOGIC_FLG	INT
+BBSC_CUST_NATURE	NODE_ID	Char25
+BBSC_CUST_NATURE	PROGRAM_ID	Char25
+BBSC_CUST_NATURE	USER_ID	Char25
+BBSC_CUST_NATURE	TIME_STAMP	Date
+BBSC_CUST_NATURE	ECCL_CODE	INT
+BBSC_CUST_NATURE	CNTT_CODE	INT
+BBSC_CUST_NATURE	CNAT_OLD_CODE	INT
+BBSC_CUST_NATURE	CNAT_PP_MP_IND	INT
+BBSC_CUST_ORIGINS	ORGN_CODE	INT
+BBSC_CUST_ORIGINS	ORGN_B_DESC	Char25
+BBSC_CUST_ORIGINS	ORGN_S_DESC	Char25
+BBSC_CUST_ORIGINS	NODE_ID	Char25
+BBSC_CUST_ORIGINS	PROGRAM_ID	Char25
+BBSC_CUST_ORIGINS	USER_ID	Char25
+BBSC_CUST_ORIGINS	TIME_STAMP	Date
+BBSC_CUST_ORIGINS	ORGN_PP_MP_IND	INT
+BBSC_CUST_RISK_FACTORS	CRIF_CODE	INT
+BBSC_CUST_RISK_FACTORS	CRIF_B_DESC	Char25
+BBSC_CUST_RISK_FACTORS	CRIF_S_DESC	Char25
+BBSC_CUST_RISK_FACTORS	CRIF_AML_EXT_CODE	INT
+BBSC_CUST_RISK_FACTORS	CRIF_GEN_WARN_IND	Char25
+BBSC_CUST_RISK_FACTORS	NODE_ID	Char25
+BBSC_CUST_RISK_FACTORS	PROGRAM_ID	Char25
+BBSC_CUST_RISK_FACTORS	USER_ID	Char25
+BBSC_CUST_RISK_FACTORS	TIME_STAMP	Date
+BBSC_CUST_RISK_FACTORS	CRIF_REQ_REASON_IND	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	CSNL_CODE	INT
+BBSC_CUST_SENSITIVITY_LEVEL	CSNL_B_DESC	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	CSNL_S_DESC	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	NODE_ID	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	PROGRAM_ID	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	USER_ID	Char25
+BBSC_CUST_SENSITIVITY_LEVEL	TIME_STAMP	Date
+BBSC_CUST_STATUS	CSTS_CODE	INT
+BBSC_CUST_STATUS	CSTS_B_DESC	Char25
+BBSC_CUST_STATUS	CSTS_S_DESC	Char25
+BBSC_CUST_STATUS	NODE_ID	Char25
+BBSC_CUST_STATUS	PROGRAM_ID	Char25
+BBSC_CUST_STATUS	USER_ID	Char25
+BBSC_CUST_STATUS	TIME_STAMP	Date
+BBSC_CUST_STATUS	CSTS_BLK_ACC_IND	INT
+BBSC_CUST_TYPES	CTYP_CODE	INT
+BBSC_CUST_TYPES	CTYP_B_DESC	Char25
+BBSC_CUST_TYPES	CTYP_S_DESC	Char25
+BBSC_CUST_TYPES	NODE_ID	Char25
+BBSC_CUST_TYPES	PROGRAM_ID	Char25
+BBSC_CUST_TYPES	USER_ID	Char25
+BBSC_CUST_TYPES	TIME_STAMP	Date
+BBSC_CUST_TYPES	CTYP_CATEGORY	Char25
+BBSC_CUSTOMER_CONSENTS	CSCS_CODE	INT
+BBSC_CUSTOMER_CONSENTS	CSCS_B_DESC	Char25
+BBSC_CUSTOMER_CONSENTS	CSCS_S_DESC	Char25
+BBSC_CUSTOMER_CONSENTS	NODE_ID	Char25
+BBSC_CUSTOMER_CONSENTS	PROGRAM_ID	Char25
+BBSC_CUSTOMER_CONSENTS	USER_ID	Char25
+BBSC_CUSTOMER_CONSENTS	TIME_STAMP	Date
+BBSC_DEPARTMENTS	DEPT_CODE	INT
+BBSC_DEPARTMENTS	DEPT_B_DESC	Char25
+BBSC_DEPARTMENTS	DEPT_S_DESC	Char25
+BBSC_DEPARTMENTS	NODE_ID	Char25
+BBSC_DEPARTMENTS	PROGRAM_ID	Char25
+BBSC_DEPARTMENTS	USER_ID	Char25
+BBSC_DEPARTMENTS	TIME_STAMP	Date
+BBSC_DEPARTMENTS	CSTC_CODE	Char25
+BBSC_DOCUMENT_NATURES	DCNT_CODE	INT
+BBSC_DOCUMENT_NATURES	DCNT_B_DESC	Char25
+BBSC_DOCUMENT_NATURES	DCNT_S_DESC	Char25
+BBSC_DOCUMENT_NATURES	NODE_ID	Char25
+BBSC_DOCUMENT_NATURES	PROGRAM_ID	Char25
+BBSC_DOCUMENT_NATURES	USER_ID	Char25
+BBSC_DOCUMENT_NATURES	TIME_STAMP	Date
+BBSC_DOCUMENT_NATURES	DCNT_ISS_REQ_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_EXP_REQ_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ISS_CTRY_REQ_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_TYPE_LOV_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_WEB_SERVICE_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_COPY_TO_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_DEP_ON_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_BLACKLIST_IND	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RESD_CTRY_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_NUM_ALPHA_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_MIN_LEN	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_MAX_LEN	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_FORMAT	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_NUM_ALPHA_FLG	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_MIN_LEN	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_MAX_LEN	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_FORMAT	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT01	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT02	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT03	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT04	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT05	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT06	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT07	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT08	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT09	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT10	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_WEIGHT11	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_RL_MODULO	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT01	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT02	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT03	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT04	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT05	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT06	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT07	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT08	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT09	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT10	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_WEIGHT11	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_NF_MODULO	INT
+BBSC_DOCUMENT_NATURES	DCNT_ID_FORMULA_MTHD_FLG	INT
+BBSC_DOCUMENT_STATUS	DCST_CODE	INT
+BBSC_DOCUMENT_STATUS	DCST_B_DESC	Char25
+BBSC_DOCUMENT_STATUS	NODE_ID	Char25
+BBSC_DOCUMENT_STATUS	PROGRAM_ID	Char25
+BBSC_DOCUMENT_STATUS	USER_ID	Char25
+BBSC_DOCUMENT_STATUS	TIME_STAMP	Date
+BBSC_DOCUMENT_STATUS	DCST_S_DESC	Char25
+BBSC_DR_INTEREST_RATES	DIRT_CODE	INT
+BBSC_DR_INTEREST_RATES	DIRT_B_DESC	Char50
+BBSC_DR_INTEREST_RATES	DIRT_S_DESC	Char50
+BBSC_DR_INTEREST_RATES	NODE_ID	Char25
+BBSC_DR_INTEREST_RATES	PROGRAM_ID	Char25
+BBSC_DR_INTEREST_RATES	USER_ID	Char25
+BBSC_DR_INTEREST_RATES	TIME_STAMP	Date
+BBSC_DR_INTEREST_RATES	RATY_CODE	Char25
+BBSC_DR_INTEREST_RATES	DIRT_REPLACE_RATE_CODE_FLG	Char25
+BBSC_DR_INTEREST_RATES	DIRT_DB_CR_FLG	Char25
+BBSC_DR_INTEREST_RATES	DIRT_REPLACE_CODE	Char25
+BBSC_ECONOMIC_CODES	ECOD_CODE	INT
+BBSC_ECONOMIC_CODES	ECOD_B_DESC	Char50
+BBSC_ECONOMIC_CODES	ECOD_S_DESC	Char50
+BBSC_ECONOMIC_CODES	NODE_ID	Char25
+BBSC_ECONOMIC_CODES	PROGRAM_ID	Char25
+BBSC_ECONOMIC_CODES	USER_ID	Char25
+BBSC_ECONOMIC_CODES	TIME_STAMP	Date
+BBSC_ECONOMIC_CODES	ECOD_ISO	Char25
+BBSC_ECONOMIC_SECTORS	ECOS_CODE	INT
+BBSC_ECONOMIC_SECTORS	ECOS_B_DESC	Char50
+BBSC_ECONOMIC_SECTORS	ECOS_S_DESC	Char50
+BBSC_ECONOMIC_SECTORS	ECOS_ISO	Char25
+BBSC_ECONOMIC_SECTORS	NODE_ID	Char25
+BBSC_ECONOMIC_SECTORS	PROGRAM_ID	Char25
+BBSC_ECONOMIC_SECTORS	USER_ID	Char25
+BBSC_ECONOMIC_SECTORS	TIME_STAMP	Date
+BBSC_ECONOMIC_SECTORS	DAES_CODE	Char25
+BBSC_ESTIMATED_TURNOVERS	ESTO_CODE	INT
+BBSC_ESTIMATED_TURNOVERS	ESTO_B_DESC	Char50
+BBSC_ESTIMATED_TURNOVERS	ESTO_S_DESC	Char50
+BBSC_ESTIMATED_TURNOVERS	NODE_ID	Char25
+BBSC_ESTIMATED_TURNOVERS	PROGRAM_ID	Char25
+BBSC_ESTIMATED_TURNOVERS	USER_ID	Char25
+BBSC_ESTIMATED_TURNOVERS	TIME_STAMP	Date
+BBSC_ESTIMATED_TURNOVERS	ESTO_REQ_FLG	Char25
+BBSC_FAMILY_SITUATIONS	FSIT_CODE	INT
+BBSC_FAMILY_SITUATIONS	FSIT_B_DESC	Char25
+BBSC_FAMILY_SITUATIONS	FSIT_S_DESC	Char25
+BBSC_FAMILY_SITUATIONS	NODE_ID	Char25
+BBSC_FAMILY_SITUATIONS	PROGRAM_ID	Char25
+BBSC_FAMILY_SITUATIONS	USER_ID	Char25
+BBSC_FAMILY_SITUATIONS	TIME_STAMP	Date
+BBSC_GL_GROUPS_D	GLGM_CODE	INT
+BBSC_GL_GROUPS_D	ACNT_NUM	Char25
+BBSC_GL_GROUPS_D	NODE_ID	Char25
+BBSC_GL_GROUPS_D	PROGRAM_ID	Char25
+BBSC_GL_GROUPS_D	USER_ID	Char25
+BBSC_GL_GROUPS_D	TIME_STAMP	Date
+BBSC_GL_TYPES	GLTY_CODE	INT
+BBSC_GL_TYPES	GLTY_B_DESC	Char25
+BBSC_GL_TYPES	GLTY_S_DESC	Char25
+BBSC_GL_TYPES	NODE_ID	Char25
+BBSC_GL_TYPES	PROGRAM_ID	Char25
+BBSC_GL_TYPES	USER_ID	Char25
+BBSC_GL_TYPES	TIME_STAMP	Date
+BBSC_GRP_ACCNT_TYPES	GRAT_CODE	INT
+BBSC_GRP_ACCNT_TYPES	GRAT_B_DESC	Char25
+BBSC_GRP_ACCNT_TYPES	GRAT_S_DESC	Char25
+BBSC_GRP_ACCNT_TYPES	NODE_ID	Char25
+BBSC_GRP_ACCNT_TYPES	PROGRAM_ID	Char25
+BBSC_GRP_ACCNT_TYPES	USER_ID	Char25
+BBSC_GRP_ACCNT_TYPES	TIME_STAMP	Date
+BBSC_INCOME_RANGES	INCR_CODE	INT
+BBSC_INCOME_RANGES	INCR_B_DESC	Char25
+BBSC_INCOME_RANGES	INCR_S_DESC	Char25
+BBSC_INCOME_RANGES	NODE_ID	Char25
+BBSC_INCOME_RANGES	PROGRAM_ID	Char25
+BBSC_INCOME_RANGES	USER_ID	Char25
+BBSC_INCOME_RANGES	TIME_STAMP	Date
+BBSC_INCOME_RANGES	INCR_UPTO_AMOUNT	Char25
+BBSC_INCOMPLETE_FILE_REASONS	INFR_CODE	INT
+BBSC_INCOMPLETE_FILE_REASONS	INFR_B_DESC	Char50
+BBSC_INCOMPLETE_FILE_REASONS	INFR_S_DESC	Char50
+BBSC_INCOMPLETE_FILE_REASONS	NODE_ID	Char25
+BBSC_INCOMPLETE_FILE_REASONS	PROGRAM_ID	Char25
+BBSC_INCOMPLETE_FILE_REASONS	USER_ID	Char25
+BBSC_INCOMPLETE_FILE_REASONS	TIME_STAMP	Date
+BBSC_INTEREST_PERIODICITIES	INTP_CODE	INT
+BBSC_INTEREST_PERIODICITIES	INTP_B_DESC	Char50
+BBSC_INTEREST_PERIODICITIES	INTP_S_DESC	Char50
+BBSC_INTEREST_PERIODICITIES	NODE_ID	Char25
+BBSC_INTEREST_PERIODICITIES	PROGRAM_ID	Char25
+BBSC_INTEREST_PERIODICITIES	USER_ID	Char25
+BBSC_INTEREST_PERIODICITIES	TIME_STAMP	Date
+BBSC_INTERNAL_COMPANIES	INTC_CODE	INT
+BBSC_INTERNAL_COMPANIES	INTC_B_DESC	Char25
+BBSC_INTERNAL_COMPANIES	INTC_S_DESC	Char25
+BBSC_INTERNAL_COMPANIES	NODE_ID	Char25
+BBSC_INTERNAL_COMPANIES	PROGRAM_ID	Char25
+BBSC_INTERNAL_COMPANIES	USER_ID	Char25
+BBSC_INTERNAL_COMPANIES	TIME_STAMP	Date
+BBSC_JOB_TITLES	JTIT_CODE	INT
+BBSC_JOB_TITLES	JTIT_B_DESC	Char50
+BBSC_JOB_TITLES	JTIT_S_DESC	Char50
+BBSC_JOB_TITLES	NODE_ID	Char25
+BBSC_JOB_TITLES	PROGRAM_ID	Char25
+BBSC_JOB_TITLES	USER_ID	Char25
+BBSC_JOB_TITLES	TIME_STAMP	Date
+BBSC_LEGAL_STATUS_CODES	BSLC_CODE	INT
+BBSC_LEGAL_STATUS_CODES	BSLC_B_DESC	Char50
+BBSC_LEGAL_STATUS_CODES	BSLC_S_DESC	Char50
+BBSC_LEGAL_STATUS_CODES	NODE_ID	Char25
+BBSC_LEGAL_STATUS_CODES	PROGRAM_ID	Char25
+BBSC_LEGAL_STATUS_CODES	USER_ID	Char25
+BBSC_LEGAL_STATUS_CODES	TIME_STAMP	Date
+BBSC_LEGAL_STATUS	LGLS_CODE	INT
+BBSC_LEGAL_STATUS	LGLS_B_DESC	Char50
+BBSC_LEGAL_STATUS	LGLS_S_DESC	Char50
+BBSC_LEGAL_STATUS	NODE_ID	Char25
+BBSC_LEGAL_STATUS	PROGRAM_ID	Char25
+BBSC_LEGAL_STATUS	USER_ID	Char25
+BBSC_LEGAL_STATUS	TIME_STAMP	Date
+BBSC_LEGAL_STATUS	MPMT_CODE	INT
+BBSC_LEGAL_STATUS	LGLS_REQ_REG	INT
+BBSC_LEGAL_STATUS	LGLS_NATURE	INT
+BBSC_LEGAL_STATUS	LGLS_RISKY_FLG	INT
+BBSC_LEGAL_STATUS	LGLS_SHLDR_COND_FLG	INT
+BBSC_LEGAL_STATUS	LGLS_DFLT_TAX_IND	INT
+BBSC_LEGAL_STATUS	LGLS_CRTL_PERS_IND	INT
+BBSC_LOCALITIES	LCTY_CODE	INT
+BBSC_LOCALITIES	LCTY_B_DESC	Char25
+BBSC_LOCALITIES	LCTY_S_DESC	Char25
+BBSC_LOCALITIES	NODE_ID	Char25
+BBSC_LOCALITIES	PROGRAM_ID	Char25
+BBSC_LOCALITIES	USER_ID	Char25
+BBSC_LOCALITIES	TIME_STAMP	Date
+BBSC_LOCALITIES	LCTY_ISO	INT
+BBSC_LOCALITIES	LCTY_LOCAL_FLG	int
+BBSC_LOCALITIES	CRRG_CODE	Char25
+BBSC_LOCALITIES	LCTY_CDR_CODE	Char25
+BBSC_LOCALITIES	DA_LCTY_CODE	INT
+BBSC_MAIL_DESTINATIONS	MAIL_CODE	INT
+BBSC_MAIL_DESTINATIONS	MAIL_B_DESC	Char50
+BBSC_MAIL_DESTINATIONS	MAIL_S_DESC	Char50
+BBSC_MAIL_DESTINATIONS	NODE_ID	Char25
+BBSC_MAIL_DESTINATIONS	PROGRAM_ID	Char25
+BBSC_MAIL_DESTINATIONS	USER_ID	Char25
+BBSC_MAIL_DESTINATIONS	TIME_STAMP	Date
+BBSC_MEMBERS_ROLES	MERO_CODE	INT
+BBSC_MEMBERS_ROLES	MERO_B_DESC	Char25
+BBSC_MEMBERS_ROLES	NODE_ID	Char25
+BBSC_MEMBERS_ROLES	PROGRAM_ID	Char25
+BBSC_MEMBERS_ROLES	USER_ID	Char25
+BBSC_MEMBERS_ROLES	TIME_STAMP	Date
+BBSC_MEMBERS_ROLES	MERO_S_DESC	Char25
+BBSC_MEMBERS_ROLES	MERO_LOGIC_VAL	INT
+BBSC_MRPR_MEMBER_TYPES	MPMT_CODE	INT
+BBSC_MRPR_MEMBER_TYPES	MPMT_B_DESC	Char50
+BBSC_MRPR_MEMBER_TYPES	MPMT_S_DESC	Char50
+BBSC_MRPR_MEMBER_TYPES	NODE_ID	Char25
+BBSC_MRPR_MEMBER_TYPES	PROGRAM_ID	Char25
+BBSC_MRPR_MEMBER_TYPES	USER_ID	Char25
+BBSC_MRPR_MEMBER_TYPES	TIME_STAMP	Date
+BBSC_MRPR_MEMBER_TYPES	MPMT_LOGIC_VAL	Char25
+BBSC_MRPR_MEMBER_TYPES	MPMT_FTC_LGC_IND	Char25
+BBSC_MRPR_MEMBER_TYPES	MPMT_CP_MEMBER_IND	INT
+BBSC_PARTNER_SHIP	PART_CODE	INT
+BBSC_PARTNER_SHIP	PART_B_DESC	Char25
+BBSC_PARTNER_SHIP	PART_S_DESC	Char25
+BBSC_PARTNER_SHIP	NODE_ID	Char25
+BBSC_PARTNER_SHIP	PROGRAM_ID	Char25
+BBSC_PARTNER_SHIP	USER_ID	Char25
+BBSC_PARTNER_SHIP	TIME_STAMP	Date
+BBSC_PARTNER_SHIP	PART_VALUE	Char25
+BBSC_PARTNER_SHIP	PART_CP_MEMBER_IND	INT
+BBSC_POSTAL_ZONE_EXTS	PZON_CODE	INT
+BBSC_POSTAL_ZONE_EXTS	PZEX_CODE	INT
+BBSC_POSTAL_ZONE_EXTS	PZEX_B_DESC	Char25
+BBSC_POSTAL_ZONE_EXTS	PZEX_S_DESC	Char25
+BBSC_POSTAL_ZONE_EXTS	NODE_ID	Char25
+BBSC_POSTAL_ZONE_EXTS	PROGRAM_ID	Char25
+BBSC_POSTAL_ZONE_EXTS	USER_ID	Char25
+BBSC_POSTAL_ZONE_EXTS	TIME_STAMP	Date
+BBSC_POSTAL_ZONES	PZON_CODE	INT
+BBSC_POSTAL_ZONES	PZON_B_DESC	Char25
+BBSC_POSTAL_ZONES	PZON_S_DESC	Char25
+BBSC_POSTAL_ZONES	NODE_ID	Char25
+BBSC_POSTAL_ZONES	PROGRAM_ID	Char25
+BBSC_POSTAL_ZONES	USER_ID	Char25
+BBSC_POSTAL_ZONES	TIME_STAMP	Date
+BBSC_POSTAL_ZONES	PZON_FR_POBOX	INT
+BBSC_POSTAL_ZONES	PZON_TO_POBOX	INT
+BBSC_POSTAL_ZONES	PZON_ZIPCODE	INT
+BBSC_PROF_STATUS	PRFS_CODE	INT
+BBSC_PROF_STATUS	PRFS_B_DESC	Char25
+BBSC_PROF_STATUS	PRFS_S_DESC	Char25
+BBSC_PROF_STATUS	NODE_ID	Char25
+BBSC_PROF_STATUS	PROGRAM_ID	Char25
+BBSC_PROF_STATUS	USER_ID	Char25
+BBSC_PROF_STATUS	TIME_STAMP	Date
+BBSC_PROF_STATUS	PRFS_LOGIC_VAL	Char25
+BBSC_PROFESSIONS	PROF_CODE	INT
+BBSC_PROFESSIONS	PROF_B_DESC	Char50
+BBSC_PROFESSIONS	PROF_S_DESC	Char50
+BBSC_PROFESSIONS	NODE_ID	Char25
+BBSC_PROFESSIONS	PROGRAM_ID	Char25
+BBSC_PROFESSIONS	USER_ID	Char25
+BBSC_PROFESSIONS	TIME_STAMP	Date
+BBSC_PROFESSIONS	ACTV_CODE	INT
+BBSC_PROFESSIONS	PROF_RISKY_FLG	Date
+BBSC_PROFESSIONS	PROF_EMPL_FLG	INT
+BBSC_QUALITIES	QLTY_CODE	INT
+BBSC_QUALITIES	QLTY_B_DESC	Char25
+BBSC_QUALITIES	QLTY_S_DESC	Char25
+BBSC_QUALITIES	NODE_ID	Char25
+BBSC_QUALITIES	PROGRAM_ID	Char25
+BBSC_QUALITIES	USER_ID	Char25
+BBSC_QUALITIES	TIME_STAMP	Date
+BBSC_QUALITIES	QLTY_DETAILED_DESC	Char25
+BBSC_QUALITIES	QLTY_GENDER	Char25
+BBSC_QUALITIES	QLTY_PP_MP_IND	INT
+BBSC_RELATION_NATURES	RLNT_CODE	INT
+BBSC_RELATION_NATURES	RLNT_B_DESC	Char25
+BBSC_RELATION_NATURES	RLNT_S_DESC	Char25
+BBSC_RELATION_NATURES	NODE_ID	Char25
+BBSC_RELATION_NATURES	PROGRAM_ID	Char25
+BBSC_RELATION_NATURES	USER_ID	Char25
+BBSC_RELATION_NATURES	TIME_STAMP	Date
+BBSC_RELATION_REASONS	RLRS_CODE	INT
+BBSC_RELATION_REASONS	RLRS_B_DESC	Char50
+BBSC_RELATION_REASONS	RLRS_S_DESC	Char50
+BBSC_RELATION_REASONS	NODE_ID	Char25
+BBSC_RELATION_REASONS	PROGRAM_ID	Char25
+BBSC_RELATION_REASONS	USER_ID	Char25
+BBSC_RELATION_REASONS	TIME_STAMP	Date
+BBSC_RELIGIONS	RELG_CODE	INT
+BBSC_RELIGIONS	RELG_B_DESC	Char25
+BBSC_RELIGIONS	RELG_S_DESC	Char25
+BBSC_RELIGIONS	NODE_ID	Char25
+BBSC_RELIGIONS	PROGRAM_ID	Char25
+BBSC_RELIGIONS	USER_ID	Char25
+BBSC_RELIGIONS	TIME_STAMP	Date
+BBSC_REPORTING_REGIONS	RREG_CODE	INT
+BBSC_REPORTING_REGIONS	RREG_B_DESC	Char25
+BBSC_REPORTING_REGIONS	RREG_S_DESC	Char25
+BBSC_REPORTING_REGIONS	RREG_ABRV_CODE	Char25
+BBSC_REPORTING_REGIONS	RREG_B_SHORT_D	Char25
+BBSC_REPORTING_REGIONS	RREG_S_SHORT_D	Char25
+BBSC_REPORTING_REGIONS	NODE_ID	Char25
+BBSC_REPORTING_REGIONS	PROGRAM_ID	Char25
+BBSC_REPORTING_REGIONS	USER_ID	Char25
+BBSC_REPORTING_REGIONS	TIME_STAMP	Date
+BBSC_REPORTING_REGIONS	RREG_MANAGER	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_CODE	INT
+BBSC_REQUIRED_DOCUMENTS	CNAT_CODE	INT
+BBSC_REQUIRED_DOCUMENTS	RDOC_MAND_FLG	Char25
+BBSC_REQUIRED_DOCUMENTS	USER_ID	Char25
+BBSC_REQUIRED_DOCUMENTS	PROGRAM_ID	Char25
+BBSC_REQUIRED_DOCUMENTS	NODE_ID	Char25
+BBSC_REQUIRED_DOCUMENTS	TIME_STAMP	Date
+BBSC_REQUIRED_DOCUMENTS	DCMT_UPLOAD_FLG	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_REQ_SIGN_FLG	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_INDEXES	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_REF1	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_REF2	Char25
+BBSC_REQUIRED_DOCUMENTS	DCMT_REF3	Char25
+BBSC_RESIDENTS	RESD_CODE	INT
+BBSC_RESIDENTS	RESD_B_DESC	char25
+BBSC_RESIDENTS	RESD_S_DESC	char25
+BBSC_RESIDENTS	RESD_LOGIC_FLG	INT
+BBSC_RESIDENTS	NODE_ID	char25
+BBSC_RESIDENTS	PROGRAM_ID	char25
+BBSC_RESIDENTS	USER_ID	char25
+BBSC_RESIDENTS	TIME_STAMP	Date
+BBSC_RESIDENTS	RESD_PP_MP_IND	INT
+BBSC_RETURNED_MAIL_REASONS	RTMR_CODE	INT
+BBSC_RETURNED_MAIL_REASONS	RTMR_B_DESC	char25
+BBSC_RETURNED_MAIL_REASONS	RTMR_S_DESC	char25
+BBSC_RETURNED_MAIL_REASONS	NODE_ID	char25
+BBSC_RETURNED_MAIL_REASONS	PROGRAM_ID	char25
+BBSC_RETURNED_MAIL_REASONS	USER_ID	char25
+BBSC_RETURNED_MAIL_REASONS	TIME_STAMP	Date
+BBSC_SECRECY_LEVELS	SCLV_CODE	INT
+BBSC_SECRECY_LEVELS	SCLV_B_DESC	char25
+BBSC_SECRECY_LEVELS	SCLV_S_DESC	char25
+BBSC_SECRECY_LEVELS	NODE_ID	char25
+BBSC_SECRECY_LEVELS	PROGRAM_ID	char25
+BBSC_SECRECY_LEVELS	USER_ID	char25
+BBSC_SECRECY_LEVELS	TIME_STAMP	Date
+BBSC_SECT_DOMECTIC_ECOS	SDEC_CODE	INT
+BBSC_SECT_DOMECTIC_ECOS	SDEC_ISO	INT
+BBSC_SECT_DOMECTIC_ECOS	SDEC_B_DESC	char25
+BBSC_SECT_DOMECTIC_ECOS	SDEC_S_DESC	char25
+BBSC_SECT_DOMECTIC_ECOS	NODE_ID	char25
+BBSC_SECT_DOMECTIC_ECOS	PROGRAM_ID	char25
+BBSC_SECT_DOMECTIC_ECOS	USER_ID	char25
+BBSC_SECT_DOMECTIC_ECOS	TIME_STAMP	Date
+BBSC_SIGN_COMBINATIONS	SGNC_CODE	INT
+BBSC_SIGN_COMBINATIONS	SGNC_B_DESC	Char50
+BBSC_SIGN_COMBINATIONS	SGNC_S_DESC	Char50
+BBSC_SIGN_COMBINATIONS	NODE_ID	char25
+BBSC_SIGN_COMBINATIONS	PROGRAM_ID	char25
+BBSC_SIGN_COMBINATIONS	USER_ID	char25
+BBSC_SIGN_COMBINATIONS	TIME_STAMP	Date
+BBSC_SOURCE_OF_INCOME	ISCR_CODE	INT
+BBSC_SOURCE_OF_INCOME	ISCR_B_DESC	char25
+BBSC_SOURCE_OF_INCOME	NODE_ID	char25
+BBSC_SOURCE_OF_INCOME	PROGRAM_ID	char25
+BBSC_SOURCE_OF_INCOME	USER_ID	char25
+BBSC_SOURCE_OF_INCOME	TIME_STAMP	Date
+BBSC_SOURCE_OF_INCOME	ISCR_S_DESC	char25
+BBSC_SOURCE_OF_INCOME	ISCR_DISP_FLG	INT
+BBSC_STMT_MAIL_CODES	STMC_CODE	INT
+BBSC_STMT_MAIL_CODES	STMC_B_DESC	char25
+BBSC_STMT_MAIL_CODES	STMC_S_DESC	char25
+BBSC_STMT_MAIL_CODES	NODE_ID	char25
+BBSC_STMT_MAIL_CODES	PROGRAM_ID	char25
+BBSC_STMT_MAIL_CODES	USER_ID	char25
+BBSC_STMT_MAIL_CODES	TIME_STAMP	Date
+BBSC_STP_REASONS	STPR_CODE	INT
+BBSC_STP_REASONS	STPR_B_DESC	char25
+BBSC_STP_REASONS	STPR_S_DESC	char25
+BBSC_STP_REASONS	NODE_ID	char25
+BBSC_STP_REASONS	PROGRAM_ID	char25
+BBSC_STP_REASONS	USER_ID	char25
+BBSC_STP_REASONS	TIME_STAMP	Date
+BBSC_STRATEGIES	STRA_CODE	INT
+BBSC_STRATEGIES	STRA_B_DESC	char25
+BBSC_STRATEGIES	STRA_S_DESC	char25
+BBSC_STRATEGIES	NODE_ID	char25
+BBSC_STRATEGIES	PROGRAM_ID	char25
+BBSC_STRATEGIES	USER_ID	char25
+BBSC_STRATEGIES	TIME_STAMP	Date
+BBSC_STUDIES_DEGREES	STDG_CODE	INT
+BBSC_STUDIES_DEGREES	STDG_B_DESC	char25
+BBSC_STUDIES_DEGREES	STDG_S_DESC	char25
+BBSC_STUDIES_DEGREES	NODE_ID	char25
+BBSC_STUDIES_DEGREES	PROGRAM_ID	char25
+BBSC_STUDIES_DEGREES	USER_ID	char25
+BBSC_STUDIES_DEGREES	TIME_STAMP	Date
+BBSC_SUB_LOCALITIES	LCTY_CODE	INT
+BBSC_SUB_LOCALITIES	SLTY_CODE	INT
+BBSC_SUB_LOCALITIES	SLTY_B_DESC	char25
+BBSC_SUB_LOCALITIES	SLTY_S_DESC	char25
+BBSC_SUB_LOCALITIES	NODE_ID	char25
+BBSC_SUB_LOCALITIES	PROGRAM_ID	char25
+BBSC_SUB_LOCALITIES	USER_ID	char25
+BBSC_SUB_LOCALITIES	TIME_STAMP	Date
+BBSC_SUFFIXES	SUFX_CODE	INT
+BBSC_SUFFIXES	SUFX_B_DESC	char25
+BBSC_SUFFIXES	SUFX_S_DESC	char25
+BBSC_SUFFIXES	NODE_ID	char25
+BBSC_SUFFIXES	PROGRAM_ID	char25
+BBSC_SUFFIXES	USER_ID	char25
+BBSC_SUFFIXES	TIME_STAMP	Date
+BBSC_TAX_LEVELS	TAXL_CODE	INT
+BBSC_TAX_LEVELS	TAXL_DESC	char25
+BBSC_TAX_LEVELS	TAXL_RATE	char25
+BBSC_TAX_LEVELS	NODE_ID	char25
+BBSC_TAX_LEVELS	PROGRAM_ID	char25
+BBSC_TAX_LEVELS	USER_ID	char25
+BBSC_TAX_LEVELS	TIME_STAMP	Date
+BBSC_TELLERS	UDEF_CODE	char25
+BBSC_TELLERS	TLLR_CASH_CODE	INT
+BBSC_TELLERS	NODE_ID	char25
+BBSC_TELLERS	PROGRAM_ID	char25
+BBSC_TELLERS	USER_ID	char25
+BBSC_TELLERS	TIME_STAMP	Date
+BBSC_TELLERS	TLLR_SEND_IND	char25
+BBSC_TELLERS	TLLR_CASH_ACT_FLG	INT
+BBSC_TELLERS	CHBX_CODE	INT
+BBSC_TELLERS	TLLR_DIRECTION_IND	INT
+BBSC_TRANSACTION_TYPES	TTYP_CODE	INT
+BBSC_TRANSACTION_TYPES	TTYP_B_DESC	char25
+BBSC_TRANSACTION_TYPES	NODE_ID	char25
+BBSC_TRANSACTION_TYPES	PROGRAM_ID	char25
+BBSC_TRANSACTION_TYPES	USER_ID	char25
+BBSC_TRANSACTION_TYPES	TIME_STAMP	Date
+BBSC_TRANSACTION_TYPES	TTYP_S_DESC	char25
+BBSC_TUTOR_RELATION_SHIPS	TRLS_CODE	INT
+BBSC_TUTOR_RELATION_SHIPS	TRLS_B_DESC	char25
+BBSC_TUTOR_RELATION_SHIPS	TRLS_S_DESC	char25
+BBSC_TUTOR_RELATION_SHIPS	NODE_ID	char25
+BBSC_TUTOR_RELATION_SHIPS	PROGRAM_ID	char25
+BBSC_TUTOR_RELATION_SHIPS	USER_ID	char25
+BBSC_TUTOR_RELATION_SHIPS	TIME_STAMP	Date
+BBSC_TUTOR_RELATION_SHIPS	TRLS_LEG_JUDC_IND	INT
+BBSD_CBKBALS	BDATE	Date
+BBSD_CBKBALS	BBRCH	INT
+BBSD_CBKBALS	BCURR	INT
+BBSD_CBKBALS	BGL	char25
+BBSD_CBKBALS	BCACC	char25
+BBSD_CBKBALS	BCUST	INT
+BBSD_CBKBALS	BTYPE	INT
+BBSD_CBKBALS	BSIGN	char5
+BBSD_CBKBALS	BRATE	Dec
+BBSD_CBKBALS	BRATI	INT
+BBSD_CBKBALS	BRESD	INT
+BBSD_CBKBALS	BCNAT	INT
+BBSD_CBKBALS	BREFF	char25
+BBSD_CBKBALS	BECOS	INT
+BBSD_CBKBALS	BCECO	INT
+BBSD_CBKBALS	BREMDAYS	INT
+BBSD_CBKBALS	BPRDDAYS	INT
+BBSD_CBKBALS	BRATECR	Dec
+BBSD_CBKBALS	BRATEDB	Dec
+BBSD_CBKBALS	BCODECR	Dec
+BBSD_CBKBALS	BCODEDB	Dec
+BBSD_CBKBALS	BMRGCR	Dec
+BBSD_CBKBALS	BMRGDB	Dec
+BBSD_CBKBALS	BLIMDUE	NoNeed
+BBSD_CBKBALS	BCSTCTG	INT
+BBSD_CBKBALS	BCBNK	NoNeed
+BBSD_CBKBALS	BBREG	INT
+BBSD_CBKBALS	BOPNDT	Date
+BBSD_CBKBALS	BMATDT	Date
+BBSD_CBKBALS	BRNWDT	Date
+BBSD_CBKBALS	BCLSS	INT
+BBSD_CBKBALS	BLIMDAY	INT
+BBSD_CBKBALS	BTBTM	NoNeed
+BBSD_CBKBALS	BTBCG	NoNeed
+BBSD_CBKBALS	BCTRY	INT
+BBSD_CBKBALS	BTYPNAT	INT
+BBSD_CBKBALS	BCSTS	INT
+BBSD_CBKBALS	BSDEC	NoNeed
+BBSD_CBKBALS	BPENDAYS	NoNeed
+BBSD_CBKBALS	BREFNBR	NoNeed
+BBSD_CBKBALS	BREMITNBR	INT
+BBSD_CBKBALS	BACCIND	INT
+BBSD_CBKBALS	BACCRAMNT	Dec
+BBSD_CBKBALS	BCOMPANY	NoNeed
+BBSD_CBKBALS	BCTYP	INT
+BBSD_CBKBALS	BINST	INT
+BBSD_CBKBALS	BINTRODUCBY	NoNeed
+BBSD_CBKBALS	BCAOF	Dec
+BBSD_CBKBALS	BBAL	Dec
+BBSD_CBKBALS	BCVBAL	Dec
+BBSD_CBKBALS	BBALCR	Dec
+BBSD_CBKBALS	BBALDB	Dec
+BBSD_CBKBALS	BMBAL	Dec
+BBSD_CBKBALS	BMCVBAL	Dec
+BBSD_CBKBALS	BMTHMVCR	Dec
+BBSD_CBKBALS	BMTHCVMVCR	Dec
+BBSD_CBKBALS	BMTHMVDB	Dec
+BBSD_CBKBALS	BMTHCVMVDB	Dec
+BBSD_CBKBALS	BVDATB	Dec
+BBSD_CBKBALS	BVDATCVB	Dec
+BBSD_CBKBALS	BPRVMB	Dec
+BBSD_CBKBALS	BPRVMCVB	Dec
+BBSD_CBKBALS	BPRVDB	Dec
+BBSD_CBKBALS	BPRVDCVB	Dec
+BBSD_CBKBALS	BLIMCR	Dec
+BBSD_CBKBALS	BLIMCV	Dec
+BBSD_CBKBALS	BMMEANB	Dec
+BBSD_CBKBALS	BMMEANCVB	Dec
+BBSD_CBKBALS	BMMINB	Dec
+BBSD_CBKBALS	BMMINCVB	Dec
+BBSD_CBKBALS	BMMAXB	Dec
+BBSD_CBKBALS	BMMAXCVB	Dec
+BBSD_CBKBALS	BMMEANAVB	Dec
+BBSD_CBKBALS	BMMEANAVCVB	Dec
+BBSD_CBKBALS	BMMINAVB	Dec
+BBSD_CBKBALS	BMMINAVCVB	Dec
+BBSD_CBKBALS	BMMAXAVB	Dec
+BBSD_CBKBALS	BMMAXAVCVB	Dec
+BBSD_CBKBALS	BYMEANB	Dec
+BBSD_CBKBALS	BYMEANCVB	Dec
+BBSD_CBKBALS	BYMINB	Dec
+BBSD_CBKBALS	BYMINCVB	Dec
+BBSD_CBKBALS	BYMAXB	Dec
+BBSD_CBKBALS	BYMAXCVB	Dec
+BBSD_CBKBALS	BYMEANAVB	Dec
+BBSD_CBKBALS	BYMEANAVCVB	Dec
+BBSD_CBKBALS	BYMINAVB	Dec
+BBSD_CBKBALS	BYMINAVCVB	Dec
+BBSD_CBKBALS	BYMAXAVB	Dec
+BBSD_CBKBALS	BYMAXAVCVB	Dec
+BBSD_CBKBALS	BLAMNT	Dec
+BBSD_CBKBALS	BLPMNT	Dec
+BBSD_CBKBALS	BLIMNT	Dec
+BBSD_CBKBALS	BINTR	NoNeed
+BBSD_CBKBALS	BMTHPCR	Dec
+BBSD_CBKBALS	BMTHPCVCR	Dec
+BBSD_CBKBALS	BMTHLDR	Dec
+BBSD_CBKBALS	BMTHLCVDR	Dec
+BBSD_CBKBALS	BDDEP	Dec
+BBSD_CBKBALS	BDWTH	Dec
+BBSD_CBKBALS	BPROFIT	NoNeed
+BBSD_CBKBALS	BLOSS	NoNeed
+BBSD_CBKBALS	BAMORTP	NoNeed
+BBSD_CBKBALS	BAMORTL	NoNeed
+BBSD_CBKBALS	BMAVGDBBAL	Dec
+BBSD_CBKBALS	BMAVGDBCVBAL	Dec
+BBSD_CBKBALS	BMAVGCRBAL	Dec
+BBSD_CBKBALS	BMAVGCRCVBAL	Dec
+BBSD_CBKBALS	BMDAYDBTOT	Dec
+BBSD_CBKBALS	BMDAYCRTOT	Dec
+BBSD_CBKBALS	BACCRCVAMNT	Dec
+BBSD_CBKBALS	BCDRSNUM	Dec
+BBSD_CBKBALS	BNATIONALNUM	char25
+BBSD_CBKBALS	BNATIONALITY	INT
+BBSD_CBKBALS	BINTRCV	NoNeed
+BBSD_CBKBALS	BUNAMOR	NoNeed
+BBSD_CBKBALS	BUNAMORCV	NoNeed
+BBSD_CBKBALS	BRLRSCODE	NoNeed
+BBSD_CBKBALS	BRLRSDATE	NoNeed
+BBSD_CBKBALS	BAFLTCODE	NoNeed
+BBSD_CBKBALS	BINTRBY	NoNeed
+BBSD_CBKBALS	BCGRP	NoNeed
+BBSD_CBKBALS	BCACCBNAME	char50
+BBSD_CBKBALS	BCACCSNAME	char50
+BBSD_CBKBALS	BCORTCODE	INT
+BBSD_CBKBALS	BOLDREF	Char25
+BBSD_CBKBALS	BMAVGDBAVBAL	Dec
+BBSD_CBKBALS	BMAVGDBCVAVBAL	Dec
+BBSD_CBKBALS	BMAVGCRAVBAL	Dec
+BBSD_CBKBALS	BMAVGCRCVAVBAL	Dec
+BBSD_CBKBALS	BMDAYDBAVTOT	INT
+BBSD_CBKBALS	BMDAYCRAVTOT	INT
+BBSD_CBKBALS	BILOP	NoNeed
+BBSD_CBKBALS	BILSL	INT
+BBSD_CBKBALS	BCVLAMNT	Dec
+BBSD_CBKBALS	BILOPTYPE	NoNeed
+BBSD_CBKBALS	BCBNUM	NoNeed
+BBSD_CBKBALS	BUNPAMNT	NoNeed
+BBSD_CBKBALS	BUNPCVAMNT	NoNeed
+BBSD_CBKBALS	BMEANB	Dec
+BBSD_CBKBALS	BMEANCVB	Dec
+BBSD_CBKBALS	BVDATCRB	NoNeed
+BBSD_CBKBALS	BVDATCRCVB	NoNeed
+BBSD_CBKBALS	BVDATDRB	NoNeed
+BBSD_CBKBALS	BVDATDRCVB	NoNeed
+BBSD_CBKBALS	BMTHCR	NoNeed
+BBSD_CBKBALS	BMTHDR	NoNeed
+BBSD_CBKBALS	BMTHCVCR	NoNeed
+BBSD_CBKBALS	BMTHCVDR	NoNeed
+BBSD_CBKBALS	BYEARCVDBPL	NoNeed
+BBSD_CBKBALS	BYEARCVCRPL	Dec
+BBSD_CBKBALS	BYEARDBPL	NoNeed
+BBSD_CBKBALS	BYEARCRPL	Dec
+BBSD_CBKBALS	BMATBR	INT
+BBSD_CBKBALS	BMATACC	char25
+BBSD_CBKBALS	BCURR2	NoNeed
+BBSD_CBKBALS	BDBACCRGL	char25
+BBSD_CBKBALS	BCRACCRGL	char25
+BBSD_CBKBALS	BACCINTCV	NoNeed
+BBSD_CBKBALS	BUNPPENCV	NoNeed
+BBSD_CBKBALS	BUNPINT_CV	NoNeed
+BBSD_CBKBALS	BUNPPRINCCV	Dec
+BBSD_CBKBALS	BDBTPRINCCV	NoNeed
+BBSD_CBKBALS	BDBTINTCV	Dec
+BBSD_CBKBALS	BDBTACCCV	NoNeed
+BBSD_CBKBALS	BLILORDESC	INT
+BBSD_CBKBALS	BUNPPRINC	Dec
+BBSD_CBKBALS	BUNPINTER	NoNeed
+BBSD_CBKBALS	BUNPPENALTY	Dec
+BBSD_CBKBALS	BPROVPRINC	Dec
+BBSD_CBKBALS	BPROVINTER	NoNeed
+BBSD_CBKBALS	BACCRNOTPAID	Dec
+BBSD_CBKBALS	BCVACCRNOTPAID	Dec
+BBSD_CBKBALS	BPAYNAT	NoNeed
+BBSD_CBKBALS	BTERM	INT
+BBSD_CBKBALS	BTOTDAYS	INT
+BBSD_CBKBALS	BOVRNGHTBAL	NoNeed
+BBSD_CBKBALS	BBTSEC	NoNeed
+BBSD_CBKBALS	BSHRQUOT	NoNeed
+BBSD_CBKBALS	BSECURED	NoNeed
+BBSD_CBKBALS	BPERFORMING	NoNeed
+BBSD_CBKBALS	BTYPECONT	NoNeed
+BBSD_CBKBALS	BCONTAMNT	NoNeed
+BBSD_CBKBALS	BDEPTYPE	NoNeed
+BBSD_CBKBALS	BOVRNGHTDEPTYPE	NoNeed
+BBSD_CBKBALS	BLOANINF	NoNeed
+BBSD_CBKBALS	BHSHLEND	NoNeed
+BBSD_CBKBALS	BOVRDRW	NoNeed
+BBSD_CBKBALS	BOTHMFITYPE	NoNeed
+BBSD_CBKBALS	BCTRYISO	Char25
+BBSD_CBKBALS	BCECOISO	Char25
+BBSD_CBKBALS	BECOSISO	Char25
+BBSD_CBKBALS	BSDECISO	NoNeed
+BBSD_CBKBALS	BCURRISO	Char25
+BBSD_CBKBALS	BHDOFFGRP	NoNeed
+BBSD_CBKBALS	BMRTG	NoNeed
+BBSD_CBKBALS	BGOVSEC	NoNeed
+BBSD_CBKBALS	BSHRDBTSA	NoNeed
+BBSD_CBKBALS	BSDECDESC	NoNeed
+BBSD_CBKBALS	BCECODESC	NoNeed
+BBSD_CBKBALS	BSUB	NoNeed
+BBSD_CBKBALS	BSUBDEG	NoNeed
+BBSD_CBKBALS	BGRPUTK	NoNeed
+BBSD_CBKBALS	BPARTINT	NoNeed
+BBSD_CBKBALS	BBRASSPLATE	NoNeed
+BBSD_CBKBALS	BOUTSTDCAP	NoNeed
+BBSD_CBKBALS	BCVOUTSTDCAP	NoNeed
+BBSD_CBKBALS	BUNDTKGTYPE	NoNeed
+BBSD_CBKBALS	BLGTYPE	NoNeed
+BBSD_CBKBALS	BLCCONF	NoNeed
+BBSD_CBKBALS	BFITCHLRATING	NoNeed
+BBSD_CBKBALS	BFITCHSRATING	NoNeed
+BBSD_CBKBALS	BMOODYLRATING	NoNeed
+BBSD_CBKBALS	BMOODYSRATING	NoNeed
+BBSD_CBKBALS	BSPLRATING	NoNeed
+BBSD_CBKBALS	BSPSRATING	NoNeed
+BBSD_CBKBALS	BPRODUCTIVE	NoNeed
+BBSD_CBKBALS	BFCTFLG	INT
+BBSD_CBKBALS	BDRMFLG	INT
+BBSD_CBKBALS	BWTHFLG	INT
+BBSD_CBKBALS	BBLKFLG	INT
+BBSD_CBKBALS	BDEPFLG	INT
+BBSD_CBKBALS	BSALARY	Dec
+BBSD_CBKBALS	BPROPRENT	Dec
+BBSD_CBKBALS	BBUSINC	Dec
+BBSD_CBKBALS	BANNINC	Dec
+BBSD_CBKBALS	BOTHINC	Dec
+BBSD_CBKBALS	BSEX	INT
+BBSD_CBKBALS	BDBBRCH	NoNeed
+BBSD_CBKBALS	BDBCACC	NoNeed
+BBSD_CBKBALS	BMRG	NoNeed
+BBSD_CBKBALS	BMRGCV	NoNeed
+BBSD_CBKBALS	BCOLCOMM	Dec
+BBSD_CBKBALS	BCOLCOMMCV	Dec
+BBSD_CBKBALS	BUCOLCOMM	NoNeed
+BBSD_CBKBALS	BUCOLCOMMCV	NoNeed
+BBSD_CBKBALS	BACCRGL	NoNeed
+BBSD_CBKBALS	BHLDAMNT	Dec
+BBSD_CBKBALS	BHLDCVAMNT	Dec
+BBSD_CBKBALS	BVDTB	NoNeed
+BBSD_CBKBALS	BVDTCVB	NoNeed
+BBSD_CBKBALS	BACCRCRMTD	Dec
+BBSD_CBKBALS	BACCRCRCVMTD	Dec
+BBSD_CBKBALS	BACCRDBMTD	Dec
+BBSD_CBKBALS	BACCRDBCVMTD	Dec
+BBSD_CBKBALS	BACCRCRYTD	Dec
+BBSD_CBKBALS	BACCRCRCVYTD	Dec
+BBSD_CBKBALS	BACCRDBYTD	Dec
+BBSD_CBKBALS	BACCRDBCVYTD	Dec
+BBSD_CBKBALS	BINTDBNETAMNT	Dec
+BBSD_CBKBALS	BINTDBNETCVAMNT	Dec
+BBSD_CBKBALS	BGRTMAMNT	NoNeed
+BBSD_CBKBALS	BGRTMCVAMNT	Dec
+BBSD_CBKBALS	BCRSTDRATE	Dec
+BBSD_CBKBALS	BINTRATE	Dec
+BBSD_CBKBALS	BRENIND	NoNeed
+BBSD_CBKBALS	BDEALNUM	NoNeed
+BBSD_CBKBALS	BINTPAID	Dec
+BBSD_CBKBALS	BINTPAIDCV	Dec
+BBSD_CBKBALS	BPRINCAMNT	Dec
+BBSD_CBKBALS	BPAYAMNT	Dec
+BBSD_CBKBALS	BREIMPRD	NoNeed
+BBSD_CBKBALS	BINTREIMPRD	NoNeed
+BBSD_CBKBALS	BACCRMTD	NoNeed
+BBSD_CBKBALS	BCOMMAMNT	NoNeed
+BBSD_CBKBALS	BLEGALIND	NoNeed
+BBSD_CBKBALS	BNXTINSTDT	NoNeed
+BBSD_CBKBALS	BCHGRATEMTD	NoNeed
+BBSD_CBKBALS	BPASTINST	NoNeed
+BBSD_CBKBALS	BMINDRATE	Dec
+BBSD_CBKBALS	BSECTRY	NoNeed
+BBSD_CBKBALS	BISINCODE	NoNeed
+BBSD_CBKBALS	BRATEDEBIT	Dec
+BBSD_CBKBALS	BAVGCRBAL	Dec
+BBSD_CBKBALS	BAVGDBBAL	Dec
+BBSD_CBKBALS	BMNTHDEP	Dec
+BBSD_CBKBALS	BMNTHCVDEP	Dec
+BBSD_CBKBALS	BMNTHWTH	Dec
+BBSD_CBKBALS	BAVGDBBALCV	Dec
+BBSD_CBKBALS	BAVGCRBALCV	Dec
+BBSD_CBKBALS	BMNTHCVWTH	NoNeed
+BBSD_CBKBALS	BMRPTUOV	Dec
+BBSD_CBKBALS	BCSTNAT	NoNeed
+BBSD_CBKBALS	BCBRCH	INT
+BBSD_CBKBALS	BALMCR	NoNeed
+BBSD_CBKBALS	BYTDPCR	NoNeed
+BBSD_CBKBALS	BYTDPCVCR	NoNeed
+BBSD_CBKBALS	BYTDLDR	NoNeed
+BBSD_CBKBALS	BYTDLCVDR	NoNeed
+BBSD_CBKBALS	BTRT	NoNeed
+BBSD_CBKBALS	BORDINAL	NoNeed
+BBSD_CBKBALS	BMANAGEDBY	NoNeed
+BBSD_CBKBALS	DBDAYMOVEMENT	NoNeed
+BBSD_CBKBALS	CRDAYMOVEMENT	NoNeed
+BBSD_CBKBALS	BATTRIBUT	NoNeed
+BBSD_CBKBALS	BCUSMTYPE	INT
+BBSD_CBKBALS	BCUSMID	INT
+BBSD_CBKBALS	BACCHOLD	INT
+BBSD_CBKBALS	BMAXRATE	Dec
+BBSD_CBKBALS	BFCTDATE	Date
+BBSD_CBKBALS	BSOLETRIND	INT
+BBSD_CBKBALS	BCITIZEN	INT
+BBSD_CBKBALS	BLGLS	INT
+BBSD_CBKBALS	BGRPC	INT
+BBSD_CBKBALS	BBIRTHDATE	Date
+BBSD_CBKBALS	BLCTY	INT
+BBSD_CBKBALS	BSLC	INT
+BBSD_CBKBALS	BFSIT	INT
+BBSD_CBKBALS	BACTV	INT
+BBSD_CBKBALS	BPROF	INT
+BBSD_CBKBALS	BNBDEPT	INT
+BBSD_CBKBALS	BENTP	NoNeed
+BBSD_CBKBALS	BPRVACCRCR	Dec
+BBSD_CBKBALS	BPRVACCRCVCR	Dec
+BBSD_CBKBALS	BPRVACCRDB	Dec
+BBSD_CBKBALS	BPRVACCRCVDB	Dec
+BBSD_CBKBALS	BEMPNBR	INT
+BBSD_CBKBALS	BINCR	NoNeed
+BBSD_CBKBALS	BINCRBDESC	NoNeed
+BBSD_CBKBALS	BISSDT	Date
+BBSD_CBKBALS	BCLSDT	NoNeed
+BBSD_CBKBALS	BEXCESSAMT	Dec
+BBSD_CBKBALS	BEXCESSAMTCV	Dec
+BBSD_CBKBALS	BEXCESSDAYS	INT
+BBSD_CBKBALS	BGRAT	INT
+BBSD_CBKBALS	BSECRDESC	NoNeed
+BBSD_CBKBALS	BLASTYEARPRICE	NoNeed
+BBSD_CBKBALS	BMONTHTOMAT	NoNeed
+BBSD_CBKBALS	BISSNAME	NoNeed
+BBSD_CBKBALS	BISSECOMCODE	NoNeed
+BBSD_CBKBALS	BISSCNATCODE	NoNeed
+BBSD_CBKBALS	BISSCTRY	NoNeed
+BBSD_CBKBALS	BREUTERCODE	NoNeed
+BBSD_CBKBALS	BSECRCODE	NoNeed
+BBSD_CBKBALS	BMARKETPRICE	NoNeed
+BBSD_CBKBALS	BCVBALCR	NoNeed
+BBSD_CBKBALS	BCOMPRATING	NoNeed
+BBSD_CBKBALS	BLASTCPDATE	NoNeed
+BBSD_CBKBALS	BNEXTCPDATE	NoNeed
+BBSD_CBKBALS	BYIELD	NoNeed
+BBSD_CBKBALS	BMERO	INT
+BBSD_CBKBALS	BLCTYDESC	Char50
+BBSD_CBKBALS	BSHARESNBR	NoNeed
+BBSD_CBKBALS	BDEPCOMFLG	INT
+BBSD_CBKBALS	BNXTCHRDT	NoNeed
+BBSD_CBKBALS	BCOMPORIGRATING	NoNeed
+BBSD_CBKBALS	BOLDISSDT	Date
+BBSD_CBKBALS	BCDCPCODE	NoNeed
+BBSD_CBKBALS	BBILSTTS	NoNeed
+BBSD_CBKBALS	BRNDAMNT	NoNeed
+BBSD_CBKBALS	BRNDAMNTCVB	NoNeed
+BBSD_CBKBALS	BECLAMNT	Dec
+BBSD_CBKBALS	BECLCVAMNT	Dec
+BBSD_CBKBALS	BTOTCUSTDEP	Dec
+BBSD_CBKBALS	BTOTCUSTADV	NoNeed
+BBSD_CBKBALS	BCUSTRESDCTRY	NoNeed
+BBSD_CBKBALS	BCUSTPARNTCTRY	NoNeed
+BBSD_CBKBALS	BCUSTINTERRISKCTRY	NoNeed
+BBSD_CUSTOMERS	CUST_ID	INT
+BBSD_CUSTOMERS	BRCH_CODE	INT
+BBSD_CUSTOMERS	LANG_CODE	INT
+BBSD_CUSTOMERS	RESD_CODE	INT
+BBSD_CUSTOMERS	SGNC_CODE	INT
+BBSD_CUSTOMERS	PHPR_ID	Char25
+BBSD_CUSTOMERS	QLTY_CODE	INT
+BBSD_CUSTOMERS	CECO_CODE	INT
+BBSD_CUSTOMERS	CNAT_CODE	INT
+BBSD_CUSTOMERS	CORT_CODE	INT
+BBSD_CUSTOMERS	CSTS_CODE	INT
+BBSD_CUSTOMERS	ECOS_CODE	INT
+BBSD_CUSTOMERS	UDEF_CODE	Char25
+BBSD_CUSTOMERS	MAIL_CODE	INT
+BBSD_CUSTOMERS	CUST_B_NAME	Char50
+BBSD_CUSTOMERS	CUST_S_NAME	Char50
+BBSD_CUSTOMERS	CUST_SECRET_FLG	INT
+BBSD_CUSTOMERS	CUST_VIP_FLG	INT
+BBSD_CUSTOMERS	CUST_VIP_INFORMATION	INT
+BBSD_CUSTOMERS	CUST_CHECK_BOOK_FLG	INT
+BBSD_CUSTOMERS	CUST_PART_COMM_FLG	INT
+BBSD_CUSTOMERS	CUST_PART_V_DATE_FLG	INT
+BBSD_CUSTOMERS	CUST_TAXABLE_FLG	INT
+BBSD_CUSTOMERS	CUST_BANK_CODE	Char25
+BBSD_CUSTOMERS	CUST_GUICHET_CODE	Char25
+BBSD_CUSTOMERS	CUST_CLEARING_CODE	Char25
+BBSD_CUSTOMERS	CUST_MAIL_ADR_NUM	INT
+BBSD_CUSTOMERS	CUST_OTHER_ADR_NUM	INT
+BBSD_CUSTOMERS	CUST_REQ_SIGN_DESC	Char50
+BBSD_CUSTOMERS	CUST_OPENING_DATE	Date
+BBSD_CUSTOMERS	CUST_LAST_MODIFICATION_DATE	Date
+BBSD_CUSTOMERS	NODE_ID	Char25
+BBSD_CUSTOMERS	PROGRAM_ID	Char25
+BBSD_CUSTOMERS	USER_ID	Char25
+BBSD_CUSTOMERS	TIME_STAMP	Date
+BBSD_CUSTOMERS	LAST_CHCK	Char25
+BBSD_CUSTOMERS	LCTY_CODE	INT
+BBSD_CUSTOMERS	SDEC_CODE	INT
+BBSD_CUSTOMERS	CUST_CHECK_BOOK_DATE	Char25
+BBSD_CUSTOMERS	CCLS_CODE	INT
+BBSD_CUSTOMERS	CTYP_CODE	INT
+BBSD_CUSTOMERS	CUST_OTHER_BANK_ID	Char25
+BBSD_CUSTOMERS	STRA_CODE	INT
+BBSD_CUSTOMERS	CUST_TAXABLE_REF	Char25
+BBSD_CUSTOMERS	CUST_CLOSING_DATE	Char25
+BBSD_CUSTOMERS	CUST_E_BANKING	INT
+BBSD_CUSTOMERS	CUST_IVR	INT
+BBSD_CUSTOMERS	CUST_SMS	INT
+BBSD_CUSTOMERS	CUST_PIN_CODE	Char25
+BBSD_CUSTOMERS	CTSC_CODE	INT
+BBSD_CUSTOMERS	CUST_CATEGORY	INT
+BBSD_CUSTOMERS	CAOF_CODE	INT
+BBSD_CUSTOMERS	CUST_B_SHORT_NAME	Char25
+BBSD_CUSTOMERS	CUST_S_SHORT_NAME	Char25
+BBSD_CUSTOMERS	CTRY_CODE	INT
+BBSD_CUSTOMERS	SCLV_CODE	INT
+BBSD_CUSTOMERS	ASPR_CODE	INT
+BBSD_CUSTOMERS	CUST_CSFP	INT
+BBSD_CUSTOMERS	CUST_BKA	INT
+BBSD_CUSTOMERS	CCTG_CODE	INT
+BBSD_CUSTOMERS	CUST_KYC_DATE	Date
+BBSD_CUSTOMERS	CUST_REVIEW_DATE	Date
+BBSD_CUSTOMERS	CUST_LGLS_NATURE	INT
+BBSD_CUSTOMERS	MRPR_COMMENTS	Char50
+BBSD_CUSTOMERS	CSNL_CODE	INT
+BBSD_CUSTOMERS	CUST_CSTS_COMMENTS	Char50
+BBSD_CUSTOMERS	CUST_HUNT_IND	Char50
+BBSD_CUSTOMERS	CUST_HUNT_PRIORITY	Char50
+BBSD_CUSTOMERS	CUST_PP_PM_IND	INT
+BBSD_CUSTOMERS	CUST_PP_PM_ID	INT
+BBSD_CUSTOMERS	CUST_PP_PM_DESC	Char25
+BBSD_CUSTOMERS	ECOM_CODE	Char25
+BBSD_CUSTOMERS	CUST_MIN_BAL_IND	INT
+BBSD_CUSTOMERS	CUST_FORBID_ACC_CLS_FLG	INT
+BBSD_CUSTOMERS	CUST_RISK_BATCH_CODE	INT
+BBSD_CUSTOMERS	CUST_RISK_MANUAL_CODE	INT
+BBSD_CUSTOMERS	CUST_RISK_BATCH_PRV_CODE	Char25
+BBSD_CUSTOMERS	CUST_RISK_MANUAL_PRV_CODE	Char25
+BBSD_CUSTOMERS	CUST_CLOSING_FLG	INT
+BBSD_CUSTOMERS	CUST_REOPENING_DATE	Char25
+BBSD_CUSTOMERS	CUST_INC_DATA_FLG	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_IND_2	INT
+BBSD_CUSTOMERS	CUST_PP_PM_ID_2	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_REL_2	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_PURPOSE_2	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_RFRL_ID	Char25
+BBSD_CUSTOMERS	RFRL_CODE	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_DESC_2	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_PURPOSE	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_REL	Char25
+BBSD_CUSTOMERS	CRIF_CODE	INT
+BBSD_CUSTOMERS	CSCS_CODE	INT
+BBSD_CUSTOMERS	CAOF_CODE_1	INT
+BBSD_CUSTOMERS	CUST_LAST_MODIFICATION_USER	Char25
+BBSD_CUSTOMERS	CUST_OTHER_NAT	INT
+BBSD_CUSTOMERS	CUST_FORBID_PRCH_CHECKS_FLG	INT
+BBSD_CUSTOMERS	CUST_FINGERPRINT	Char25
+BBSD_CUSTOMERS	CUST_BLK_IND	Char25
+BBSD_CUSTOMERS	CUST_FTCL_CODE	INT
+BBSD_CUSTOMERS	CUST_FTCS_CODE	Char25
+BBSD_CUSTOMERS	CUST_SUBJ_FTC_IND	INT
+BBSD_CUSTOMERS	CUST_TEXT1	Char25
+BBSD_CUSTOMERS	CUST_BLCK_LISTED_IND	Char25
+BBSD_CUSTOMERS	CUST_ACC_OPENING_IND	Char25
+BBSD_CUSTOMERS	CUST_BLCK_LISTED_PERS_ID	Char25
+BBSD_CUSTOMERS	CUST_BLCK_LISTED_PERS_TYPE	INT
+BBSD_CUSTOMERS	CUST_LAST_CCLS_DATE	Char25
+BBSD_CUSTOMERS	CUST_LCTY_CODE	Char25
+BBSD_CUSTOMERS	CDCP_CODE	Char25
+BBSD_CUSTOMERS	CUST_PP_PM_IND_1	INT
+BBSD_CUSTOMERS	CRIR_CODE	Char25
+BBSD_CUSTOMERS	CUST_CRSC_CODE	Char25
+BBSD_CUSTOMERS	CUST_GPI	INT
+BBSD_CUSTOMERS	CUST_AML_PROFILE	Char25
+BBSD_CUSTOMERS	CUST_CHECK_STRIKE_FLG	INT
+BBSD_CUSTOMERS	CUST_CHECK_STRIKE_STOP_DATE	Char25
+BBSD_CUSTOMERS	CUST_CHECK_STRIKE_EXPIRY_DATE	Char25
+BBSD_CUSTOMERS	CUST_RESD_CTRY_CODE	Char25
+BBSD_CUSTOMERS	CUST_PARNT_CTRY_CODE	Char25
+BBSD_CUSTOMERS	CUST_INTER_RISK_CTRY_CODE	Char25
+BBSD_CUSTOMERS	CCLR_CODE	Char25
+BBSD_CUSTOMERS	CUST_BLOCK_ACC_OPN_FLG	INT
+BBSD_CUSTOMERS	CUST_AML_RISK_IND	Char25
+BBSD_CUSTOMERS	CUST_TAX_FROM_DATE	Char25
+BBSD_CUSTOMERS	CUST_TAX_TO_DATE	Char25
+BBSD_CUSTOMERS	CUST_VERSION	Char25
+BBSD_CUSTOMERS	CUST_RLEV_CODE	IND
+BBSD_CUSTOMERS	CUST_FULL_KYC_FLG	IND
+BBSD_CUSTOMERS	CUST_NXT_REVIEW_DATE	Char25
+BBSD_CUSTOMERS	CUST_RISK_NEXT_REVIEW_DATE	Date
+BBSD_CUSTOMERS	CUST_LST_REVIEW_DATE	Date
+BBSD_CUSTOMERS	CUST_INPUT_DATE	Char25
+BBSD_CUSTOMERS	CUST_INPUT_USER	Char25
+BBSD_CUSTOMERS	CUST_VALD_DATE	Date
+BBSD_CUSTOMERS	CUST_VALD_USER	Char25
+BBSD_CUSTOMERS	CUST_VERSION_DATE	Date
+BBSD_CUSTOMERS	CUST_B_LONG_NAME	Char25
+BBSD_CUSTOMERS	CUST_S_LONG_NAME	Char25
+BBSD_GL_ACCOUNTS	BRCH_CODE	INT
+BBSD_GL_ACCOUNTS	CURR_CODE	INT
+BBSD_GL_ACCOUNTS	ACNT_NUM	INT
+BBSD_GL_ACCOUNTS	GLAC_AMNT_CR_1	DEC
+BBSD_GL_ACCOUNTS	GLAC_AMNT_CR_2	DEC
+BBSD_GL_ACCOUNTS	GLAC_AMNT_CR_3	DEC
+BBSD_GL_ACCOUNTS	GLAC_AMNT_DR_1	DEC
+BBSD_GL_ACCOUNTS	GLAC_AMNT_DR_2	DEC
+BBSD_GL_ACCOUNTS	GLAC_AMNT_DR_3	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVERAGE_BAL	DEC
+BBSD_GL_ACCOUNTS	GLAC_BF_BAL	DEC
+BBSD_GL_ACCOUNTS	GLAC_CR_MVT	DEC
+BBSD_GL_ACCOUNTS	GLAC_DR_MVT	DEC
+BBSD_GL_ACCOUNTS	GLAC_LAST_OPER_DATE	Date
+BBSD_GL_ACCOUNTS	GLAC_OLD_ACCNT_NUM	Char25
+BBSD_GL_ACCOUNTS	NODE_ID	Char25
+BBSD_GL_ACCOUNTS	PROGRAM_ID	Char25
+BBSD_GL_ACCOUNTS	USER_ID	Char25
+BBSD_GL_ACCOUNTS	TIME_STAMP	Date
+BBSD_GL_ACCOUNTS	GLAC_MTH_DR	DEC
+BBSD_GL_ACCOUNTS	GLAC_MTH_CR	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_ACNT_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_PRV_ACNT_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVAIL_BAL	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_ACNT_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_PRV_ACNT_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_AVAIL_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_AVAIL_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_STATUS	DEC
+BBSD_GL_ACCOUNTS	GLAC_MIN_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MIN_AVAIL_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MIN_ACNT_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MIN_ACNT_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MAX_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MAX_AVAIL_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_MAX_ACNT_BAL_MTD	Date
+BBSD_GL_ACCOUNTS	GLAC_MAX_ACNT_BAL_YTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_DATE	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_ACCNT_BAL_DB_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_TOT_ACCNT_DB_DAYS_NBR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_ACCNT_BAL_CR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_TOT_ACCNT_CR_DAYS_NBR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_DB_ACCNT_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_CR_ACCNT_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_PRV_AVAIL_BAL	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_AVAIL_BAL_DB_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_TOT_AVAIL_DB_DAYS_NBR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_DB_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_CUM_AVAIL_BAL_CR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_TOT_AVAIL_CR_DAYS_NBR_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_CR_AVAIL_BAL_MTD	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_BAL_CR	DEC
+BBSD_GL_ACCOUNTS	GLAC_AVG_BAL_DB	DEC
+BBSD_GL_COST_CENTERS	BRCH_CODE	INT
+BBSD_GL_COST_CENTERS	CURR_CODE	INT
+BBSD_GL_COST_CENTERS	ACNT_NUM	Char25
+BBSD_GL_COST_CENTERS	CSTC_CODE	Char25
+BBSD_GL_COST_CENTERS	GLCC_BRCH	Char25
+BBSD_GL_COST_CENTERS	GLCC_ACCNT_BAL	Char25
+BBSD_GL_COST_CENTERS	GLCC_AVAIL_BAL	Char25
+BBSD_GL_COST_CENTERS	GLCC_AVG_ACCNT_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_PRV_ACCNT_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_AVG_AVAIL_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_CUM_AVAIL_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_AVG_ACCNT_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_PRV_ACCNT_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_AVG_AVAIL_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_CUM_AVAIL_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_LAST_DATE	Char25
+BBSD_GL_COST_CENTERS	NODE_ID	Char25
+BBSD_GL_COST_CENTERS	PROGRAM_ID	Char25
+BBSD_GL_COST_CENTERS	USER_ID	Char25
+BBSD_GL_COST_CENTERS	TIME_STAMP	Date
+BBSD_GL_COST_CENTERS	GLCC_AVG_DATE	Char25
+BBSD_GL_COST_CENTERS	GLCC_MIN_ACCNT_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MAX_ACCNT_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MIN_AVAIL_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MAX_AVAIL_BAL_MTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MIN_ACCNT_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MAX_ACCNT_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MIN_AVAIL_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_MAX_AVAIL_BAL_YTD	Char25
+BBSD_GL_COST_CENTERS	GLCC_PRV_AVAIL_BAL	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_SEQUENCE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_LINE	INT
+BBSD_HIST_TRANSACTIONS	TRSH_NUM	INT
+BBSD_HIST_TRANSACTIONS	GOPM_CODE	Char25
+BBSD_HIST_TRANSACTIONS	ECOD_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	TRSD_LINE_SEQ	INT
+BBSD_HIST_TRANSACTIONS	HTRS_MARGIN_RATE	Dec
+BBSD_HIST_TRANSACTIONS	HTRS_INT_CODE	INT
+BBSD_HIST_TRANSACTIONS	TRSH_OPERATION_DATE	Date
+BBSD_HIST_TRANSACTIONS	BRCH_CODE	INT
+BBSD_HIST_TRANSACTIONS	ACCD_CODE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_ACCD_CODE2	INT
+BBSD_HIST_TRANSACTIONS	CURR_CODE	INT
+BBSD_HIST_TRANSACTIONS	CUST_ID	INT
+BBSD_HIST_TRANSACTIONS	HTRS_DOC_REFERENCE	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_DC	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_BRCH_CODE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_CACC_NUM	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_ACC_IND	INT
+BBSD_HIST_TRANSACTIONS	HTRS_VALUE_DATE	Date
+BBSD_HIST_TRANSACTIONS	HTRS_AMOUNT	Dec
+BBSD_HIST_TRANSACTIONS	HTRS_B_DESC	Char50
+BBSD_HIST_TRANSACTIONS	HTRS_S_DESC	Char50
+BBSD_HIST_TRANSACTIONS	HTRS_CHCK_NUM	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_AMOUNT	Dec
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_VALUE_DATE	Date
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_ACC_BRCH_CODE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_TRSH_NUM	INT
+BBSD_HIST_TRANSACTIONS	HTRS_COST_CENTER_1	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_COST_AMOUNT_1	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_COST_CENTER_2	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_COST_AMOUNT_2	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_COST_CENTER_3	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_COST_AMOUNT_3	Noneed
+BBSD_HIST_TRANSACTIONS	NODE_ID	Char25
+BBSD_HIST_TRANSACTIONS	PROGRAM_ID	Char25
+BBSD_HIST_TRANSACTIONS	USER_ID	Char25
+BBSD_HIST_TRANSACTIONS	TIME_STAMP	Date
+BBSD_HIST_TRANSACTIONS	HTRS_INT_COMP_FLG	INT
+BBSD_HIST_TRANSACTIONS	HTRS_PRT_STMT_DATE	Date
+BBSD_HIST_TRANSACTIONS	HTRS_ACNT_NUM	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_REFERENCE	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_SEND_DATE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SIGN_BRCH	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SIGN_CACC	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SIGN_AMNT	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SIGN_KEY	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_CUST_BRCH_CODE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_CUST_CACC_NUM	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_DFT_COMMISSION	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_DFT_VALUE_DATE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_CURRENCY	INT
+BBSD_HIST_TRANSACTIONS	HTRS_SRC_LINE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_ACTP_TYPE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_PRT_STMT_IND	INT
+BBSD_HIST_TRANSACTIONS	HTRS_DEPT_CODE	INT
+BBSD_HIST_TRANSACTIONS	HTRS_CUR_RATE_1	Dec
+BBSD_HIST_TRANSACTIONS	HTRS_CUR_RATE_2	Dec
+BBSD_HIST_TRANSACTIONS	HTRS_COMM_ACC_LINE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_USER_ID_1	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_USER_ID_2	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_JRN_REF	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_PRDT_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	DEPT_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	CHNL_CODE	INT
+BBSD_HIST_TRANSACTIONS	TRCR_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	OCTG_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_ACC_IND	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_SIGN	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_BRCH	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_CACC	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_CURR	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_GRP_AMNT	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_SENT_EXT_FLG	INT
+BBSD_HIST_TRANSACTIONS	HTRS_PRT_E_STMT_DATE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_OCTG_CODE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_VERIFIED_FLG	INT
+BBSD_HIST_TRANSACTIONS	HTRS_VERIFIED_DATE	Noneed
+BBSD_HIST_TRANSACTIONS	HTRS_APPROVED_FLG	INT
+BBSD_HIST_TRANSACTIONS	HTRS_APPROVED_DATE	Date
+BBSD_HIST_TRANSACTIONS	HTRS_APPROVED_USER_ID	Char25
+BBSD_HIST_TRANSACTIONS	HTRS_VERIFIED_USER_ID	Char25
+BBSD_MORAL_PERSONS	MRPR_ID	INT
+BBSD_MORAL_PERSONS	BRCH_CODE	INT
+BBSD_MORAL_PERSONS	BSTD_CODE	INT
+BBSD_MORAL_PERSONS	CORT_CODE	INT
+BBSD_MORAL_PERSONS	CTRY_CODE	INT
+BBSD_MORAL_PERSONS	CURR_CODE	INT
+BBSD_MORAL_PERSONS	RESD_CODE	INT
+BBSD_MORAL_PERSONS	ECOS_CODE	INT
+BBSD_MORAL_PERSONS	LGLS_CODE	INT
+BBSD_MORAL_PERSONS	LANG_CODE	INT
+BBSD_MORAL_PERSONS	SGNC_CODE	INT
+BBSD_MORAL_PERSONS	PHPR_ID	Char25
+BBSD_MORAL_PERSONS	MRPR_B_NAME	Char100
+BBSD_MORAL_PERSONS	MRPR_S_NAME	Char100
+BBSD_MORAL_PERSONS	MRPR_B_ACTIVITY	Char255
+BBSD_MORAL_PERSONS	MRPR_S_ACTIVITY	Char25
+BBSD_MORAL_PERSONS	MRPR_REGISTRATION_INFO	Char25
+BBSD_MORAL_PERSONS	MRPR_REGISTRATION_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_CAP_PAID_AMNT	INT
+BBSD_MORAL_PERSONS	MRPR_CAP_AMNT	INT
+BBSD_MORAL_PERSONS	MRPR_FOUNDATION_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_DURATION	INT
+BBSD_MORAL_PERSONS	MRPR_OPENING_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_LAST_MODIFICATION_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_PART_OF_GRP1_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_PART_OF_GRP2_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_PART_OF_GRP3_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_PART_OF_GRP4_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_SIGN_COMBINATION	Char25
+BBSD_MORAL_PERSONS	NODE_ID	Char25
+BBSD_MORAL_PERSONS	PROGRAM_ID	Char25
+BBSD_MORAL_PERSONS	USER_ID	Char25
+BBSD_MORAL_PERSONS	TIME_STAMP	Date
+BBSD_MORAL_PERSONS	RLRS_CODE	INT
+BBSD_MORAL_PERSONS	MRPR_RLRS_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_COMM_REG_NBR	INT
+BBSD_MORAL_PERSONS	MRPR_COMM_REG_LCTY	INT
+BBSD_MORAL_PERSONS	MRPR_CREG_LCTY_DSC	Char50
+BBSD_MORAL_PERSONS	MRPR_PRF_CRT_CERT_CODE	INT
+BBSD_MORAL_PERSONS	MRPR_PRF_CRT_ISSUE_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_PRF_CRT_VALID_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_PRF_CRT_PLACE_ISSUE	Char50
+BBSD_MORAL_PERSONS	MRPR_REG_COM_CERT_CODE	Char50
+BBSD_MORAL_PERSONS	MRPR_REG_COM_ISSUE_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_REG_COM_VALID_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_REG_COM_PLACE_ISSUE	Char50
+BBSD_MORAL_PERSONS	MRPR_REG_IDS_CERT_CODE	Char50
+BBSD_MORAL_PERSONS	MRPR_REG_IDS_ISSUE_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_REG_IDS_VALID_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_REG_IDS_PLACE_ISSUE	Char50
+BBSD_MORAL_PERSONS	MRPR_COMMENTS	Char50
+BBSD_MORAL_PERSONS	MRPR_PRF_CRT_CREG_LCTY	INT
+BBSD_MORAL_PERSONS	MRPR_REG_COM_CREG_LCTY	Char50
+BBSD_MORAL_PERSONS	MRPR_REG_IDS_CREG_LCTY	Char50
+BBSD_MORAL_PERSONS	MRPR_REF_JUR	Char255
+BBSD_MORAL_PERSONS	MRPR_NBR_EMP	INT
+BBSD_MORAL_PERSONS	MRPR_TEXT1	Char255
+BBSD_MORAL_PERSONS	MRPR_LAWYER_NBR	INT
+BBSD_MORAL_PERSONS	MRPR_KEY_NUM	INT
+BBSD_MORAL_PERSONS	MRPR_KEY_SERIAL	Char25
+BBSD_MORAL_PERSONS	MRPR_RISK_CTRY	Char25
+BBSD_MORAL_PERSONS	MRPR_NET_WORTH	Char25
+BBSD_MORAL_PERSONS	MRPR_USUAL_TURNOVER	INT
+BBSD_MORAL_PERSONS	MRPR_CIVIL_ID	Char50
+BBSD_MORAL_PERSONS	MRPR_END_DATE	Date
+BBSD_MORAL_PERSONS	MRPR_QUICK_OPEN_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_FITCH_L_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_FITCH_S_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_MOODY_L_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_MOODY_S_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_SP_L_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_SP_S_RATING	Char25
+BBSD_MORAL_PERSONS	MRPR_TEXT2	Char255
+BBSD_MORAL_PERSONS	MRPR_TEXT3	Char255
+BBSD_MORAL_PERSONS	MRPR_REF_NATIONAL	Char25
+BBSD_MORAL_PERSONS	MRPR_REG_TYPE	Char25
+BBSD_MORAL_PERSONS	ORGN_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_INC_DATA_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_LAST_MODIFICATION_USER	Char25
+BBSD_MORAL_PERSONS	CMST_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_TEXT4	Char25
+BBSD_MORAL_PERSONS	MRPR_TEXT5	Char25
+BBSD_MORAL_PERSONS	MRPR_ABREV_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_FREE_TEXT_1	Char25
+BBSD_MORAL_PERSONS	MRPR_PARENT_COMP_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_REG_CTRY_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_TAX_RESD_CTRY	INT
+BBSD_MORAL_PERSONS	MRPR_USUAL_TURNOVER_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_NET_WORTH_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_SOURCE_OF_FUNDS	Char25
+BBSD_MORAL_PERSONS	MRPR_ADD_CTRY_RISK_FLG	Char25
+BBSD_MORAL_PERSONS	BSLC_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_FITCH_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_MOODY_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_SP_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_CAPITAL_INTLG_L	Char25
+BBSD_MORAL_PERSONS	MRPR_CAPITAL_INTLG_S	Char25
+BBSD_MORAL_PERSONS	MRPR_CAPITAL_INTLG_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_OTHER_SCR_OF_INCOME_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_CTRY_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_SCR_OF_FUNDS	Char25
+BBSD_MORAL_PERSONS	MRPR_PURPOSE_OF_RCPT	Char25
+BBSD_MORAL_PERSONS	MRPR_EXPECTED_AMNT_SLICE	Char25
+BBSD_MORAL_PERSONS	MRPR_RECEIPT_TTYP_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_TEXT6	Char25
+BBSD_MORAL_PERSONS	MRPR_TEXT7	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_IND	INT
+BBSD_MORAL_PERSONS	MRPR_PEP_NARRATIVE	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_REALTIVE_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_REALTIVE_NARRATIVE	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_ASSOCIATE_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_ASSOCIATE_NARRATIVE	Char25
+BBSD_MORAL_PERSONS	MRPR_MRPR_CUST_STATUS	Char25
+BBSD_MORAL_PERSONS	MRPR_LICENSED_LINE	Char25
+BBSD_MORAL_PERSONS	MRPR_GENERAL_LICENSES	Char25
+BBSD_MORAL_PERSONS	MRPR_BANK_ECOS_CODE	Char25
+BBSD_MORAL_PERSONS	ECOM_CODE	INT
+BBSD_MORAL_PERSONS	MRPR_TAX_ID_NBR	Char25
+BBSD_MORAL_PERSONS	MRPR_TAX_FLG	INT
+BBSD_MORAL_PERSONS	MRPR_INPUT_USER_ID	Char25
+BBSD_MORAL_PERSONS	MRPR_INPUT_USER_BRCH	INT
+BBSD_MORAL_PERSONS	ENTP_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_LAST_REVIEW_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_NEXT_REVIEW_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_CUST_STATUS	INT
+BBSD_MORAL_PERSONS	MRPR_BLKL_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_REQ_CURING_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_NOT_CONF_1_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_NOT_CONF_2_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_NOT_CONF_3_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_FREE_TEXT_2	Char25
+BBSD_MORAL_PERSONS	MRPR_FTCL_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_FTCS_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_FTC_CURE_VAL_STATUS	Char25
+BBSD_MORAL_PERSONS	MRPR_MECL_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_PARENT_COMP_IND	Char25
+BBSD_MORAL_PERSONS	ISCR_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_ADD_COUNTRIES_FLG	Char25
+BBSD_MORAL_PERSONS	MRPR_CRSC_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_CRSS_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_VAL_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_MRIS_LOGIC_VAL	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_PR_VAL_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_PR_VAL_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_RM_VAL_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_RM_VAL_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_ABOVE_LIMIT_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_TOTAL_BALANCE	Char25
+BBSD_MORAL_PERSONS	MRPR_CUST_IDENTIFIER	Char25
+BBSD_MORAL_PERSONS	MRPR_LEI_CODE	Char25
+BBSD_MORAL_PERSONS	LPRC_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_LPRC_INIT_DATE	Char25
+BBSD_MORAL_PERSONS	STRG_CODE	Char25
+BBSD_MORAL_PERSONS	ITYP_CODE	Char25
+BBSD_MORAL_PERSONS	LFRM_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_CURED_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_CRS_CURED_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_FATCA_CURED_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_FATCA_CURED_DATE	Char25
+BBSD_MORAL_PERSONS	MRIS_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_GIIN	Char25
+BBSD_MORAL_PERSONS	MRPR_EBANKING_IND	Char25
+BBSD_MORAL_PERSONS	ECSS_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_AML_RISK_IND	Char25
+BBSD_MORAL_PERSONS	ENGT_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_ENGT_FREE_TEXT	Char25
+BBSD_MORAL_PERSONS	MRPR_NBR_BRANCHES	Char25
+BBSD_MORAL_PERSONS	MRPR_WEBSITE	Char25
+BBSD_MORAL_PERSONS	INBT_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_INBT_FREE_TEXT	Char25
+BBSD_MORAL_PERSONS	MRPR_RLEV_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_RISK_NEXT_REVIEW_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_RISK_LAST_REVIEW_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_PARENT_ID	Char25
+BBSD_MORAL_PERSONS	MRPR_ULTIMATE_ID	Char25
+BBSD_MORAL_PERSONS	MRPR_ULTIMATE_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_REG_LCTY_CODE	INT
+BBSD_MORAL_PERSONS	REVS_CODE	Char25
+BBSD_MORAL_PERSONS	MRPR_B_LONG_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_S_LONG_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_INCR_CTRY	Char25
+BBSD_MORAL_PERSONS	MRPR_COMM_NAME	Char25
+BBSD_MORAL_PERSONS	MRPR_NATIONALITY	Char25
+BBSD_MORAL_PERSONS	MRPR_ORGN_CTRY	Char25
+BBSD_MORAL_PERSONS	MRPR_CTRY_HEAD_OFFICE	Char25
+BBSD_MORAL_PERSONS	MRPR_FULL_KYC_FLG	INT
+BBSD_MORAL_PERSONS	MRPR_INPUT_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_VALD_USER	Char25
+BBSD_MORAL_PERSONS	MRPR_VALD_DATE	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_LEVEL_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_RELATIVE_LEVEL_IND	Char25
+BBSD_MORAL_PERSONS	MRPR_PEP_ASSOCIATE_LEVEL_IND	Char25
+BBSD_PERIODS	PERD_CODE	INT
+BBSD_PERIODS	PERD_DESC	Char25
+BBSD_PERIODS	PERD_D_M_Y_FLG	INT
+BBSD_PERIODS	PERD_NUM	INT
+BBSD_PERIODS	NODE_ID	Char25
+BBSD_PERIODS	PROGRAM_ID	Char25
+BBSD_PERIODS	USER_ID	Char25
+BBSD_PERIODS	TIME_STAMP	Date
+BBSD_PERIODS	PERD_EXP_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID	INT
+BBSD_PHYSICAL_PERSONS	BRCH_CODE	INT
+BBSD_PHYSICAL_PERSONS	PRFS_CODE	INT
+BBSD_PHYSICAL_PERSONS	PROF_CODE	INT
+BBSD_PHYSICAL_PERSONS	QLTY_CODE	INT
+BBSD_PHYSICAL_PERSONS	RESD_CODE	INT
+BBSD_PHYSICAL_PERSONS	RELG_CODE	INT
+BBSD_PHYSICAL_PERSONS	STDG_CODE	INT
+BBSD_PHYSICAL_PERSONS	LCTY_CODE	INT
+BBSD_PHYSICAL_PERSONS	BSTD_CODE	INT
+BBSD_PHYSICAL_PERSONS	CTRY_CODE	INT
+BBSD_PHYSICAL_PERSONS	DCNT_CODE	INT
+BBSD_PHYSICAL_PERSONS	ECOS_CODE	INT
+BBSD_PHYSICAL_PERSONS	LANG_CODE	INT
+BBSD_PHYSICAL_PERSONS	FSIT_CODE	INT
+BBSD_PHYSICAL_PERSONS	ACTV_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_B_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_MIDDLE_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_FATHER_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_MOTHER_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_MOTHER_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_SPOUSE_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_B_SPOUSE_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_SEX	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_BIRTH_DATE	Char50
+BBSD_PHYSICAL_PERSONS	NODE_ID	Char25
+BBSD_PHYSICAL_PERSONS	PROGRAM_ID	Char25
+BBSD_PHYSICAL_PERSONS	USER_ID	Char25
+BBSD_PHYSICAL_PERSONS	TIME_STAMP	Date
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_NUM	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_LOCALITY	INT
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_NUM	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FAMILY_RESPONS_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_NUM_OF_CHILD	INT
+BBSD_PHYSICAL_PERSONS	PHPR_OPENING_DATE	Date
+BBSD_PHYSICAL_PERSONS	PHPR_LAST_MOD_DATE	Date
+BBSD_PHYSICAL_PERSONS	PHPR_PART_OF_GRP1_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_PART_OF_GRP2_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_PART_OF_GRP3_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_PART_OF_GRP4_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_LEGL_TUTOR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_TUTOR_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_TUTOR_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_DUE_DATE	Date
+BBSD_PHYSICAL_PERSONS	PHPR_INTRODUCED_BY	INT
+BBSD_PHYSICAL_PERSONS	PHPR_S_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_MIDDLE_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_FATHER_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_MOTHER_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_MOTHER_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_SPOUSE_FIRST_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_S_SPOUSE_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_DESC	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_CITY	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_DATE	Char50
+BBSD_PHYSICAL_PERSONS	RLRS_CODE	INT
+BBSD_PHYSICAL_PERSONS	TRLS_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_LEGL_REF	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_DUE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_REF_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_DUE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_REF_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NATIONAL_NBR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLRS_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_NBR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_LCTY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CREG_LCTY_DSC	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ALIVE_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_COMMENTS	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_NUM	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_PLACE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_EXPIRY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CBK_APPROVAL	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REF_JUR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TEXT1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TEXT2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NB_DEPT	INT
+BBSD_PHYSICAL_PERSONS	PHPR_MINOR_IND	INT
+BBSD_PHYSICAL_PERSONS	PHPR_HDATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_4	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_5	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_6	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BIRTH_LCTY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BIRTH_SLTY	Char25
+BBSD_PHYSICAL_PERSONS	SUFX_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_REQID2_LCTY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_EXP_DATE	Date
+BBSD_PHYSICAL_PERSONS	PHPR_SLTY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID2_SLTY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_SLTY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_KEY_NUM	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_KEY_SERIAL	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_NAME_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_BIRTH_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLRS_CODE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_NAME_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_BIRTH_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLRS_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_NAME_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_BIRTH_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLRS_CODE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_NAME_4	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_DEPT_BIRTH_4	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLRS_CODE_4	Char25
+BBSD_PHYSICAL_PERSONS	CURR_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_ID	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_INFO	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_SINCE_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_EXP_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_SALARY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OTHER_INCOME	Char25
+BBSD_PHYSICAL_PERSONS	JTIT_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_QUICK_OPEN_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_CMPNY_AD	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_POBOX	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_CITY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_COUNTRY	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_YRS_OF_EMPL	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEMP_PHONE_NUM	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PROPERTY_RENT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BUSINESS_INCOME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANNUAL_INCOME	INT
+BBSD_PHYSICAL_PERSONS	PHPR_ID_AT_EMPLOYER	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TEXT3	Char25
+BBSD_PHYSICAL_PERSONS	CTRY_CODE_2	INT
+BBSD_PHYSICAL_PERSONS	CTRY_CODE_3	INT
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_7	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_8	Char25
+BBSD_PHYSICAL_PERSONS	DCNT_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	DCNT_CODE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_NUM_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_NUM_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_EXP_DATE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_EXP_DATE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_LOCALITY_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_LOCALITY_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_NUM_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REGISTER_NUM_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_SPS_PROF_CODE	Char25
+BBSD_PHYSICAL_PERSONS	SDEC_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_ADD_NATIONALITY_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_ABR_RESD_CODE_FLG	INT
+BBSD_PHYSICAL_PERSONS	ORGN_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_FULL_NAME	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_INC_DATA_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OLD_PASSPORT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OTHER_INFOS	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_DECEASE_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_LAST_MOD_USER	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_2	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_1	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_ACTV_CODE2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PROF_CODE2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PRFS_CODE2	Char25
+BBSD_PHYSICAL_PERSONS	INCR_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_PHONE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_ADDRESS	Char50
+BBSD_PHYSICAL_PERSONS	PHPR_SPS_ACTV_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_EXPIRY_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ABREV_NAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_B_MOTHER_MIDDLE_NAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_S_MOTHER_MIDDLE_NAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_4	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_5	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_6	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RESD_CTRY_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_BIRTH_CTRY_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_DETAIL_PROF	Char50
+BBSD_PHYSICAL_PERSONS	ISCR_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_OTHER_INCOME_SRC	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_FOUNDATION_DATE	Char25
+BBSD_PHYSICAL_PERSONS	BUTY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_CTRY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_7	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_8	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FREE_TEXT_9	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BRO_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FTCL_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FTCS_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_MECL_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_ISS_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_ISS_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_NBR_2	Char25
+BBSD_PHYSICAL_PERSONS	CURR_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_CTRY_CODE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_CTRY_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NXT_REVIEW_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_SPOUSE_CIVIL_ID	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TAX_ID	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TAX_RESD_CTRY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_CTRY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_S_MAIDEN_SURNAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_B_MAIDEN_SURNAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_ISS_DATE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DOC_ISS_DATE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TAX_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_INPUT_USER	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_INPUT_BRCH	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NET_WORTH_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NET_WORTH_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_6_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_ISS_DATE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_6_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_ISS_DATE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMPL_CTRY_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_TTYP_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OTH_ISCR_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_OTH_PERD_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_OTH_INC_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OTH_TTYP_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_APPROX_ANN_TOTAL_INC	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_APPROX_ANN_GROSS_INC	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_OWNERSHIP_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_OWNERSHIP_PERC	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_BUS_SLICE_CURR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_BUS_AMNT_SLICE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_PERS_AMNT_SLICE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_TTYP_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_OWNERSHIP_IND_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_OWNERSHIP_PERC_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_BUS_SLICE_CURR_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_BUS_AMNT_SLICE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_PERS_SLICE_CURR_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANN_PERS_AMNT_SLICE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_TTYP_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BUTY_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_LCTY_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_SLTY_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CREG_LCTY_DSC_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_DESC_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_IND	INT
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_NARRATIVE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_NARRATIVE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_NARRATIVE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ASSETS_LIAB_CURR_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ASSETS_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_LIABILITIES_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_EXPIRY_DATE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PASSPORT_EXPIRY_DATE_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_LST_REVIEW_DATE	Date
+BBSD_PHYSICAL_PERSONS	PHPR_OTHER_INCOME_CURR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_APPROX_ANN_GROSS_INC_CASH	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_OTH_INCOME_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_OTH_ISCR_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_OTH_PERD_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_OTH_TTYP_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_PERD_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_INC_AMNT_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_TTYP_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EMP_CURR_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	INCR_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ANNUAL_INCOME_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_COMM_REG_CITY_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CUST_STATUS	INT
+BBSD_PHYSICAL_PERSONS	PHPR_CITIZEN_CTRY_CODE	INT
+BBSD_PHYSICAL_PERSONS	PHPR_NOT_CONF_1_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NOT_CONF_2_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_NOT_CONF_3_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BLKL_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQ_CURING_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_ISSUE_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_LCTY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_IQAMA_SLTY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_3_EXPIRY_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID2_LCTY_EXPIRY_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID2_LCTY_ISSUE_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_REQID_1_EXPIRY_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FTC_CURE_VAL_STATUS	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_PR_VAL_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_RM_VAL_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_RM_VAL_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_ABOVE_LIMIT_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_TOTAL_BALANCE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_PR_VAL_IND	Char25
+BBSD_PHYSICAL_PERSONS	GDST_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_CURED_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_CURED_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FATCA_CURED_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FATCA_CURED_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRSC_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRSS_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_CRS_VAL_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ADD_COUNTRIES_FLG	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_EBANKING_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_DCNT_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_ISS_CTRY_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_ISS_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_ID_EXPIRY_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PRIMARY_ID_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_AML_RISK_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_PEPF_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_TERM_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_PEPR_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_TERM_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_PEPF_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_PEPR_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_TERM_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_PEPF_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_NAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_NAME	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_COMMENTS	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_LEVEL_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_FAMILY_LEVEL_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_PEP_ASSOCIATE_LEVEL_IND	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_BIRTH_PLACE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_START_DATE	Char25
+BBSD_PHYSICAL_PERSONS	TRLS_CODE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_START_DATE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_LEGL_TUTOR_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_DUE_DATE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_LEGL_REF_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_INTER_START_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_TUTOR_INTER_TERM_DATE	Char25
+BBSD_PHYSICAL_PERSONS	TATP_CODE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_START_DATE_1	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_COMMENT_1	Char25
+BBSD_PHYSICAL_PERSONS	TATP_CODE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_START_DATE_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_JUDI_COMMENT_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RLEV_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RISK_NEXT_REVIEW_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_RISK_LAST_REVIEW_DATE	Char25
+BBSD_PHYSICAL_PERSONS	REVS_CODE	Char25
+BBSD_PHYSICAL_PERSONS	MROF_CODE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FIRST_DEP_AMNT	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FULL_KYC_FLG	INT
+BBSD_PHYSICAL_PERSONS	PHPR_FULL_NAME_2	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FULL_NAME_3	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_FIRST_DEPT_AMNT_CURR	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_SRC_WEALTH	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_VALD_USER	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_VALD_DATE	Char25
+BBSD_PHYSICAL_PERSONS	PHPR_INPUT_DATE	Char25
+DATES	Today	INT
+DATES	LastWorkingDay	INT
+DATES	NextWorkingDay	INT
+GBSS_LANGUAGES	LANG_CODE	INT
+GBSS_LANGUAGES	LANG_B_DESC	Char25
+GBSS_LANGUAGES	LANG_S_DESC	Char25
+GBSS_LANGUAGES	LANG_ISO	Char25
+GBSS_LANGUAGES	LANG_LABELS_PATH	Char50
+GBSS_LANGUAGES	NODE_ID	Char25
+GBSS_LANGUAGES	PROGRAM_ID	Char25
+GBSS_LANGUAGES	USER_ID	Char25
+GBSS_LANGUAGES	TIME_STAMP	Date
+GBSS_SYSTEMS	SYST_CODE	Char50
+GBSS_SYSTEMS	SYST_DESCRIPTION	Char50
+GBSS_SYSTEMS	SYST_CHAR	Char25
+GBSS_SYSTEMS	SYST_NUMBER	INT
+GBSS_SYSTEMS	SYST_DATE	Char25
+GBSS_SYSTEMS	NODE_ID	Char25
+GBSS_SYSTEMS	PROGRAM_ID	Char25
+GBSS_SYSTEMS	USER_ID	Char25
+GBSS_SYSTEMS	TIME_STAMP	Date
+GBSS_SYSTEMS	SYST_DETAILS	Char255
+BBSP_GENERATED_OPERATIONS_M	GOPM_CODE	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_DESC	Char50
+BBSP_GENERATED_OPERATIONS_M	MODL_CODE	Char25
+BBSP_GENERATED_OPERATIONS_M	SMOD_CODE	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_NUMBER_OF_LINE	INT
+BBSP_GENERATED_OPERATIONS_M	PRDT_CODE	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_NODOC_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_PRODUCT_CODE_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_PRODUCT_AMOUNT_FORMULA	Char25
+BBSP_GENERATED_OPERATIONS_M	NODE_ID	Char25
+BBSP_GENERATED_OPERATIONS_M	PROGRAM_ID	Char25
+BBSP_GENERATED_OPERATIONS_M	USER_ID	Char25
+BBSP_GENERATED_OPERATIONS_M	TIME_STAMP	Date
+BBSP_GENERATED_OPERATIONS_M	GOPM_DISP_LINE	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_DISP_DOCUMENT	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_RISKY_BAL	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_RATE_VAR_1	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_RATE_VAR_2	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_ABREVIATION_CODE	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_SHORT_DESC	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_EOD_FILT_FLG	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_ECOD_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	ECOD_CODE	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_CUMUL_CR	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_AUTHORIZED_IND	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_PRINT	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_SIG_VAR_BRCH	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_SIG_VAR_CACC	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_SIG_VAR_AMNT	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_CASH_INFO_FLG	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_SMS_IND	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_SBS_IND	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_AMOUNT	Dec
+BBSP_GENERATED_OPERATIONS_M	GOPM_AML_IND	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_NOUPD_LAST_OPR_DATE_FLG	INT
+BBSP_GENERATED_OPERATIONS_M	OCTG_CODE	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_LINE_TYPE	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_LINE_NUMBER	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_TYPE_OF_ACCOUNT	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_BRANCH_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_ACCOUNT_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_SIGN	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_CURR_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_GRP_AMOUNT_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPM_EXT_IND	INT
+BBSP_GENERATED_OPERATIONS_M	CHNL_CODE	INT
+BBSP_GENERATED_OPERATIONS_M	GOPM_CHNL_CODE_VAR	Char25
+BBSP_GENERATED_OPERATIONS_M	GOPD_REF_VAR	Char25
