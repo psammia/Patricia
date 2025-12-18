@@ -1,869 +1,876 @@
 -- ============================================================================
--- SQL SCRIPT - PART 2
+-- SQL SCRIPT - PART 3 (FINAL)
 -- Tables with t_ prefix
 -- Primary Key: First column (row 1) - NOT NULL
 -- All other fields: NULL allowed
 -- ============================================================================
 
 -- ============================================
--- Table: t_BBSC_MEMBERS_ROLES
+-- Table: t_BBSD_GL_ACCOUNTS
+-- Composite Primary Key: BRCH_CODE, CURR_CODE, ACNT_NUM
+-- 55 columns total
 -- ============================================
-CREATE TABLE t_BBSC_MEMBERS_ROLES
+CREATE TABLE t_BBSD_GL_ACCOUNTS
 (
-    MERO_CODE int NOT NULL PRIMARY KEY,
-    MERO_B_DESC nvarchar(25) NULL,
+    BRCH_CODE int NOT NULL,
+    CURR_CODE int NOT NULL,
+    ACNT_NUM int NOT NULL,
+    GLAC_AMNT_CR_1 decimal(18,2) NULL,
+    GLAC_AMNT_CR_2 decimal(18,2) NULL,
+    GLAC_AMNT_CR_3 decimal(18,2) NULL,
+    GLAC_AMNT_DR_1 decimal(18,2) NULL,
+    GLAC_AMNT_DR_2 decimal(18,2) NULL,
+    GLAC_AMNT_DR_3 decimal(18,2) NULL,
+    GLAC_AVERAGE_BAL decimal(18,2) NULL,
+    GLAC_BF_BAL decimal(18,2) NULL,
+    GLAC_CR_MVT decimal(18,2) NULL,
+    GLAC_DR_MVT decimal(18,2) NULL,
+    GLAC_LAST_OPER_DATE datetime NULL,
+    GLAC_OLD_ACCNT_NUM nvarchar(25) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
     TIME_STAMP datetime NULL,
-    MERO_S_DESC nvarchar(25) NULL,
-    MERO_LOGIC_VAL int NULL
+    GLAC_MTH_DR decimal(18,2) NULL,
+    GLAC_MTH_CR decimal(18,2) NULL,
+    GLAC_AVG_ACNT_BAL_MTD decimal(18,2) NULL,
+    GLAC_PRV_ACNT_BAL_MTD decimal(18,2) NULL,
+    GLAC_AVAIL_BAL decimal(18,2) NULL,
+    GLAC_AVG_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_CUM_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_AVG_ACNT_BAL_YTD decimal(18,2) NULL,
+    GLAC_PRV_ACNT_BAL_YTD decimal(18,2) NULL,
+    GLAC_AVG_AVAIL_BAL_YTD decimal(18,2) NULL,
+    GLAC_CUM_AVAIL_BAL_YTD decimal(18,2) NULL,
+    GLAC_STATUS decimal(18,2) NULL,
+    GLAC_MIN_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_MIN_AVAIL_BAL_YTD decimal(18,2) NULL,
+    GLAC_MIN_ACNT_BAL_MTD decimal(18,2) NULL,
+    GLAC_MIN_ACNT_BAL_YTD decimal(18,2) NULL,
+    GLAC_MAX_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_MAX_AVAIL_BAL_YTD decimal(18,2) NULL,
+    GLAC_MAX_ACNT_BAL_MTD datetime NULL,
+    GLAC_MAX_ACNT_BAL_YTD decimal(18,2) NULL,
+    GLAC_AVG_DATE decimal(18,2) NULL,
+    GLAC_CUM_ACCNT_BAL_DB_MTD decimal(18,2) NULL,
+    GLAC_TOT_ACCNT_DB_DAYS_NBR_MTD decimal(18,2) NULL,
+    GLAC_CUM_ACCNT_BAL_CR_MTD decimal(18,2) NULL,
+    GLAC_TOT_ACCNT_CR_DAYS_NBR_MTD decimal(18,2) NULL,
+    GLAC_AVG_DB_ACCNT_BAL_MTD decimal(18,2) NULL,
+    GLAC_AVG_CR_ACCNT_BAL_MTD decimal(18,2) NULL,
+    GLAC_PRV_AVAIL_BAL decimal(18,2) NULL,
+    GLAC_CUM_AVAIL_BAL_DB_MTD decimal(18,2) NULL,
+    GLAC_TOT_AVAIL_DB_DAYS_NBR_MTD decimal(18,2) NULL,
+    GLAC_AVG_DB_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_CUM_AVAIL_BAL_CR_MTD decimal(18,2) NULL,
+    GLAC_TOT_AVAIL_CR_DAYS_NBR_MTD decimal(18,2) NULL,
+    GLAC_AVG_CR_AVAIL_BAL_MTD decimal(18,2) NULL,
+    GLAC_AVG_BAL_CR decimal(18,2) NULL,
+    GLAC_AVG_BAL_DB decimal(18,2) NULL,
+    CONSTRAINT PK_t_BBSD_GL_ACCOUNTS PRIMARY KEY (BRCH_CODE, CURR_CODE, ACNT_NUM)
 );
 GO
 
 -- ============================================
--- Table: t_BBSC_MRPR_MEMBER_TYPES
+-- Table: t_BBSD_GL_COST_CENTERS
+-- Composite Primary Key: BRCH_CODE, CURR_CODE, ACNT_NUM, CSTC_CODE
+-- 30 columns total
 -- ============================================
-CREATE TABLE t_BBSC_MRPR_MEMBER_TYPES
+CREATE TABLE t_BBSD_GL_COST_CENTERS
 (
-    MPMT_CODE int NOT NULL PRIMARY KEY,
-    MPMT_B_DESC nvarchar(50) NULL,
-    MPMT_S_DESC nvarchar(50) NULL,
+    BRCH_CODE int NOT NULL,
+    CURR_CODE int NOT NULL,
+    ACNT_NUM nvarchar(25) NOT NULL,
+    CSTC_CODE nvarchar(25) NOT NULL,
+    GLCC_BRCH nvarchar(25) NULL,
+    GLCC_ACCNT_BAL nvarchar(25) NULL,
+    GLCC_AVAIL_BAL nvarchar(25) NULL,
+    GLCC_AVG_ACCNT_BAL_MTD nvarchar(25) NULL,
+    GLCC_PRV_ACCNT_BAL_MTD nvarchar(25) NULL,
+    GLCC_AVG_AVAIL_BAL_MTD nvarchar(25) NULL,
+    GLCC_CUM_AVAIL_BAL_MTD nvarchar(25) NULL,
+    GLCC_AVG_ACCNT_BAL_YTD nvarchar(25) NULL,
+    GLCC_PRV_ACCNT_BAL_YTD nvarchar(25) NULL,
+    GLCC_AVG_AVAIL_BAL_YTD nvarchar(25) NULL,
+    GLCC_CUM_AVAIL_BAL_YTD nvarchar(25) NULL,
+    GLCC_LAST_DATE nvarchar(25) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
     TIME_STAMP datetime NULL,
-    MPMT_LOGIC_VAL nvarchar(25) NULL,
-    MPMT_FTC_LGC_IND nvarchar(25) NULL,
-    MPMT_CP_MEMBER_IND int NULL
+    GLCC_AVG_DATE nvarchar(25) NULL,
+    GLCC_MIN_ACCNT_BAL_MTD nvarchar(25) NULL,
+    GLCC_MAX_ACCNT_BAL_MTD nvarchar(25) NULL,
+    GLCC_MIN_AVAIL_BAL_MTD nvarchar(25) NULL,
+    GLCC_MAX_AVAIL_BAL_MTD nvarchar(25) NULL,
+    GLCC_MIN_ACCNT_BAL_YTD nvarchar(25) NULL,
+    GLCC_MAX_ACCNT_BAL_YTD nvarchar(25) NULL,
+    GLCC_MIN_AVAIL_BAL_YTD nvarchar(25) NULL,
+    GLCC_MAX_AVAIL_BAL_YTD nvarchar(25) NULL,
+    GLCC_PRV_AVAIL_BAL nvarchar(25) NULL,
+    CONSTRAINT PK_t_BBSD_GL_COST_CENTERS PRIMARY KEY (BRCH_CODE, CURR_CODE, ACNT_NUM, CSTC_CODE)
 );
 GO
 
 -- ============================================
--- Table: t_BBSC_PARTNER_SHIP
+-- Table: t_BBSD_HIST_TRANSACTIONS
+-- Composite Primary Key: HTRS_SEQUENCE, HTRS_LINE
+-- 52 columns total
 -- ============================================
-CREATE TABLE t_BBSC_PARTNER_SHIP
+CREATE TABLE t_BBSD_HIST_TRANSACTIONS
 (
-    PART_CODE int NOT NULL PRIMARY KEY,
-    PART_B_DESC nvarchar(25) NULL,
-    PART_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    PART_VALUE nvarchar(25) NULL,
-    PART_CP_MEMBER_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_POSTAL_ZONE_EXTS
--- Composite Primary Key: PZON_CODE, PZEX_CODE
--- ============================================
-CREATE TABLE t_BBSC_POSTAL_ZONE_EXTS
-(
-    PZON_CODE int NOT NULL,
-    PZEX_CODE int NOT NULL,
-    PZEX_B_DESC nvarchar(25) NULL,
-    PZEX_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    CONSTRAINT PK_t_BBSC_POSTAL_ZONE_EXTS PRIMARY KEY (PZON_CODE, PZEX_CODE)
-);
-GO
-
--- ============================================
--- Table: t_BBSC_POSTAL_ZONES
--- ============================================
-CREATE TABLE t_BBSC_POSTAL_ZONES
-(
-    PZON_CODE int NOT NULL PRIMARY KEY,
-    PZON_B_DESC nvarchar(25) NULL,
-    PZON_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    PZON_FR_POBOX int NULL,
-    PZON_TO_POBOX int NULL,
-    PZON_ZIPCODE int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_PROF_STATUS
--- ============================================
-CREATE TABLE t_BBSC_PROF_STATUS
-(
-    PRFS_CODE int NOT NULL PRIMARY KEY,
-    PRFS_B_DESC nvarchar(25) NULL,
-    PRFS_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    PRFS_LOGIC_VAL nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_PROFESSIONS
--- ============================================
-CREATE TABLE t_BBSC_PROFESSIONS
-(
-    PROF_CODE int NOT NULL PRIMARY KEY,
-    PROF_B_DESC nvarchar(50) NULL,
-    PROF_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    ACTV_CODE int NULL,
-    PROF_RISKY_FLG datetime NULL,
-    PROF_EMPL_FLG int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_QUALITIES
--- ============================================
-CREATE TABLE t_BBSC_QUALITIES
-(
-    QLTY_CODE int NOT NULL PRIMARY KEY,
-    QLTY_B_DESC nvarchar(25) NULL,
-    QLTY_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    QLTY_DETAILED_DESC nvarchar(25) NULL,
-    QLTY_GENDER nvarchar(25) NULL,
-    QLTY_PP_MP_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_RELATION_NATURES
--- ============================================
-CREATE TABLE t_BBSC_RELATION_NATURES
-(
-    RLNT_CODE int NOT NULL PRIMARY KEY,
-    RLNT_B_DESC nvarchar(25) NULL,
-    RLNT_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_RELATION_REASONS
--- ============================================
-CREATE TABLE t_BBSC_RELATION_REASONS
-(
-    RLRS_CODE int NOT NULL PRIMARY KEY,
-    RLRS_B_DESC nvarchar(50) NULL,
-    RLRS_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_RELIGIONS
--- ============================================
-CREATE TABLE t_BBSC_RELIGIONS
-(
-    RELG_CODE int NOT NULL PRIMARY KEY,
-    RELG_B_DESC nvarchar(25) NULL,
-    RELG_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_REPORTING_REGIONS
--- ============================================
-CREATE TABLE t_BBSC_REPORTING_REGIONS
-(
-    RREG_CODE int NOT NULL PRIMARY KEY,
-    RREG_B_DESC nvarchar(25) NULL,
-    RREG_S_DESC nvarchar(25) NULL,
-    RREG_ABRV_CODE nvarchar(25) NULL,
-    RREG_B_SHORT_D nvarchar(25) NULL,
-    RREG_S_SHORT_D nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    RREG_MANAGER nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_REQUIRED_DOCUMENTS
--- Composite Primary Key: DCMT_CODE, CNAT_CODE
--- ============================================
-CREATE TABLE t_BBSC_REQUIRED_DOCUMENTS
-(
-    DCMT_CODE int NOT NULL,
-    CNAT_CODE int NOT NULL,
-    RDOC_MAND_FLG nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    DCMT_UPLOAD_FLG nvarchar(25) NULL,
-    DCMT_REQ_SIGN_FLG nvarchar(25) NULL,
-    DCMT_INDEXES nvarchar(25) NULL,
-    DCMT_REF1 nvarchar(25) NULL,
-    DCMT_REF2 nvarchar(25) NULL,
-    DCMT_REF3 nvarchar(25) NULL,
-    CONSTRAINT PK_t_BBSC_REQUIRED_DOCUMENTS PRIMARY KEY (DCMT_CODE, CNAT_CODE)
-);
-GO
-
--- ============================================
--- Table: t_BBSC_RESIDENTS
--- ============================================
-CREATE TABLE t_BBSC_RESIDENTS
-(
-    RESD_CODE int NOT NULL PRIMARY KEY,
-    RESD_B_DESC nvarchar(25) NULL,
-    RESD_S_DESC nvarchar(25) NULL,
-    RESD_LOGIC_FLG int NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    RESD_PP_MP_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_RETURNED_MAIL_REASONS
--- ============================================
-CREATE TABLE t_BBSC_RETURNED_MAIL_REASONS
-(
-    RTMR_CODE int NOT NULL PRIMARY KEY,
-    RTMR_B_DESC nvarchar(25) NULL,
-    RTMR_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SECRECY_LEVELS
--- ============================================
-CREATE TABLE t_BBSC_SECRECY_LEVELS
-(
-    SCLV_CODE int NOT NULL PRIMARY KEY,
-    SCLV_B_DESC nvarchar(25) NULL,
-    SCLV_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SECT_DOMECTIC_ECOS
--- ============================================
-CREATE TABLE t_BBSC_SECT_DOMECTIC_ECOS
-(
-    SDEC_CODE int NOT NULL PRIMARY KEY,
-    SDEC_ISO int NULL,
-    SDEC_B_DESC nvarchar(25) NULL,
-    SDEC_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SIGN_COMBINATIONS
--- ============================================
-CREATE TABLE t_BBSC_SIGN_COMBINATIONS
-(
-    SGNC_CODE int NOT NULL PRIMARY KEY,
-    SGNC_B_DESC nvarchar(50) NULL,
-    SGNC_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SOURCE_OF_INCOME
--- ============================================
-CREATE TABLE t_BBSC_SOURCE_OF_INCOME
-(
-    ISCR_CODE int NOT NULL PRIMARY KEY,
-    ISCR_B_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    ISCR_S_DESC nvarchar(25) NULL,
-    ISCR_DISP_FLG int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_STMT_MAIL_CODES
--- ============================================
-CREATE TABLE t_BBSC_STMT_MAIL_CODES
-(
-    STMC_CODE int NOT NULL PRIMARY KEY,
-    STMC_B_DESC nvarchar(25) NULL,
-    STMC_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_STP_REASONS
--- ============================================
-CREATE TABLE t_BBSC_STP_REASONS
-(
-    STPR_CODE int NOT NULL PRIMARY KEY,
-    STPR_B_DESC nvarchar(25) NULL,
-    STPR_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_STRATEGIES
--- ============================================
-CREATE TABLE t_BBSC_STRATEGIES
-(
-    STRA_CODE int NOT NULL PRIMARY KEY,
-    STRA_B_DESC nvarchar(25) NULL,
-    STRA_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_STUDIES_DEGREES
--- ============================================
-CREATE TABLE t_BBSC_STUDIES_DEGREES
-(
-    STDG_CODE int NOT NULL PRIMARY KEY,
-    STDG_B_DESC nvarchar(25) NULL,
-    STDG_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SUB_LOCALITIES
--- Composite Primary Key: LCTY_CODE, SLTY_CODE
--- ============================================
-CREATE TABLE t_BBSC_SUB_LOCALITIES
-(
-    LCTY_CODE int NOT NULL,
-    SLTY_CODE int NOT NULL,
-    SLTY_B_DESC nvarchar(25) NULL,
-    SLTY_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    CONSTRAINT PK_t_BBSC_SUB_LOCALITIES PRIMARY KEY (LCTY_CODE, SLTY_CODE)
-);
-GO
-
--- ============================================
--- Table: t_BBSC_SUFFIXES
--- ============================================
-CREATE TABLE t_BBSC_SUFFIXES
-(
-    SUFX_CODE int NOT NULL PRIMARY KEY,
-    SUFX_B_DESC nvarchar(25) NULL,
-    SUFX_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_TAX_LEVELS
--- ============================================
-CREATE TABLE t_BBSC_TAX_LEVELS
-(
-    TAXL_CODE int NOT NULL PRIMARY KEY,
-    TAXL_DESC nvarchar(25) NULL,
-    TAXL_RATE nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_TELLERS
--- String Primary Key: UDEF_CODE
--- ============================================
-CREATE TABLE t_BBSC_TELLERS
-(
-    UDEF_CODE nvarchar(25) NOT NULL PRIMARY KEY,
-    TLLR_CASH_CODE int NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    TLLR_SEND_IND nvarchar(25) NULL,
-    TLLR_CASH_ACT_FLG int NULL,
-    CHBX_CODE int NULL,
-    TLLR_DIRECTION_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_TRANSACTION_TYPES
--- ============================================
-CREATE TABLE t_BBSC_TRANSACTION_TYPES
-(
-    TTYP_CODE int NOT NULL PRIMARY KEY,
-    TTYP_B_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    TTYP_S_DESC nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_TUTOR_RELATION_SHIPS
--- ============================================
-CREATE TABLE t_BBSC_TUTOR_RELATION_SHIPS
-(
-    TRLS_CODE int NOT NULL PRIMARY KEY,
-    TRLS_B_DESC nvarchar(25) NULL,
-    TRLS_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    TRLS_LEG_JUDC_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSD_CBKBALS
--- DateTime Primary Key: BDATE
--- 210 columns total
--- ============================================
-CREATE TABLE t_BBSD_CBKBALS
-(
-    BDATE datetime NOT NULL PRIMARY KEY,
-    BBRCH int NULL,
-    BCURR int NULL,
-    BGL nvarchar(25) NULL,
-    BCACC nvarchar(25) NULL,
-    BCUST int NULL,
-    BTYPE int NULL,
-    BSIGN nvarchar(5) NULL,
-    BRATE decimal(18,2) NULL,
-    BRATI int NULL,
-    BRESD int NULL,
-    BCNAT int NULL,
-    BREFF nvarchar(25) NULL,
-    BECOS int NULL,
-    BCECO int NULL,
-    BREMDAYS int NULL,
-    BPRDDAYS int NULL,
-    BRATECR decimal(18,2) NULL,
-    BRATEDB decimal(18,2) NULL,
-    BCODECR decimal(18,2) NULL,
-    BCODEDB decimal(18,2) NULL,
-    BMRGCR decimal(18,2) NULL,
-    BMRGDB decimal(18,2) NULL,
-    BCSTCTG int NULL,
-    BBREG int NULL,
-    BOPNDT datetime NULL,
-    BMATDT datetime NULL,
-    BRNWDT datetime NULL,
-    BCLSS int NULL,
-    BLIMDAY int NULL,
-    BCTRY int NULL,
-    BTYPNAT int NULL,
-    BCSTS int NULL,
-    BREMITNBR int NULL,
-    BACCIND int NULL,
-    BACCRAMNT decimal(18,2) NULL,
-    BCTYP int NULL,
-    BINST int NULL,
-    BCAOF decimal(18,2) NULL,
-    BBAL decimal(18,2) NULL,
-    BCVBAL decimal(18,2) NULL,
-    BBALCR decimal(18,2) NULL,
-    BBALDB decimal(18,2) NULL,
-    BMBAL decimal(18,2) NULL,
-    BMCVBAL decimal(18,2) NULL,
-    BMTHMVCR decimal(18,2) NULL,
-    BMTHCVMVCR decimal(18,2) NULL,
-    BMTHMVDB decimal(18,2) NULL,
-    BMTHCVMVDB decimal(18,2) NULL,
-    BVDATB decimal(18,2) NULL,
-    BVDATCVB decimal(18,2) NULL,
-    BPRVMB decimal(18,2) NULL,
-    BPRVMCVB decimal(18,2) NULL,
-    BPRVDB decimal(18,2) NULL,
-    BPRVDCVB decimal(18,2) NULL,
-    BLIMCR decimal(18,2) NULL,
-    BLIMCV decimal(18,2) NULL,
-    BMMEANB decimal(18,2) NULL,
-    BMMEANCVB decimal(18,2) NULL,
-    BMMINB decimal(18,2) NULL,
-    BMMINCVB decimal(18,2) NULL,
-    BMMAXB decimal(18,2) NULL,
-    BMMAXCVB decimal(18,2) NULL,
-    BMMEANAVB decimal(18,2) NULL,
-    BMMEANAVCVB decimal(18,2) NULL,
-    BMMINAVB decimal(18,2) NULL,
-    BMMINAVCVB decimal(18,2) NULL,
-    BMMAXAVB decimal(18,2) NULL,
-    BMMAXAVCVB decimal(18,2) NULL,
-    BYMEANB decimal(18,2) NULL,
-    BYMEANCVB decimal(18,2) NULL,
-    BYMINB decimal(18,2) NULL,
-    BYMINCVB decimal(18,2) NULL,
-    BYMAXB decimal(18,2) NULL,
-    BYMAXCVB decimal(18,2) NULL,
-    BYMEANAVB decimal(18,2) NULL,
-    BYMEANAVCVB decimal(18,2) NULL,
-    BYMINAVB decimal(18,2) NULL,
-    BYMINAVCVB decimal(18,2) NULL,
-    BYMAXAVB decimal(18,2) NULL,
-    BYMAXAVCVB decimal(18,2) NULL,
-    BLAMNT decimal(18,2) NULL,
-    BLPMNT decimal(18,2) NULL,
-    BLIMNT decimal(18,2) NULL,
-    BMTHPCR decimal(18,2) NULL,
-    BMTHPCVCR decimal(18,2) NULL,
-    BMTHLDR decimal(18,2) NULL,
-    BMTHLCVDR decimal(18,2) NULL,
-    BDDEP decimal(18,2) NULL,
-    BDWTH decimal(18,2) NULL,
-    BMAVGDBBAL decimal(18,2) NULL,
-    BMAVGDBCVBAL decimal(18,2) NULL,
-    BMAVGCRBAL decimal(18,2) NULL,
-    BMAVGCRCVBAL decimal(18,2) NULL,
-    BMDAYDBTOT decimal(18,2) NULL,
-    BMDAYCRTOT decimal(18,2) NULL,
-    BACCRCVAMNT decimal(18,2) NULL,
-    BCDRSNUM decimal(18,2) NULL,
-    BNATIONALNUM nvarchar(25) NULL,
-    BNATIONALITY int NULL,
-    BCACCBNAME nvarchar(50) NULL,
-    BCACCSNAME nvarchar(50) NULL,
-    BCORTCODE int NULL,
-    BOLDREF nvarchar(25) NULL,
-    BMAVGDBAVBAL decimal(18,2) NULL,
-    BMAVGDBCVAVBAL decimal(18,2) NULL,
-    BMAVGCRAVBAL decimal(18,2) NULL,
-    BMAVGCRCVAVBAL decimal(18,2) NULL,
-    BMDAYDBAVTOT int NULL,
-    BMDAYCRAVTOT int NULL,
-    BILSL int NULL,
-    BCVLAMNT decimal(18,2) NULL,
-    BMEANB decimal(18,2) NULL,
-    BMEANCVB decimal(18,2) NULL,
-    BYEARCVCRPL decimal(18,2) NULL,
-    BYEARCRPL decimal(18,2) NULL,
-    BMATBR int NULL,
-    BMATACC nvarchar(25) NULL,
-    BDBACCRGL nvarchar(25) NULL,
-    BCRACCRGL nvarchar(25) NULL,
-    BUNPPRINCCV decimal(18,2) NULL,
-    BDBTINTCV decimal(18,2) NULL,
-    BLILORDESC int NULL,
-    BUNPPRINC decimal(18,2) NULL,
-    BUNPPENALTY decimal(18,2) NULL,
-    BPROVPRINC decimal(18,2) NULL,
-    BACCRNOTPAID decimal(18,2) NULL,
-    BCVACCRNOTPAID decimal(18,2) NULL,
-    BTERM int NULL,
-    BTOTDAYS int NULL,
-    BCTRYISO nvarchar(25) NULL,
-    BCECOISO nvarchar(25) NULL,
-    BECOSISO nvarchar(25) NULL,
-    BCURRISO nvarchar(25) NULL,
-    BFCTFLG int NULL,
-    BDRMFLG int NULL,
-    BWTHFLG int NULL,
-    BBLKFLG int NULL,
-    BDEPFLG int NULL,
-    BSALARY decimal(18,2) NULL,
-    BPROPRENT decimal(18,2) NULL,
-    BBUSINC decimal(18,2) NULL,
-    BANNINC decimal(18,2) NULL,
-    BOTHINC decimal(18,2) NULL,
-    BSEX int NULL,
-    BCOLCOMM decimal(18,2) NULL,
-    BCOLCOMMCV decimal(18,2) NULL,
-    BHLDAMNT decimal(18,2) NULL,
-    BHLDCVAMNT decimal(18,2) NULL,
-    BACCRCRMTD decimal(18,2) NULL,
-    BACCRCRCVMTD decimal(18,2) NULL,
-    BACCRDBMTD decimal(18,2) NULL,
-    BACCRDBCVMTD decimal(18,2) NULL,
-    BACCRCRYTD decimal(18,2) NULL,
-    BACCRCRCVYTD decimal(18,2) NULL,
-    BACCRDBYTD decimal(18,2) NULL,
-    BACCRDBCVYTD decimal(18,2) NULL,
-    BINTDBNETAMNT decimal(18,2) NULL,
-    BINTDBNETCVAMNT decimal(18,2) NULL,
-    BGRTMCVAMNT decimal(18,2) NULL,
-    BCRSTDRATE decimal(18,2) NULL,
-    BINTRATE decimal(18,2) NULL,
-    BINTPAID decimal(18,2) NULL,
-    BINTPAIDCV decimal(18,2) NULL,
-    BPRINCAMNT decimal(18,2) NULL,
-    BPAYAMNT decimal(18,2) NULL,
-    BMINDRATE decimal(18,2) NULL,
-    BRATEDEBIT decimal(18,2) NULL,
-    BAVGCRBAL decimal(18,2) NULL,
-    BAVGDBBAL decimal(18,2) NULL,
-    BMNTHDEP decimal(18,2) NULL,
-    BMNTHCVDEP decimal(18,2) NULL,
-    BMNTHWTH decimal(18,2) NULL,
-    BAVGDBBALCV decimal(18,2) NULL,
-    BAVGCRBALCV decimal(18,2) NULL,
-    BMRPTUOV decimal(18,2) NULL,
-    BCBRCH int NULL,
-    BCUSMTYPE int NULL,
-    BCUSMID int NULL,
-    BACCHOLD int NULL,
-    BMAXRATE decimal(18,2) NULL,
-    BFCTDATE datetime NULL,
-    BSOLETRIND int NULL,
-    BCITIZEN int NULL,
-    BLGLS int NULL,
-    BGRPC int NULL,
-    BBIRTHDATE datetime NULL,
-    BLCTY int NULL,
-    BSLC int NULL,
-    BFSIT int NULL,
-    BACTV int NULL,
-    BPROF int NULL,
-    BNBDEPT int NULL,
-    BPRVACCRCR decimal(18,2) NULL,
-    BPRVACCRCVCR decimal(18,2) NULL,
-    BPRVACCRDB decimal(18,2) NULL,
-    BPRVACCRCVDB decimal(18,2) NULL,
-    BEMPNBR int NULL,
-    BISSDT datetime NULL,
-    BEXCESSAMT decimal(18,2) NULL,
-    BEXCESSAMTCV decimal(18,2) NULL,
-    BEXCESSDAYS int NULL,
-    BGRAT int NULL,
-    BMERO int NULL,
-    BLCTYDESC nvarchar(50) NULL,
-    BDEPCOMFLG int NULL,
-    BOLDISSDT datetime NULL,
-    BECLAMNT decimal(18,2) NULL,
-    BECLCVAMNT decimal(18,2) NULL,
-    BTOTCUSTDEP decimal(18,2) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSD_CUSTOMERS
--- 138 columns total
--- ============================================
-CREATE TABLE t_BBSD_CUSTOMERS
-(
-    CUST_ID int NOT NULL PRIMARY KEY,
+    HTRS_SEQUENCE int NOT NULL,
+    HTRS_LINE int NOT NULL,
+    TRSH_NUM int NULL,
+    GOPM_CODE nvarchar(25) NULL,
+    TRSD_LINE_SEQ int NULL,
+    HTRS_MARGIN_RATE decimal(18,2) NULL,
+    HTRS_INT_CODE int NULL,
+    TRSH_OPERATION_DATE datetime NULL,
     BRCH_CODE int NULL,
-    LANG_CODE int NULL,
+    ACCD_CODE int NULL,
+    HTRS_ACCD_CODE2 int NULL,
+    CURR_CODE int NULL,
+    CUST_ID int NULL,
+    HTRS_DOC_REFERENCE nvarchar(25) NULL,
+    HTRS_DC nvarchar(25) NULL,
+    HTRS_BRCH_CODE int NULL,
+    HTRS_CACC_NUM nvarchar(25) NULL,
+    HTRS_ACC_IND int NULL,
+    HTRS_VALUE_DATE datetime NULL,
+    HTRS_AMOUNT decimal(18,2) NULL,
+    HTRS_B_DESC nvarchar(50) NULL,
+    HTRS_S_DESC nvarchar(50) NULL,
+    HTRS_SRC_AMOUNT decimal(18,2) NULL,
+    HTRS_SRC_VALUE_DATE datetime NULL,
+    HTRS_SRC_ACC_BRCH_CODE int NULL,
+    HTRS_SRC_TRSH_NUM int NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    HTRS_INT_COMP_FLG int NULL,
+    HTRS_PRT_STMT_DATE datetime NULL,
+    HTRS_ACNT_NUM nvarchar(25) NULL,
+    HTRS_REFERENCE nvarchar(25) NULL,
+    HTRS_CUST_BRCH_CODE int NULL,
+    HTRS_CUST_CACC_NUM nvarchar(25) NULL,
+    HTRS_SRC_CURRENCY int NULL,
+    HTRS_SRC_LINE int NULL,
+    HTRS_ACTP_TYPE int NULL,
+    HTRS_PRT_STMT_IND int NULL,
+    HTRS_DEPT_CODE int NULL,
+    HTRS_CUR_RATE_1 decimal(18,2) NULL,
+    HTRS_CUR_RATE_2 decimal(18,2) NULL,
+    HTRS_USER_ID_1 nvarchar(25) NULL,
+    HTRS_USER_ID_2 nvarchar(25) NULL,
+    CHNL_CODE int NULL,
+    HTRS_SENT_EXT_FLG int NULL,
+    HTRS_VERIFIED_FLG int NULL,
+    HTRS_APPROVED_FLG int NULL,
+    HTRS_APPROVED_DATE datetime NULL,
+    HTRS_APPROVED_USER_ID nvarchar(25) NULL,
+    HTRS_VERIFIED_USER_ID nvarchar(25) NULL,
+    CONSTRAINT PK_t_BBSD_HIST_TRANSACTIONS PRIMARY KEY (HTRS_SEQUENCE, HTRS_LINE)
+);
+GO
+
+-- ============================================
+-- Table: t_BBSD_MORAL_PERSONS
+-- 192 columns total
+-- ============================================
+CREATE TABLE t_BBSD_MORAL_PERSONS
+(
+    MRPR_ID int NOT NULL PRIMARY KEY,
+    BRCH_CODE int NULL,
+    BSTD_CODE int NULL,
+    CORT_CODE int NULL,
+    CTRY_CODE int NULL,
+    CURR_CODE int NULL,
     RESD_CODE int NULL,
+    ECOS_CODE int NULL,
+    LGLS_CODE int NULL,
+    LANG_CODE int NULL,
     SGNC_CODE int NULL,
     PHPR_ID nvarchar(25) NULL,
-    QLTY_CODE int NULL,
-    CECO_CODE int NULL,
-    CNAT_CODE int NULL,
-    CORT_CODE int NULL,
-    CSTS_CODE int NULL,
-    ECOS_CODE int NULL,
-    UDEF_CODE nvarchar(25) NULL,
-    MAIL_CODE int NULL,
-    CUST_B_NAME nvarchar(50) NULL,
-    CUST_S_NAME nvarchar(50) NULL,
-    CUST_SECRET_FLG int NULL,
-    CUST_VIP_FLG int NULL,
-    CUST_VIP_INFORMATION int NULL,
-    CUST_CHECK_BOOK_FLG int NULL,
-    CUST_PART_COMM_FLG int NULL,
-    CUST_PART_V_DATE_FLG int NULL,
-    CUST_TAXABLE_FLG int NULL,
-    CUST_BANK_CODE nvarchar(25) NULL,
-    CUST_GUICHET_CODE nvarchar(25) NULL,
-    CUST_CLEARING_CODE nvarchar(25) NULL,
-    CUST_MAIL_ADR_NUM int NULL,
-    CUST_OTHER_ADR_NUM int NULL,
-    CUST_REQ_SIGN_DESC nvarchar(50) NULL,
-    CUST_OPENING_DATE datetime NULL,
-    CUST_LAST_MODIFICATION_DATE datetime NULL,
+    MRPR_B_NAME nvarchar(100) NULL,
+    MRPR_S_NAME nvarchar(100) NULL,
+    MRPR_B_ACTIVITY nvarchar(255) NULL,
+    MRPR_S_ACTIVITY nvarchar(25) NULL,
+    MRPR_REGISTRATION_INFO nvarchar(25) NULL,
+    MRPR_REGISTRATION_DATE nvarchar(25) NULL,
+    MRPR_CAP_PAID_AMNT int NULL,
+    MRPR_CAP_AMNT int NULL,
+    MRPR_FOUNDATION_DATE datetime NULL,
+    MRPR_DURATION int NULL,
+    MRPR_OPENING_DATE datetime NULL,
+    MRPR_LAST_MODIFICATION_DATE datetime NULL,
+    MRPR_PART_OF_GRP1_FLG nvarchar(25) NULL,
+    MRPR_PART_OF_GRP2_FLG nvarchar(25) NULL,
+    MRPR_PART_OF_GRP3_FLG nvarchar(25) NULL,
+    MRPR_PART_OF_GRP4_FLG nvarchar(25) NULL,
+    MRPR_SIGN_COMBINATION nvarchar(25) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
     TIME_STAMP datetime NULL,
-    LAST_CHCK nvarchar(25) NULL,
-    LCTY_CODE int NULL,
-    SDEC_CODE int NULL,
-    CUST_CHECK_BOOK_DATE nvarchar(25) NULL,
-    CCLS_CODE int NULL,
-    CTYP_CODE int NULL,
-    CUST_OTHER_BANK_ID nvarchar(25) NULL,
-    STRA_CODE int NULL,
-    CUST_TAXABLE_REF nvarchar(25) NULL,
-    CUST_CLOSING_DATE nvarchar(25) NULL,
-    CUST_E_BANKING int NULL,
-    CUST_IVR int NULL,
-    CUST_SMS int NULL,
-    CUST_PIN_CODE nvarchar(25) NULL,
-    CTSC_CODE int NULL,
-    CUST_CATEGORY int NULL,
-    CAOF_CODE int NULL,
-    CUST_B_SHORT_NAME nvarchar(25) NULL,
-    CUST_S_SHORT_NAME nvarchar(25) NULL,
-    CTRY_CODE int NULL,
-    SCLV_CODE int NULL,
-    ASPR_CODE int NULL,
-    CUST_CSFP int NULL,
-    CUST_BKA int NULL,
-    CCTG_CODE int NULL,
-    CUST_KYC_DATE datetime NULL,
-    CUST_REVIEW_DATE datetime NULL,
-    CUST_LGLS_NATURE int NULL,
+    RLRS_CODE int NULL,
+    MRPR_RLRS_DATE datetime NULL,
+    MRPR_COMM_REG_NBR int NULL,
+    MRPR_COMM_REG_LCTY int NULL,
+    MRPR_CREG_LCTY_DSC nvarchar(50) NULL,
+    MRPR_PRF_CRT_CERT_CODE int NULL,
+    MRPR_PRF_CRT_ISSUE_DATE datetime NULL,
+    MRPR_PRF_CRT_VALID_DATE datetime NULL,
+    MRPR_PRF_CRT_PLACE_ISSUE nvarchar(50) NULL,
+    MRPR_REG_COM_CERT_CODE nvarchar(50) NULL,
+    MRPR_REG_COM_ISSUE_DATE datetime NULL,
+    MRPR_REG_COM_VALID_DATE datetime NULL,
+    MRPR_REG_COM_PLACE_ISSUE nvarchar(50) NULL,
+    MRPR_REG_IDS_CERT_CODE nvarchar(50) NULL,
+    MRPR_REG_IDS_ISSUE_DATE datetime NULL,
+    MRPR_REG_IDS_VALID_DATE datetime NULL,
+    MRPR_REG_IDS_PLACE_ISSUE nvarchar(50) NULL,
     MRPR_COMMENTS nvarchar(50) NULL,
-    CSNL_CODE int NULL,
-    CUST_CSTS_COMMENTS nvarchar(50) NULL,
-    CUST_HUNT_IND nvarchar(50) NULL,
-    CUST_HUNT_PRIORITY nvarchar(50) NULL,
-    CUST_PP_PM_IND int NULL,
-    CUST_PP_PM_ID int NULL,
-    CUST_PP_PM_DESC nvarchar(25) NULL,
-    ECOM_CODE nvarchar(25) NULL,
-    CUST_MIN_BAL_IND int NULL,
-    CUST_FORBID_ACC_CLS_FLG int NULL,
-    CUST_RISK_BATCH_CODE int NULL,
-    CUST_RISK_MANUAL_CODE int NULL,
-    CUST_RISK_BATCH_PRV_CODE nvarchar(25) NULL,
-    CUST_RISK_MANUAL_PRV_CODE nvarchar(25) NULL,
-    CUST_CLOSING_FLG int NULL,
-    CUST_REOPENING_DATE nvarchar(25) NULL,
-    CUST_INC_DATA_FLG nvarchar(25) NULL,
-    CUST_PP_PM_IND_2 int NULL,
-    CUST_PP_PM_ID_2 nvarchar(25) NULL,
-    CUST_PP_PM_REL_2 nvarchar(25) NULL,
-    CUST_PP_PM_PURPOSE_2 nvarchar(25) NULL,
-    CUST_PP_PM_RFRL_ID nvarchar(25) NULL,
-    RFRL_CODE nvarchar(25) NULL,
-    CUST_PP_PM_DESC_2 nvarchar(25) NULL,
-    CUST_PP_PM_PURPOSE nvarchar(25) NULL,
-    CUST_PP_PM_REL nvarchar(25) NULL,
-    CRIF_CODE int NULL,
-    CSCS_CODE int NULL,
-    CAOF_CODE_1 int NULL,
-    CUST_LAST_MODIFICATION_USER nvarchar(25) NULL,
-    CUST_OTHER_NAT int NULL,
-    CUST_FORBID_PRCH_CHECKS_FLG int NULL,
-    CUST_FINGERPRINT nvarchar(25) NULL,
-    CUST_BLK_IND nvarchar(25) NULL,
-    CUST_FTCL_CODE int NULL,
-    CUST_FTCS_CODE nvarchar(25) NULL,
-    CUST_SUBJ_FTC_IND int NULL,
-    CUST_TEXT1 nvarchar(25) NULL,
-    CUST_BLCK_LISTED_IND nvarchar(25) NULL,
-    CUST_ACC_OPENING_IND nvarchar(25) NULL,
-    CUST_BLCK_LISTED_PERS_ID nvarchar(25) NULL,
-    CUST_BLCK_LISTED_PERS_TYPE int NULL,
-    CUST_LAST_CCLS_DATE nvarchar(25) NULL,
-    CUST_LCTY_CODE nvarchar(25) NULL,
-    CDCP_CODE nvarchar(25) NULL,
-    CUST_PP_PM_IND_1 int NULL,
-    CRIR_CODE nvarchar(25) NULL,
-    CUST_CRSC_CODE nvarchar(25) NULL,
-    CUST_GPI int NULL,
-    CUST_AML_PROFILE nvarchar(25) NULL,
-    CUST_CHECK_STRIKE_FLG int NULL,
-    CUST_CHECK_STRIKE_STOP_DATE nvarchar(25) NULL,
-    CUST_CHECK_STRIKE_EXPIRY_DATE nvarchar(25) NULL,
-    CUST_RESD_CTRY_CODE nvarchar(25) NULL,
-    CUST_PARNT_CTRY_CODE nvarchar(25) NULL,
-    CUST_INTER_RISK_CTRY_CODE nvarchar(25) NULL,
-    CCLR_CODE nvarchar(25) NULL,
-    CUST_BLOCK_ACC_OPN_FLG int NULL,
-    CUST_AML_RISK_IND nvarchar(25) NULL,
-    CUST_TAX_FROM_DATE nvarchar(25) NULL,
-    CUST_TAX_TO_DATE nvarchar(25) NULL,
-    CUST_VERSION nvarchar(25) NULL,
-    CUST_RLEV_CODE int NULL,
-    CUST_FULL_KYC_FLG int NULL,
-    CUST_NXT_REVIEW_DATE nvarchar(25) NULL,
-    CUST_RISK_NEXT_REVIEW_DATE datetime NULL,
-    CUST_LST_REVIEW_DATE datetime NULL,
-    CUST_INPUT_DATE nvarchar(25) NULL,
-    CUST_INPUT_USER nvarchar(25) NULL,
-    CUST_VALD_DATE datetime NULL,
-    CUST_VALD_USER nvarchar(25) NULL,
-    CUST_VERSION_DATE datetime NULL,
-    CUST_B_LONG_NAME nvarchar(25) NULL,
-    CUST_S_LONG_NAME nvarchar(25) NULL
+    MRPR_PRF_CRT_CREG_LCTY int NULL,
+    MRPR_REG_COM_CREG_LCTY nvarchar(50) NULL,
+    MRPR_REG_IDS_CREG_LCTY nvarchar(50) NULL,
+    MRPR_REF_JUR nvarchar(255) NULL,
+    MRPR_NBR_EMP int NULL,
+    MRPR_TEXT1 nvarchar(255) NULL,
+    MRPR_LAWYER_NBR int NULL,
+    MRPR_KEY_NUM int NULL,
+    MRPR_KEY_SERIAL nvarchar(25) NULL,
+    MRPR_RISK_CTRY nvarchar(25) NULL,
+    MRPR_NET_WORTH nvarchar(25) NULL,
+    MRPR_USUAL_TURNOVER int NULL,
+    MRPR_CIVIL_ID nvarchar(50) NULL,
+    MRPR_END_DATE datetime NULL,
+    MRPR_QUICK_OPEN_IND nvarchar(25) NULL,
+    MRPR_FITCH_L_RATING nvarchar(25) NULL,
+    MRPR_FITCH_S_RATING nvarchar(25) NULL,
+    MRPR_MOODY_L_RATING nvarchar(25) NULL,
+    MRPR_MOODY_S_RATING nvarchar(25) NULL,
+    MRPR_SP_L_RATING nvarchar(25) NULL,
+    MRPR_SP_S_RATING nvarchar(25) NULL,
+    MRPR_TEXT2 nvarchar(255) NULL,
+    MRPR_TEXT3 nvarchar(255) NULL,
+    MRPR_REF_NATIONAL nvarchar(25) NULL,
+    MRPR_REG_TYPE nvarchar(25) NULL,
+    ORGN_CODE nvarchar(25) NULL,
+    MRPR_INC_DATA_FLG nvarchar(25) NULL,
+    MRPR_LAST_MODIFICATION_USER nvarchar(25) NULL,
+    CMST_CODE nvarchar(25) NULL,
+    MRPR_TEXT4 nvarchar(25) NULL,
+    MRPR_TEXT5 nvarchar(25) NULL,
+    MRPR_ABREV_NAME nvarchar(25) NULL,
+    MRPR_FREE_TEXT_1 nvarchar(25) NULL,
+    MRPR_PARENT_COMP_NAME nvarchar(25) NULL,
+    MRPR_REG_CTRY_CODE nvarchar(25) NULL,
+    MRPR_TAX_RESD_CTRY int NULL,
+    MRPR_USUAL_TURNOVER_CODE nvarchar(25) NULL,
+    MRPR_NET_WORTH_CODE nvarchar(25) NULL,
+    MRPR_SOURCE_OF_FUNDS nvarchar(25) NULL,
+    MRPR_ADD_CTRY_RISK_FLG nvarchar(25) NULL,
+    BSLC_CODE nvarchar(25) NULL,
+    MRPR_FITCH_DATE nvarchar(25) NULL,
+    MRPR_MOODY_DATE nvarchar(25) NULL,
+    MRPR_SP_DATE nvarchar(25) NULL,
+    MRPR_CAPITAL_INTLG_L nvarchar(25) NULL,
+    MRPR_CAPITAL_INTLG_S nvarchar(25) NULL,
+    MRPR_CAPITAL_INTLG_DATE nvarchar(25) NULL,
+    MRPR_OTHER_SCR_OF_INCOME_FLG nvarchar(25) NULL,
+    MRPR_CTRY_CODE nvarchar(25) NULL,
+    MRPR_SCR_OF_FUNDS nvarchar(25) NULL,
+    MRPR_PURPOSE_OF_RCPT nvarchar(25) NULL,
+    MRPR_EXPECTED_AMNT_SLICE nvarchar(25) NULL,
+    MRPR_RECEIPT_TTYP_CODE nvarchar(25) NULL,
+    MRPR_TEXT6 nvarchar(25) NULL,
+    MRPR_TEXT7 nvarchar(25) NULL,
+    MRPR_PEP_IND int NULL,
+    MRPR_PEP_NARRATIVE nvarchar(25) NULL,
+    MRPR_PEP_REALTIVE_IND nvarchar(25) NULL,
+    MRPR_PEP_REALTIVE_NARRATIVE nvarchar(25) NULL,
+    MRPR_PEP_ASSOCIATE_IND nvarchar(25) NULL,
+    MRPR_PEP_ASSOCIATE_NARRATIVE nvarchar(25) NULL,
+    MRPR_MRPR_CUST_STATUS nvarchar(25) NULL,
+    MRPR_LICENSED_LINE nvarchar(25) NULL,
+    MRPR_GENERAL_LICENSES nvarchar(25) NULL,
+    MRPR_BANK_ECOS_CODE nvarchar(25) NULL,
+    ECOM_CODE int NULL,
+    MRPR_TAX_ID_NBR nvarchar(25) NULL,
+    MRPR_TAX_FLG int NULL,
+    MRPR_INPUT_USER_ID nvarchar(25) NULL,
+    MRPR_INPUT_USER_BRCH int NULL,
+    ENTP_CODE nvarchar(25) NULL,
+    MRPR_LAST_REVIEW_DATE nvarchar(25) NULL,
+    MRPR_NEXT_REVIEW_DATE nvarchar(25) NULL,
+    MRPR_CUST_STATUS int NULL,
+    MRPR_BLKL_FLG nvarchar(25) NULL,
+    MRPR_REQ_CURING_FLG nvarchar(25) NULL,
+    MRPR_NOT_CONF_1_FLG nvarchar(25) NULL,
+    MRPR_NOT_CONF_2_FLG nvarchar(25) NULL,
+    MRPR_NOT_CONF_3_FLG nvarchar(25) NULL,
+    MRPR_FREE_TEXT_2 nvarchar(25) NULL,
+    MRPR_FTCL_CODE nvarchar(25) NULL,
+    MRPR_FTCS_CODE nvarchar(25) NULL,
+    MRPR_FTC_CURE_VAL_STATUS nvarchar(25) NULL,
+    MRPR_MECL_CODE nvarchar(25) NULL,
+    MRPR_PARENT_COMP_IND nvarchar(25) NULL,
+    ISCR_CODE nvarchar(25) NULL,
+    MRPR_ADD_COUNTRIES_FLG nvarchar(25) NULL,
+    MRPR_CRSC_CODE nvarchar(25) NULL,
+    MRPR_CRSS_CODE nvarchar(25) NULL,
+    MRPR_CRS_VAL_IND nvarchar(25) NULL,
+    MRPR_MRIS_LOGIC_VAL nvarchar(25) NULL,
+    MRPR_CRS_PR_VAL_IND nvarchar(25) NULL,
+    MRPR_CRS_PR_VAL_DATE nvarchar(25) NULL,
+    MRPR_CRS_RM_VAL_IND nvarchar(25) NULL,
+    MRPR_CRS_RM_VAL_DATE nvarchar(25) NULL,
+    MRPR_CRS_ABOVE_LIMIT_IND nvarchar(25) NULL,
+    MRPR_CRS_TOTAL_BALANCE nvarchar(25) NULL,
+    MRPR_CUST_IDENTIFIER nvarchar(25) NULL,
+    MRPR_LEI_CODE nvarchar(25) NULL,
+    LPRC_CODE nvarchar(25) NULL,
+    MRPR_LPRC_INIT_DATE nvarchar(25) NULL,
+    STRG_CODE nvarchar(25) NULL,
+    ITYP_CODE nvarchar(25) NULL,
+    LFRM_CODE nvarchar(25) NULL,
+    MRPR_CRS_CURED_IND nvarchar(25) NULL,
+    MRPR_CRS_CURED_DATE nvarchar(25) NULL,
+    MRPR_FATCA_CURED_IND nvarchar(25) NULL,
+    MRPR_FATCA_CURED_DATE nvarchar(25) NULL,
+    MRIS_CODE nvarchar(25) NULL,
+    MRPR_GIIN nvarchar(25) NULL,
+    MRPR_EBANKING_IND nvarchar(25) NULL,
+    ECSS_CODE nvarchar(25) NULL,
+    MRPR_AML_RISK_IND nvarchar(25) NULL,
+    ENGT_CODE nvarchar(25) NULL,
+    MRPR_ENGT_FREE_TEXT nvarchar(25) NULL,
+    MRPR_NBR_BRANCHES nvarchar(25) NULL,
+    MRPR_WEBSITE nvarchar(25) NULL,
+    INBT_CODE nvarchar(25) NULL,
+    MRPR_INBT_FREE_TEXT nvarchar(25) NULL,
+    MRPR_RLEV_CODE nvarchar(25) NULL,
+    MRPR_RISK_NEXT_REVIEW_DATE nvarchar(25) NULL,
+    MRPR_RISK_LAST_REVIEW_DATE nvarchar(25) NULL,
+    MRPR_PARENT_ID nvarchar(25) NULL,
+    MRPR_ULTIMATE_ID nvarchar(25) NULL,
+    MRPR_ULTIMATE_NAME nvarchar(25) NULL,
+    MRPR_REG_LCTY_CODE int NULL,
+    REVS_CODE nvarchar(25) NULL,
+    MRPR_B_LONG_NAME nvarchar(25) NULL,
+    MRPR_S_LONG_NAME nvarchar(25) NULL,
+    MRPR_INCR_CTRY nvarchar(25) NULL,
+    MRPR_COMM_NAME nvarchar(25) NULL,
+    MRPR_NATIONALITY nvarchar(25) NULL,
+    MRPR_ORGN_CTRY nvarchar(25) NULL,
+    MRPR_CTRY_HEAD_OFFICE nvarchar(25) NULL,
+    MRPR_FULL_KYC_FLG int NULL,
+    MRPR_INPUT_DATE nvarchar(25) NULL,
+    MRPR_VALD_USER nvarchar(25) NULL,
+    MRPR_VALD_DATE nvarchar(25) NULL,
+    MRPR_PEP_LEVEL_IND nvarchar(25) NULL,
+    MRPR_PEP_RELATIVE_LEVEL_IND nvarchar(25) NULL,
+    MRPR_PEP_ASSOCIATE_LEVEL_IND nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSD_PERIODS
+-- ============================================
+CREATE TABLE t_BBSD_PERIODS
+(
+    PERD_CODE int NOT NULL PRIMARY KEY,
+    PERD_DESC nvarchar(25) NULL,
+    PERD_D_M_Y_FLG int NULL,
+    PERD_NUM int NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    PERD_EXP_AMNT nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSD_PHYSICAL_PERSONS
+-- 343 columns total - Largest table in database
+-- ============================================
+CREATE TABLE t_BBSD_PHYSICAL_PERSONS
+(
+    PHPR_ID int NOT NULL PRIMARY KEY,
+    BRCH_CODE int NULL,
+    PRFS_CODE int NULL,
+    PROF_CODE int NULL,
+    QLTY_CODE int NULL,
+    RESD_CODE int NULL,
+    RELG_CODE int NULL,
+    STDG_CODE int NULL,
+    LCTY_CODE int NULL,
+    BSTD_CODE int NULL,
+    CTRY_CODE int NULL,
+    DCNT_CODE int NULL,
+    ECOS_CODE int NULL,
+    LANG_CODE int NULL,
+    FSIT_CODE int NULL,
+    ACTV_CODE int NULL,
+    PHPR_B_FIRST_NAME nvarchar(50) NULL,
+    PHPR_B_MIDDLE_NAME nvarchar(50) NULL,
+    PHPR_B_NAME nvarchar(50) NULL,
+    PHPR_B_FATHER_FIRST_NAME nvarchar(50) NULL,
+    PHPR_B_MOTHER_FIRST_NAME nvarchar(50) NULL,
+    PHPR_B_MOTHER_NAME nvarchar(50) NULL,
+    PHPR_B_SPOUSE_FIRST_NAME nvarchar(50) NULL,
+    PHPR_B_SPOUSE_NAME nvarchar(50) NULL,
+    PHPR_SEX nvarchar(50) NULL,
+    PHPR_BIRTH_DATE nvarchar(50) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    PHPR_ID_DOC_NUM nvarchar(25) NULL,
+    PHPR_REGISTER_LOCALITY int NULL,
+    PHPR_REGISTER_NUM nvarchar(25) NULL,
+    PHPR_FAMILY_RESPONS_FLG int NULL,
+    PHPR_NUM_OF_CHILD int NULL,
+    PHPR_OPENING_DATE datetime NULL,
+    PHPR_LAST_MOD_DATE datetime NULL,
+    PHPR_PART_OF_GRP1_FLG int NULL,
+    PHPR_PART_OF_GRP2_FLG int NULL,
+    PHPR_PART_OF_GRP3_FLG int NULL,
+    PHPR_PART_OF_GRP4_FLG int NULL,
+    PHPR_LEGL_TUTOR nvarchar(25) NULL,
+    PHPR_JUDI_TUTOR_1 nvarchar(25) NULL,
+    PHPR_JUDI_TUTOR_2 nvarchar(25) NULL,
+    PHPR_TUTOR_DUE_DATE datetime NULL,
+    PHPR_INTRODUCED_BY int NULL,
+    PHPR_S_FIRST_NAME nvarchar(50) NULL,
+    PHPR_S_MIDDLE_NAME nvarchar(50) NULL,
+    PHPR_S_NAME nvarchar(50) NULL,
+    PHPR_S_FATHER_FIRST_NAME nvarchar(50) NULL,
+    PHPR_S_MOTHER_FIRST_NAME nvarchar(50) NULL,
+    PHPR_S_MOTHER_NAME nvarchar(50) NULL,
+    PHPR_S_SPOUSE_FIRST_NAME nvarchar(50) NULL,
+    PHPR_S_SPOUSE_NAME nvarchar(50) NULL,
+    PHPR_COMM_REG_CODE int NULL,
+    PHPR_COMM_REG_DESC nvarchar(50) NULL,
+    PHPR_COMM_REG_CITY nvarchar(50) NULL,
+    PHPR_COMM_REG_DATE nvarchar(50) NULL,
+    RLRS_CODE int NULL,
+    TRLS_CODE int NULL,
+    PHPR_LEGL_REF nvarchar(25) NULL,
+    PHPR_JUDI_DUE_1 nvarchar(25) NULL,
+    PHPR_JUDI_REF_1 nvarchar(25) NULL,
+    PHPR_JUDI_DUE_2 nvarchar(25) NULL,
+    PHPR_JUDI_REF_2 nvarchar(25) NULL,
+    PHPR_NATIONAL_NBR nvarchar(25) NULL,
+    PHPR_RLRS_DATE nvarchar(25) NULL,
+    PHPR_COMM_REG_NBR nvarchar(25) NULL,
+    PHPR_COMM_REG_LCTY nvarchar(25) NULL,
+    PHPR_CREG_LCTY_DSC nvarchar(25) NULL,
+    PHPR_ALIVE_FLG int NULL,
+    PHPR_COMMENTS nvarchar(25) NULL,
+    PHPR_IQAMA_NUM nvarchar(25) NULL,
+    PHPR_IQAMA_PLACE nvarchar(25) NULL,
+    PHPR_IQAMA_EXPIRY nvarchar(25) NULL,
+    PHPR_CBK_APPROVAL nvarchar(25) NULL,
+    PHPR_REF_JUR nvarchar(25) NULL,
+    PHPR_TEXT1 nvarchar(25) NULL,
+    PHPR_TEXT2 nvarchar(25) NULL,
+    PHPR_NB_DEPT int NULL,
+    PHPR_MINOR_IND int NULL,
+    PHPR_HDATE nvarchar(25) NULL,
+    PHPR_REQID_1 nvarchar(25) NULL,
+    PHPR_REQID_2 nvarchar(25) NULL,
+    PHPR_REQID_3 nvarchar(25) NULL,
+    PHPR_REQID_4 nvarchar(25) NULL,
+    PHPR_REQID_5 nvarchar(25) NULL,
+    PHPR_REQID_6 nvarchar(25) NULL,
+    PHPR_BIRTH_LCTY nvarchar(25) NULL,
+    PHPR_BIRTH_SLTY nvarchar(25) NULL,
+    SUFX_CODE int NULL,
+    PHPR_REQID2_LCTY nvarchar(25) NULL,
+    PHPR_ID_DOC_EXP_DATE datetime NULL,
+    PHPR_SLTY_CODE nvarchar(25) NULL,
+    PHPR_REQID2_SLTY nvarchar(25) NULL,
+    PHPR_COMM_REG_SLTY nvarchar(25) NULL,
+    PHPR_KEY_NUM nvarchar(25) NULL,
+    PHPR_KEY_SERIAL nvarchar(25) NULL,
+    PHPR_DEPT_NAME_1 nvarchar(25) NULL,
+    PHPR_DEPT_BIRTH_1 nvarchar(25) NULL,
+    PHPR_RLRS_CODE_1 nvarchar(25) NULL,
+    PHPR_DEPT_NAME_2 nvarchar(25) NULL,
+    PHPR_DEPT_BIRTH_2 nvarchar(25) NULL,
+    PHPR_RLRS_CODE_2 nvarchar(25) NULL,
+    PHPR_DEPT_NAME_3 nvarchar(25) NULL,
+    PHPR_DEPT_BIRTH_3 nvarchar(25) NULL,
+    PHPR_RLRS_CODE_3 nvarchar(25) NULL,
+    PHPR_DEPT_NAME_4 nvarchar(25) NULL,
+    PHPR_DEPT_BIRTH_4 nvarchar(25) NULL,
+    PHPR_RLRS_CODE_4 nvarchar(25) NULL,
+    CURR_CODE int NULL,
+    PHPR_EMPL_ID nvarchar(25) NULL,
+    PHPR_EMPL_INFO nvarchar(25) NULL,
+    PHPR_EMPL_SINCE_DATE nvarchar(25) NULL,
+    PHPR_EMPL_EXP_DATE nvarchar(25) NULL,
+    PHPR_SALARY nvarchar(25) NULL,
+    PHPR_OTHER_INCOME nvarchar(25) NULL,
+    JTIT_CODE int NULL,
+    PHPR_QUICK_OPEN_IND nvarchar(25) NULL,
+    PHPR_PEMP_CMPNY_AD nvarchar(25) NULL,
+    PHPR_PEMP_POBOX nvarchar(25) NULL,
+    PHPR_PEMP_CITY nvarchar(25) NULL,
+    PHPR_PEMP_COUNTRY nvarchar(25) NULL,
+    PHPR_PEMP_YRS_OF_EMPL nvarchar(25) NULL,
+    PHPR_PEMP_PHONE_NUM nvarchar(25) NULL,
+    PHPR_PROPERTY_RENT nvarchar(25) NULL,
+    PHPR_BUSINESS_INCOME nvarchar(25) NULL,
+    PHPR_ANNUAL_INCOME int NULL,
+    PHPR_ID_AT_EMPLOYER nvarchar(25) NULL,
+    PHPR_TEXT3 nvarchar(25) NULL,
+    CTRY_CODE_2 int NULL,
+    CTRY_CODE_3 int NULL,
+    PHPR_REQID_7 nvarchar(25) NULL,
+    PHPR_REQID_8 nvarchar(25) NULL,
+    DCNT_CODE_2 nvarchar(25) NULL,
+    DCNT_CODE_3 nvarchar(25) NULL,
+    PHPR_ID_DOC_NUM_2 nvarchar(25) NULL,
+    PHPR_ID_DOC_NUM_3 nvarchar(25) NULL,
+    PHPR_ID_DOC_EXP_DATE_2 nvarchar(25) NULL,
+    PHPR_ID_DOC_EXP_DATE_3 nvarchar(25) NULL,
+    PHPR_REGISTER_LOCALITY_2 nvarchar(25) NULL,
+    PHPR_REGISTER_LOCALITY_3 nvarchar(25) NULL,
+    PHPR_REGISTER_NUM_2 nvarchar(25) NULL,
+    PHPR_REGISTER_NUM_3 nvarchar(25) NULL,
+    PHPR_SPS_PROF_CODE nvarchar(25) NULL,
+    SDEC_CODE int NULL,
+    PHPR_ADD_NATIONALITY_FLG int NULL,
+    PHPR_ABR_RESD_CODE_FLG int NULL,
+    ORGN_CODE int NULL,
+    PHPR_FULL_NAME nvarchar(50) NULL,
+    PHPR_INC_DATA_FLG nvarchar(25) NULL,
+    PHPR_OLD_PASSPORT nvarchar(25) NULL,
+    PHPR_OTHER_INFOS nvarchar(50) NULL,
+    PHPR_DECEASE_DATE nvarchar(25) NULL,
+    PHPR_LAST_MOD_USER nvarchar(25) NULL,
+    PHPR_FREE_TEXT_2 nvarchar(50) NULL,
+    PHPR_FREE_TEXT_1 nvarchar(50) NULL,
+    PHPR_ACTV_CODE2 nvarchar(25) NULL,
+    PHPR_PROF_CODE2 nvarchar(25) NULL,
+    PHPR_PRFS_CODE2 nvarchar(25) NULL,
+    INCR_CODE int NULL,
+    PHPR_EMPL_PHONE nvarchar(25) NULL,
+    PHPR_EMPL_ADDRESS nvarchar(50) NULL,
+    PHPR_SPS_ACTV_CODE nvarchar(25) NULL,
+    PHPR_PASSPORT_EXPIRY_DATE nvarchar(25) NULL,
+    PHPR_ABREV_NAME nvarchar(25) NULL,
+    PHPR_B_MOTHER_MIDDLE_NAME nvarchar(25) NULL,
+    PHPR_S_MOTHER_MIDDLE_NAME nvarchar(25) NULL,
+    PHPR_FREE_TEXT_3 nvarchar(25) NULL,
+    PHPR_FREE_TEXT_4 nvarchar(25) NULL,
+    PHPR_FREE_TEXT_5 nvarchar(25) NULL,
+    PHPR_FREE_TEXT_6 nvarchar(25) NULL,
+    PHPR_RESD_CTRY_CODE int NULL,
+    PHPR_BIRTH_CTRY_CODE int NULL,
+    PHPR_DETAIL_PROF nvarchar(50) NULL,
+    ISCR_CODE int NULL,
+    PHPR_OTHER_INCOME_SRC nvarchar(25) NULL,
+    PHPR_COMM_FOUNDATION_DATE nvarchar(25) NULL,
+    BUTY_CODE nvarchar(25) NULL,
+    PHPR_COMM_REG_CTRY_CODE nvarchar(25) NULL,
+    PHPR_FREE_TEXT_7 nvarchar(25) NULL,
+    PHPR_FREE_TEXT_8 nvarchar(25) NULL,
+    PHPR_FREE_TEXT_9 nvarchar(25) NULL,
+    PHPR_BRO_IND nvarchar(25) NULL,
+    PHPR_FTCL_CODE nvarchar(25) NULL,
+    PHPR_FTCS_CODE nvarchar(25) NULL,
+    PHPR_MECL_CODE nvarchar(25) NULL,
+    PHPR_PASSPORT_ISS_DATE nvarchar(25) NULL,
+    PHPR_ID_DOC_ISS_DATE nvarchar(25) NULL,
+    PHPR_COMM_REG_NBR_2 nvarchar(25) NULL,
+    CURR_CODE_2 nvarchar(25) NULL,
+    PHPR_PASSPORT_CTRY_CODE_3 nvarchar(25) NULL,
+    PHPR_PASSPORT_CTRY_CODE_2 nvarchar(25) NULL,
+    PHPR_NXT_REVIEW_DATE nvarchar(25) NULL,
+    PHPR_SPOUSE_CIVIL_ID nvarchar(25) NULL,
+    PHPR_TAX_ID nvarchar(25) NULL,
+    PHPR_TAX_RESD_CTRY_CODE nvarchar(25) NULL,
+    PHPR_PASSPORT_CTRY_CODE nvarchar(25) NULL,
+    PHPR_S_MAIDEN_SURNAME nvarchar(25) NULL,
+    PHPR_B_MAIDEN_SURNAME nvarchar(25) NULL,
+    PHPR_ID_DOC_ISS_DATE_2 nvarchar(25) NULL,
+    PHPR_ID_DOC_ISS_DATE_3 nvarchar(25) NULL,
+    PHPR_TAX_IND nvarchar(25) NULL,
+    PHPR_INPUT_USER nvarchar(25) NULL,
+    PHPR_INPUT_BRCH nvarchar(25) NULL,
+    PHPR_NET_WORTH_DATE nvarchar(25) NULL,
+    PHPR_NET_WORTH_AMNT nvarchar(25) NULL,
+    PHPR_REQID_6_2 nvarchar(25) NULL,
+    PHPR_PASSPORT_ISS_DATE_2 nvarchar(25) NULL,
+    PHPR_REQID_6_3 nvarchar(25) NULL,
+    PHPR_PASSPORT_ISS_DATE_3 nvarchar(25) NULL,
+    PHPR_EMPL_CTRY_CODE int NULL,
+    PHPR_TTYP_CODE nvarchar(25) NULL,
+    PHPR_OTH_ISCR_CODE int NULL,
+    PHPR_OTH_PERD_CODE int NULL,
+    PHPR_OTH_INC_AMNT nvarchar(25) NULL,
+    PHPR_OTH_TTYP_CODE int NULL,
+    PHPR_APPROX_ANN_TOTAL_INC nvarchar(25) NULL,
+    PHPR_APPROX_ANN_GROSS_INC nvarchar(25) NULL,
+    PHPR_COMM_OWNERSHIP_IND nvarchar(25) NULL,
+    PHPR_COMM_OWNERSHIP_PERC nvarchar(25) NULL,
+    PHPR_ANN_BUS_SLICE_CURR nvarchar(25) NULL,
+    PHPR_ANN_BUS_AMNT_SLICE nvarchar(25) NULL,
+    PHPR_ANN_PERS_AMNT_SLICE nvarchar(25) NULL,
+    PHPR_COMM_TTYP_CODE nvarchar(25) NULL,
+    PHPR_COMM_OWNERSHIP_IND_2 nvarchar(25) NULL,
+    PHPR_COMM_OWNERSHIP_PERC_2 nvarchar(25) NULL,
+    PHPR_ANN_BUS_SLICE_CURR_2 nvarchar(25) NULL,
+    PHPR_ANN_BUS_AMNT_SLICE_2 nvarchar(25) NULL,
+    PHPR_ANN_PERS_SLICE_CURR_2 nvarchar(25) NULL,
+    PHPR_ANN_PERS_AMNT_SLICE_2 nvarchar(25) NULL,
+    PHPR_COMM_TTYP_CODE_2 nvarchar(25) NULL,
+    PHPR_BUTY_CODE_2 nvarchar(25) NULL,
+    PHPR_COMM_REG_LCTY_2 nvarchar(25) NULL,
+    PHPR_COMM_REG_SLTY_2 nvarchar(25) NULL,
+    PHPR_CREG_LCTY_DSC_2 nvarchar(25) NULL,
+    PHPR_COMM_REG_DESC_2 nvarchar(25) NULL,
+    PHPR_PEP_IND int NULL,
+    PHPR_PEP_NARRATIVE nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_IND nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_NARRATIVE nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_IND nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_NARRATIVE nvarchar(25) NULL,
+    PHPR_ASSETS_LIAB_CURR_CODE nvarchar(25) NULL,
+    PHPR_ASSETS_AMNT nvarchar(25) NULL,
+    PHPR_LIABILITIES_AMNT nvarchar(25) NULL,
+    PHPR_PASSPORT_EXPIRY_DATE_2 nvarchar(25) NULL,
+    PHPR_PASSPORT_EXPIRY_DATE_3 nvarchar(25) NULL,
+    PHPR_LST_REVIEW_DATE datetime NULL,
+    PHPR_OTHER_INCOME_CURR nvarchar(25) NULL,
+    PHPR_APPROX_ANN_GROSS_INC_CASH nvarchar(25) NULL,
+    PHPR_OTH_INCOME_IND nvarchar(25) NULL,
+    PHPR_EMP_OTH_ISCR_CODE nvarchar(25) NULL,
+    PHPR_EMP_OTH_PERD_CODE nvarchar(25) NULL,
+    PHPR_EMP_OTH_TTYP_CODE nvarchar(25) NULL,
+    PHPR_EMP_PERD_CODE_2 nvarchar(25) NULL,
+    PHPR_EMP_INC_AMNT_2 nvarchar(25) NULL,
+    PHPR_EMP_TTYP_CODE_2 nvarchar(25) NULL,
+    PHPR_EMP_CURR_CODE_2 nvarchar(25) NULL,
+    INCR_CODE_2 nvarchar(25) NULL,
+    PHPR_ANNUAL_INCOME_2 nvarchar(25) NULL,
+    PHPR_COMM_REG_CODE_2 nvarchar(25) NULL,
+    PHPR_COMM_REG_CITY_2 nvarchar(25) NULL,
+    PHPR_CUST_STATUS int NULL,
+    PHPR_CITIZEN_CTRY_CODE int NULL,
+    PHPR_NOT_CONF_1_FLG nvarchar(25) NULL,
+    PHPR_NOT_CONF_2_FLG nvarchar(25) NULL,
+    PHPR_NOT_CONF_3_FLG nvarchar(25) NULL,
+    PHPR_BLKL_FLG nvarchar(25) NULL,
+    PHPR_REQ_CURING_FLG nvarchar(25) NULL,
+    PHPR_IQAMA_ISSUE_DATE nvarchar(25) NULL,
+    PHPR_IQAMA_LCTY_CODE nvarchar(25) NULL,
+    PHPR_IQAMA_SLTY_CODE nvarchar(25) NULL,
+    PHPR_REQID_3_EXPIRY_DATE nvarchar(25) NULL,
+    PHPR_REQID2_LCTY_EXPIRY_DATE nvarchar(25) NULL,
+    PHPR_REQID2_LCTY_ISSUE_DATE nvarchar(25) NULL,
+    PHPR_REQID_1_EXPIRY_DATE nvarchar(25) NULL,
+    PHPR_FTC_CURE_VAL_STATUS nvarchar(25) NULL,
+    PHPR_CRS_PR_VAL_DATE nvarchar(25) NULL,
+    PHPR_CRS_RM_VAL_IND nvarchar(25) NULL,
+    PHPR_CRS_RM_VAL_DATE nvarchar(25) NULL,
+    PHPR_CRS_ABOVE_LIMIT_IND nvarchar(25) NULL,
+    PHPR_CRS_TOTAL_BALANCE nvarchar(25) NULL,
+    PHPR_CRS_PR_VAL_IND nvarchar(25) NULL,
+    GDST_CODE nvarchar(25) NULL,
+    PHPR_CRS_CURED_IND nvarchar(25) NULL,
+    PHPR_CRS_CURED_DATE nvarchar(25) NULL,
+    PHPR_FATCA_CURED_IND nvarchar(25) NULL,
+    PHPR_FATCA_CURED_DATE nvarchar(25) NULL,
+    PHPR_CRSC_CODE nvarchar(25) NULL,
+    PHPR_CRSS_CODE nvarchar(25) NULL,
+    PHPR_CRS_VAL_IND nvarchar(25) NULL,
+    PHPR_ADD_COUNTRIES_FLG nvarchar(25) NULL,
+    PHPR_EBANKING_IND nvarchar(25) NULL,
+    PHPR_ID_DCNT_CODE nvarchar(25) NULL,
+    PHPR_ID_ISS_CTRY_CODE nvarchar(25) NULL,
+    PHPR_ID_ISS_DATE nvarchar(25) NULL,
+    PHPR_ID_EXPIRY_DATE nvarchar(25) NULL,
+    PHPR_PRIMARY_ID_IND nvarchar(25) NULL,
+    PHPR_AML_RISK_IND nvarchar(25) NULL,
+    PHPR_PEP_PEPF_CODE nvarchar(25) NULL,
+    PHPR_PEP_TERM_DATE nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_PEPR_CODE nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_TERM_DATE nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_PEPF_CODE nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_PEPR_CODE nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_TERM_DATE nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_PEPF_CODE nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_NAME nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_NAME nvarchar(25) NULL,
+    PHPR_PEP_COMMENTS nvarchar(25) NULL,
+    PHPR_PEP_LEVEL_IND nvarchar(25) NULL,
+    PHPR_PEP_FAMILY_LEVEL_IND nvarchar(25) NULL,
+    PHPR_PEP_ASSOCIATE_LEVEL_IND nvarchar(25) NULL,
+    PHPR_BIRTH_PLACE nvarchar(25) NULL,
+    PHPR_TUTOR_START_DATE nvarchar(25) NULL,
+    TRLS_CODE_1 nvarchar(25) NULL,
+    PHPR_TUTOR_START_DATE_1 nvarchar(25) NULL,
+    PHPR_LEGL_TUTOR_1 nvarchar(25) NULL,
+    PHPR_TUTOR_DUE_DATE_1 nvarchar(25) NULL,
+    PHPR_LEGL_REF_1 nvarchar(25) NULL,
+    PHPR_TUTOR_INTER_START_DATE nvarchar(25) NULL,
+    PHPR_TUTOR_INTER_TERM_DATE nvarchar(25) NULL,
+    TATP_CODE_1 nvarchar(25) NULL,
+    PHPR_JUDI_START_DATE_1 nvarchar(25) NULL,
+    PHPR_JUDI_COMMENT_1 nvarchar(25) NULL,
+    TATP_CODE_2 nvarchar(25) NULL,
+    PHPR_JUDI_START_DATE_2 nvarchar(25) NULL,
+    PHPR_JUDI_COMMENT_2 nvarchar(25) NULL,
+    PHPR_RLEV_CODE nvarchar(25) NULL,
+    PHPR_RISK_NEXT_REVIEW_DATE nvarchar(25) NULL,
+    PHPR_RISK_LAST_REVIEW_DATE nvarchar(25) NULL,
+    REVS_CODE nvarchar(25) NULL,
+    MROF_CODE nvarchar(25) NULL,
+    PHPR_FIRST_DEP_AMNT nvarchar(25) NULL,
+    PHPR_FULL_KYC_FLG int NULL,
+    PHPR_FULL_NAME_2 nvarchar(25) NULL,
+    PHPR_FULL_NAME_3 nvarchar(25) NULL,
+    PHPR_FIRST_DEPT_AMNT_CURR nvarchar(25) NULL,
+    PHPR_SRC_WEALTH nvarchar(25) NULL,
+    PHPR_VALD_USER nvarchar(25) NULL,
+    PHPR_VALD_DATE nvarchar(25) NULL,
+    PHPR_INPUT_DATE nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_DATES
+-- ============================================
+CREATE TABLE t_DATES
+(
+    Today int NOT NULL PRIMARY KEY,
+    LastWorkingDay int NULL,
+    NextWorkingDay int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_GBSS_LANGUAGES
+-- ============================================
+CREATE TABLE t_GBSS_LANGUAGES
+(
+    LANG_CODE int NOT NULL PRIMARY KEY,
+    LANG_B_DESC nvarchar(25) NULL,
+    LANG_S_DESC nvarchar(25) NULL,
+    LANG_ISO nvarchar(25) NULL,
+    LANG_LABELS_PATH nvarchar(50) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_GBSS_SYSTEMS
+-- ============================================
+CREATE TABLE t_GBSS_SYSTEMS
+(
+    SYST_CODE nvarchar(50) NOT NULL PRIMARY KEY,
+    SYST_DESCRIPTION nvarchar(50) NULL,
+    SYST_CHAR nvarchar(25) NULL,
+    SYST_NUMBER int NULL,
+    SYST_DATE nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    SYST_DETAILS nvarchar(255) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSP_GENERATED_OPERATIONS_M
+-- ============================================
+CREATE TABLE t_BBSP_GENERATED_OPERATIONS_M
+(
+    GOPM_CODE nvarchar(25) NOT NULL PRIMARY KEY,
+    GOPM_DESC nvarchar(50) NULL,
+    MODL_CODE nvarchar(25) NULL,
+    SMOD_CODE nvarchar(25) NULL,
+    GOPM_NUMBER_OF_LINE int NULL,
+    PRDT_CODE int NULL,
+    GOPM_NODOC_VAR nvarchar(25) NULL,
+    GOPM_PRODUCT_CODE_VAR nvarchar(25) NULL,
+    GOPM_PRODUCT_AMOUNT_FORMULA nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    GOPM_DISP_LINE int NULL,
+    GOPM_DISP_DOCUMENT int NULL,
+    GOPM_RISKY_BAL int NULL,
+    GOPM_RATE_VAR_1 nvarchar(25) NULL,
+    GOPM_RATE_VAR_2 nvarchar(25) NULL,
+    GOPM_ABREVIATION_CODE nvarchar(25) NULL,
+    GOPM_SHORT_DESC nvarchar(25) NULL,
+    GOPM_EOD_FILT_FLG int NULL,
+    GOPM_ECOD_VAR nvarchar(25) NULL,
+    ECOD_CODE int NULL,
+    GOPM_CUMUL_CR int NULL,
+    GOPM_AUTHORIZED_IND int NULL,
+    GOPM_PRINT int NULL,
+    GOPM_SIG_VAR_BRCH nvarchar(25) NULL,
+    GOPM_SIG_VAR_CACC nvarchar(25) NULL,
+    GOPM_SIG_VAR_AMNT nvarchar(25) NULL,
+    GOPM_CASH_INFO_FLG int NULL,
+    GOPM_SMS_IND int NULL,
+    GOPM_SBS_IND int NULL,
+    GOPM_AMOUNT decimal(18,2) NULL,
+    GOPM_AML_IND int NULL,
+    GOPM_NOUPD_LAST_OPR_DATE_FLG int NULL,
+    OCTG_CODE nvarchar(25) NULL,
+    GOPM_GRP_LINE_TYPE int NULL,
+    GOPM_GRP_LINE_NUMBER nvarchar(25) NULL,
+    GOPM_GRP_TYPE_OF_ACCOUNT int NULL,
+    GOPM_GRP_BRANCH_VAR nvarchar(25) NULL,
+    GOPM_GRP_ACCOUNT_VAR nvarchar(25) NULL,
+    GOPM_GRP_SIGN nvarchar(25) NULL,
+    GOPM_GRP_CURR_VAR nvarchar(25) NULL,
+    GOPM_GRP_AMOUNT_VAR nvarchar(25) NULL,
+    GOPM_EXT_IND int NULL,
+    CHNL_CODE int NULL,
+    GOPM_CHNL_CODE_VAR nvarchar(25) NULL,
+    GOPD_REF_VAR nvarchar(25) NULL
 );
 GO
 
 -- ============================================================================
--- SUMMARY - PART 2
+-- SUMMARY - PART 3 (FINAL)
 -- ============================================================================
--- Total tables created: 32
+-- Total tables created: 10
 -- Composite primary keys: 3 tables
---   - t_BBSC_POSTAL_ZONE_EXTS (PZON_CODE, PZEX_CODE)
---   - t_BBSC_REQUIRED_DOCUMENTS (DCMT_CODE, CNAT_CODE)
---   - t_BBSC_SUB_LOCALITIES (LCTY_CODE, SLTY_CODE)
--- Special primary keys:
---   - t_BBSC_TELLERS: String PK (UDEF_CODE nvarchar)
---   - t_BBSD_CBKBALS: DateTime PK (BDATE datetime) with 210 columns
--- Large tables:
---   - t_BBSD_CUSTOMERS: 138 columns
+--   - t_BBSD_GL_ACCOUNTS (BRCH_CODE, CURR_CODE, ACNT_NUM)
+--   - t_BBSD_GL_COST_CENTERS (BRCH_CODE, CURR_CODE, ACNT_NUM, CSTC_CODE) - 4 columns
+--   - t_BBSD_HIST_TRANSACTIONS (HTRS_SEQUENCE, HTRS_LINE)
+-- String primary keys:
+--   - t_GBSS_SYSTEMS: SYST_CODE (nvarchar)
+--   - t_BBSP_GENERATED_OPERATIONS_M: GOPM_CODE (nvarchar)
+-- Largest table:
+--   - t_BBSD_PHYSICAL_PERSONS: 343 columns
+-- Other large tables:
+--   - t_BBSD_MORAL_PERSONS: 192 columns
+--   - t_BBSD_GL_ACCOUNTS: 55 columns
+--   - t_BBSD_HIST_TRANSACTIONS: 52 columns
 -- All tables use t_ prefix
 -- All PRIMARY KEY columns: NOT NULL
 -- All other columns: NULL allowed
+-- ============================================================================
+
+-- ============================================================================
+-- DATABASE SCHEMA COMPLETE
+-- Total tables across all parts: 89 tables
+-- Total estimated columns: 1,500+ columns
 -- ============================================================================
