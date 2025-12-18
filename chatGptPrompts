@@ -1,1057 +1,384 @@
-I understand the situation. You want to restore the logic for determining the User field on PDF generation based on the BoxSentBy value from the Excel import, without affecting any other fields or causing issues with the holding entity upload.
-Let me help you implement this cleanly while maintaining your current code structure.
-Solution Overview
-We need to:
+-- Create table BBSC_CUST_ACCNT_TYPES
+-- Primary Key: ACTP_TYPE (row 1)
+-- All other fields: NULL allowed
 
-Create a stored procedure to retrieve the BoxSentBy user for a container
-Add a BLL method to get this user
-Modify the PDF generation logic to use this user instead of the current user
-Ensure this works for both normal flow and legacy (re-download) scenarios
-
-Implementation
-1. SQL Stored Procedure (Add to your database)
-sql-- =============================================
--- Author:      Assistant
--- Create date: 2025-11-10
--- Description: Get the BoxSentBy user for a container
--- =============================================
-CREATE PROCEDURE [dbo].[usp_GetBoxSentByUser]
-    @ContainerCode NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    SELECT TOP 1
-        cs.CreatedBy AS BoxSentBy
-    FROM [dbo].[t_ContainerStatus] cs
-    INNER JOIN [dbo].[t_Container] c ON cs.ContainerId = c.ContainerID
-    WHERE c.Code = @ContainerCode
-      AND cs.StatusCode = 'SENT'
-    ORDER BY cs.CreatedDate ASC;
-END
+CREATE TABLE BBSC_CUST_ACCNT_TYPES
+(
+    ACTP_TYPE int NOT NULL PRIMARY KEY,
+    ASPR_CODE int NULL,
+    ATNT_CODE int NULL,
+    CRER_CODE nvarchar(25) NULL,
+    ACNT_NUM int NULL,
+    CIRT_CODE int NULL,
+    DIRT_CODE int NULL,
+    EXPN_CODE nvarchar(25) NULL,
+    MODL_CODE nvarchar(25) NULL,
+    ACTP_DR_PERIODICITY int NULL,
+    ACTP_CR_PERIODICITY int NULL,
+    ACTP_COMMISSION nvarchar(25) NULL,
+    ACTP_EXPENSES nvarchar(25) NULL,
+    ACTP_COMM_PERIODICITY int NULL,
+    ACTP_EXP_PERIODICITY int NULL,
+    ACTP_MIN_BALANCE int NULL,
+    ACTP_TAXES int NULL,
+    ACTP_SCALE_STAT_FLG int NULL,
+    ACTP_CONDITIONS_FLG int NULL,
+    ACTP_B_DESC nvarchar(25) NULL,
+    ACTP_S_DESC nvarchar(25) NULL,
+    ACTP_B_ABREV nvarchar(25) NULL,
+    ACTP_S_ABREV nvarchar(25) NULL,
+    ACTP_PERM_INST_FLG int NULL,
+    ACTP_CHECKS_FLG int NULL,
+    ACTP_OVERDRAWING_IND int NULL,
+    ACTP_HIST_MONTHS int NULL,
+    ACTP_I_C_MONTHS int NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    ACTP_CHANGE_PERD int NULL,
+    ACTP_LIMIT_CR int NULL,
+    ACTP_CHANGE_INT int NULL,
+    ACTP_INTEREST_FLG int NULL,
+    ACTP_MIN_PEN_RATE_FLG int NULL,
+    ACTP_DRM_FLG int NULL,
+    ACTP_DRM_DAY int NULL,
+    ACTP_LOAN_TYPE nvarchar(25) NULL,
+    ACTP_NO_LMT_INTBR nvarchar(25) NULL,
+    ACTP_AUTHORIZED_IND int NULL,
+    ACTP_DB_OTHBR_IND nvarchar(25) NULL,
+    ACTP_COMM_PERC nvarchar(25) NULL,
+    ACTP_CARD_IND nvarchar(25) NULL,
+    ACTP_CR_LIMIT nvarchar(25) NULL,
+    ACTP_COMMITMENT_FEE_IND int NULL,
+    ACTP_COMMITMENT_FEE_TYPE nvarchar(25) NULL,
+    ACTP_COMMITMENT_FEE_PERD nvarchar(25) NULL,
+    ACTP_MIN_BAL_COMM_IND nvarchar(25) NULL,
+    ACTP_MIN_BAL_COMM_TYPE nvarchar(25) NULL,
+    ACTP_MIN_BAL_COMM_PERD nvarchar(25) NULL,
+    ACTP_DORMANT_COMM_IND int NULL,
+    ACTP_DORMANT_COMM_PERD int NULL,
+    ACTP_MIN_BAL_COMM_IND2 nvarchar(25) NULL,
+    ACTP_MIN_BAL_COMM_PERD2 nvarchar(25) NULL,
+    ACTP_MIN_BAL_COMM_TYPE2 nvarchar(25) NULL,
+    ACTP_MIN_BAL_EXCLUSIVE nvarchar(25) NULL,
+    ACTP_STMT_DAY nvarchar(25) NULL,
+    ACTP_FTD_MAIN_PERD int NULL,
+    ACTP_FTD_MAIN_MIN_PERD int NULL,
+    ACTP_FTD_MAIN_MLT_PERD int NULL,
+    ACTP_FTD_MAIN_MAX_PERD int NULL,
+    ACTP_FTD_MAT_PERD nvarchar(25) NULL,
+    ACTP_FTD_MAT_MLT_PERD nvarchar(25) NULL,
+    ACTP_FTD_INT_CLMT int NULL,
+    ACTP_FTD_INT_CIRT int NULL,
+    ACTP_FTD_AMNT_COND_FLG int NULL,
+    ACTP_FTD_PSBK_FLG int NULL,
+    ACTP_FTD_TAX_FLG int NULL,
+    ACTP_FTD_PRWD_FLG int NULL,
+    ACTP_FTD_PRWD_FEES_FLG int NULL,
+    ACTP_FTD_PRCL_FLG int NULL,
+    ACTP_FTD_PRCL_FEES_FLG int NULL,
+    ACTP_FTD_PRCL_IMPCT int NULL,
+    ACTP_FTD_PRCL_CIRT int NULL,
+    ACTP_FTD_REN_IND int NULL,
+    ACTP_FTD_CLOSE_FLG int NULL,
+    ACTP_FTD_SET_INT_FLG int NULL,
+    ACTP_FTD_REN_INT_FLG int NULL,
+    ACTP_FTD_MOD_MAT_FLG int NULL,
+    ACTP_FTD_MOD_AMNT_FLG int NULL,
+    ACTP_FTD_MOD_RATE_FLG int NULL,
+    ACTP_ALLOW_CURR_IND nvarchar(25) NULL,
+    ACTP_ALLOW_CNAT_IND nvarchar(25) NULL,
+    ACTP_APPLY_CNAT_IND int NULL,
+    ACTP_INT_MTD_DB_IND int NULL,
+    ACTP_INT_MTD_CR_IND int NULL,
+    ACTP_OVER_TAX_IND int NULL,
+    ACTP_OTHER_TAX_IND int NULL,
+    ACTP_S_MIN_BAL_M_FLG int NULL,
+    ACTP_S_MIN_BAL_Y_FLG int NULL,
+    ACTP_S_ANY_D_FLG int NULL,
+    ACTP_S_MIN_BAL_M_IND int NULL,
+    ACTP_S_MIN_BAL_Y_IND int NULL,
+    ACTP_S_ANY_D_IND int NULL,
+    ACTP_CLS_IMPACT_IND int NULL,
+    ACTP_MIN_M_IMPACT_IND int NULL,
+    ACTP_MIN_Y_IMPACT_IND int NULL,
+    ACTP_ANY_D_IMPACT_IND int NULL,
+    ACTP_TRS_IMPACT_IND int NULL,
+    ACTP_S_WHEN_NO_FUND_IND int NULL,
+    ACTP_S_HUNT_ORDER_IND int NULL,
+    ACTP_STMT_FLG int NULL,
+    ACTP_STMT_IND int NULL,
+    ACTP_APPLY_FEES_IND int NULL,
+    ACTP_CHANNEL_BRCH int NULL,
+    ACTP_CHANNEL_OTHER_BR int NULL,
+    ACTP_CHANNEL_ATM int NULL,
+    ACTP_CHANNEL_IVR int NULL,
+    ACTP_CHANNEL_EBANK int NULL,
+    ACTP_CHANNEL_SMS int NULL,
+    ACTP_CHANNEL_WAP int NULL,
+    ACTP_WAIVE_INT int NULL,
+    ACTP_MIN_INT int NULL,
+    ACTP_HIGH_DB_COM_FLG int NULL,
+    ACTP_HIGH_DB_COM_IND int NULL,
+    ACTP_APPLY_POST_DB int NULL,
+    ACTP_CHG_RATE_ADV int NULL,
+    ACTP_CLS_FEES_FLG int NULL,
+    ACTP_CLS_RATE_CODE int NULL,
+    ACTP_MIN_M_FEES_FLG int NULL,
+    ACTP_MIN_M_RATE_CODE int NULL,
+    ACTP_MIN_Y_FEES_FLG int NULL,
+    ACTP_MIN_Y_RATE_CODE int NULL,
+    ACTP_ANY_D_FEES_FLG int NULL,
+    ACTP_ANY_D_RATE_CODE int NULL,
+    ACTP_TRS_PERD int NULL,
+    ACTP_TRS_FLG int NULL,
+    ACTP_TRS_RATE_CODE int NULL,
+    ACTP_CHECKS_FEES_IND int NULL,
+    ACTP_HUNT_IND int NULL,
+    ACTP_HUNT_ORDER int NULL,
+    ACTP_MAINT_FEES_IND int NULL,
+    ACTP_ATM_FEES_IND int NULL,
+    ACTP_IVR_FEES_IND int NULL,
+    ACTP_STMT_LINES int NULL,
+    ACTP_STMT_MODE int NULL,
+    ACTP_FEES_IND int NULL,
+    ACTP_FEES_PRD int NULL,
+    ACTP_TRS_FEES_FLG int NULL,
+    ACTP_OD_LIMIT_IND int NULL,
+    ACTP_CONF_ACC_IND int NULL,
+    ACTP_PBK_IND int NULL,
+    ACTP_PRVLG_IND int NULL,
+    ACTP_FTD_MAT_MIN_PERD int NULL,
+    ACTP_FTD_MAT_MAX_PERD int NULL,
+    ACTP_ALLOW_AUTO_OPN int NULL,
+    ACTP_WTH_RATE int NULL,
+    ACTP_WTH_PEN_MRG_RATE int NULL,
+    ACTP_WTH_ALLOWED_DAYS int NULL,
+    ACTP_WTH_MAT_START_FLG int NULL,
+    ACTP_INIT_MRG_RENEWAL int NULL,
+    ACTP_SAME_TRM_PERD int NULL,
+    ACTP_TRM_PERD_FEES_IND int NULL,
+    ACTP_POST_DAY_IND int NULL,
+    ACTP_POST_DAY int NULL,
+    ACTP_ADAD_TYPE int NULL,
+    ACTP_ADAD_NOTICE_PERD_LEN int NULL,
+    ACTP_ADAD_NOTICE_PERD_UNIT int NULL,
+    ACTP_ADAD_WITHD_CONF_PERD_LEN int NULL,
+    ACTP_ADAD_WITHD_CONF_PERD_UNIT int NULL,
+    ACTP_ADAD_MIN_TRS_FLG int NULL,
+    ACTP_ADAD_BAL_IND int NULL,
+    ACTP_ADAD_PROF_WTHD_PERD_LEN int NULL,
+    ACTP_ADAD_PROF_WTHD_PERD_UNIT int NULL,
+    ACTP_ADAD_MIN_CLR_FLG int NULL,
+    ACTP_ADAD_WTHD_CLR_FLG int NULL,
+    ACTP_PROFIT_GL1 int NULL,
+    ACTP_PROFIT_GL2 int NULL,
+    ACTP_COST_GL int NULL,
+    ACTP_PER_GL int NULL,
+    ACTP_BANK_GL int NULL,
+    ACTP_RISK_GL int NULL,
+    ACTP_CUST_GL int NULL,
+    ACTP_S_NBR_BELOW_MIN_FLG int NULL,
+    ACTP_S_NBR_BELOW_MIN_IND int NULL,
+    ACTP_S_NBR_BELOW_FEES_FLG int NULL,
+    ACTP_S_NBR_BELOW_IMPACT_IND int NULL,
+    ACTP_SUSPENSE_ACTP int NULL,
+    ACTP_NBR_BELOW_MIN_RATE_CODE int NULL,
+    ACTP_PROFIT_WTHD_MRG int NULL,
+    ACTP_CLOSURE_FEES_PERC int NULL,
+    ACTP_PROF_ON_PROF_FLG int NULL,
+    ACTP_NBR_PAYMENTS nvarchar(25) NULL,
+    ACTP_PROFIT_TO_BANK nvarchar(25) NULL,
+    ACTP_AC_INTR_DB_RES nvarchar(25) NULL,
+    ACTP_GL_INTR_DB_RES nvarchar(25) NULL,
+    ACTP_AC_ACCR_DB_RES nvarchar(25) NULL,
+    ACTP_GL_ACCR_DB_RES nvarchar(25) NULL,
+    ACTP_AC_INTR_CR_RES nvarchar(25) NULL,
+    ACTP_GL_INTR_CR_RES nvarchar(25) NULL,
+    ACTP_AC_ACCR_CR_RES nvarchar(25) NULL,
+    ACTP_GL_ACCR_CR_RES nvarchar(25) NULL,
+    ACTP_AC_INTR_DB_NRES nvarchar(25) NULL,
+    ACTP_GL_INTR_DB_NRES nvarchar(25) NULL,
+    ACTP_AC_ACCR_DB_NRES nvarchar(25) NULL,
+    ACTP_GL_ACCR_DB_NRES nvarchar(25) NULL,
+    ACTP_AC_INTR_CR_NRES nvarchar(25) NULL,
+    ACTP_GL_INTR_CR_NRES nvarchar(25) NULL,
+    ACTP_AC_ACCR_CR_NRES nvarchar(25) NULL,
+    ACTP_GL_ACCR_CR_NRES nvarchar(25) NULL,
+    ACTP_AC_INTR_DB_CEE nvarchar(25) NULL,
+    ACTP_GL_INTR_DB_CEE nvarchar(25) NULL,
+    ACTP_AC_ACCR_DB_CEE nvarchar(25) NULL,
+    ACTP_GL_ACCR_DB_CEE nvarchar(25) NULL,
+    ACTP_AC_INTR_CR_CEE nvarchar(25) NULL,
+    ACTP_GL_INTR_CR_CEE nvarchar(25) NULL,
+    ACTP_AC_ACCR_CR_CEE nvarchar(25) NULL,
+    ACTP_GL_ACCR_CR_CEE nvarchar(25) NULL,
+    ACTP_AC_COMM nvarchar(25) NULL,
+    ACTP_GL_COMM nvarchar(25) NULL,
+    ACTP_AC_EXPN nvarchar(25) NULL,
+    ACTP_GL_EXPN nvarchar(25) NULL,
+    ACTP_AC_TAX nvarchar(25) NULL,
+    ACTP_GL_TAX nvarchar(25) NULL,
+    ACTP_AC_OVER_TAX nvarchar(25) NULL,
+    ACTP_GL_OVER_TAX nvarchar(25) NULL,
+    ACTP_AC_OTHER_TAX nvarchar(25) NULL,
+    ACTP_GL_OTHER_TAX nvarchar(25) NULL,
+    ACTP_GL_MAINT nvarchar(25) NULL,
+    ACTP_GL_COMMT nvarchar(25) NULL,
+    ACTP_GL_STMT nvarchar(25) NULL,
+    ACTP_GL_DRM nvarchar(25) NULL,
+    ACTP_GL_ATM nvarchar(25) NULL,
+    ACTP_GL_CLOSURE nvarchar(25) NULL,
+    ACTP_GL_IVR nvarchar(25) NULL,
+    ACTP_GL_MIN_MTH nvarchar(25) NULL,
+    ACTP_GL_MIN_YEAR nvarchar(25) NULL,
+    ACTP_GL_ON_DAY nvarchar(25) NULL,
+    ACTP_GL_TRS nvarchar(25) NULL,
+    ACTP_GL_CHECKBOOK nvarchar(25) NULL,
+    ACTP_GL_TERM nvarchar(25) NULL,
+    ACTP_GL_CLOSING nvarchar(25) NULL,
+    ACTP_DIST_MTH_YRL nvarchar(25) NULL,
+    ACTP_TAX_GL nvarchar(25) NULL,
+    ACTP_ADAD_MIN_TRS_FLG_1 int NULL,
+    ACTP_PROFIT_RELEASE_FLG int NULL,
+    ACTP_EBANKING_TRS_IND int NULL,
+    ACTP_ONLY_DORM_FEES int NULL,
+    ACTP_BLOCK_ACCNT int NULL,
+    ACTP_AML_IND int NULL,
+    ACTP_FUND_ACCNT_FLG int NULL,
+    ACTP_SHORT_ACC_FLG int NULL,
+    ACTP_TAX_FLG int NULL,
+    ACTP_OVER_TAX_FLG int NULL,
+    ACTP_OTHER_TAX_FLG int NULL,
+    ACTP_PROFIT_ON_GL int NULL,
+    ACTP_PROFIT_OFF_GL int NULL,
+    ACTP_HIDE_ACC_IND int NULL,
+    ACTP_VALID_TILL int NULL,
+    ACTP_CLOSING_WITH_DRM_FLG int NULL,
+    ACTP_CLOSING_DAYS int NULL,
+    ACTP_BRCH_RESTRICTED_TO int NULL,
+    ACTP_POOL_FLG int NULL,
+    ACTP_POOL_CR_RATE int NULL,
+    ACTP_DEDITED_BY int NULL,
+    ACTP_CREDITED_BY int NULL,
+    ACTP_AGE_IND int NULL,
+    ACTP_AGE_FROM int NULL,
+    ACTP_AGE_TO int NULL,
+    ACTP_AMOUNT_IND int NULL,
+    ACTP_MIN_AMOUNT int NULL,
+    ACTP_MAX_AMOUNT int NULL,
+    ACTP_BALANCE_IND int NULL,
+    ACTP_MAX_BALANCE_ALLOWED int NULL,
+    ACTP_CERTIFICATE_IND int NULL,
+    ACTP_CERTIFICATE_VALUE int NULL,
+    ACTP_MAXIMUM_DB_PERCENT int NULL,
+    ACTP_MAXIMUM_DB_CEILING int NULL,
+    ACTP_SUBJECT_TO_DRAW int NULL,
+    ACTP_MAXIMUM_DB_IND int NULL,
+    ACTP_ZAKAT_FLG int NULL,
+    ACTP_BONUS_FLG int NULL,
+    ACTP_NBR_MNTH int NULL,
+    ACTP_DRM_BAL_FLG int NULL,
+    ACTP_PAYMENT_COND_FLG int NULL,
+    ACTP_AC_COMM_NRES int NULL,
+    ACTP_GL_COMM_NRES int NULL,
+    ACTP_AC_COMM_CEE int NULL,
+    ACTP_GL_COMM_CEE int NULL,
+    ACTP_AC_EXPN_NRES int NULL,
+    ACTP_GL_EXPN_NRES int NULL,
+    ACTP_AC_EXPN_CEE int NULL,
+    ACTP_GL_EXPN_CEE int NULL,
+    ACTP_POST_MTH int NULL,
+    ACTP_RISKY_FLG int NULL,
+    ACTP_ACCNT_CLASS int NULL,
+    ACTP_LAST_MODIFICATION_DATE datetime NULL,
+    ACTP_LAST_MODIFICATION_USER nvarchar(25) NULL,
+    ACTP_UMA_FLG int NULL,
+    ACTP_UMA_FSTRMD_PERD nvarchar(25) NULL,
+    ACTP_UMA_SCDRMD_PERD nvarchar(25) NULL,
+    ACTP_UMA_TRS_PERD nvarchar(25) NULL,
+    ACTP_UMA_CLS_ACC_FLG nvarchar(25) NULL,
+    ACTP_UMA_ACNT_NUM nvarchar(25) NULL,
+    ACTP_BONUS_MTD nvarchar(25) NULL,
+    ACTP_BONUS_THRESHOLD_AMNT nvarchar(25) NULL,
+    ACTP_BONUS_CONVERT_CERT int NULL,
+    ACTP_BONUS_CERT_ACTP nvarchar(25) NULL,
+    ACTP_BONUS_ACNT_NUM nvarchar(25) NULL,
+    ACTP_BONUS_ACCD_CODE nvarchar(25) NULL,
+    ACTP_BONUS_POS_PERD1 nvarchar(25) NULL,
+    ACTP_BONUS_POS_PERD2 nvarchar(25) NULL,
+    ACTP_POS_ACNT_NUM nvarchar(25) NULL,
+    ACTP_POS_ACCD_CODE nvarchar(25) NULL,
+    ACTP_CERT_BLOCK_PERD nvarchar(25) NULL,
+    ACTP_CERT_INT_ACTP nvarchar(25) NULL,
+    ACTP_CERT_CHARITY_GL nvarchar(25) NULL,
+    ACTP_SCHD_DEP_TYPE nvarchar(25) NULL,
+    ACTP_SCHD_MIN_DEP_PERD nvarchar(25) NULL,
+    ACTP_SCHD_MAX_DEP_PERD nvarchar(25) NULL,
+    ACTP_SCHD_DEP_UPTODAY_PERD nvarchar(25) NULL,
+    ACTP_STMT_ADDR_IND int NULL,
+    ACTP_INI_DEP_IND int NULL,
+    ACTP_INI_DEP_AMOUNT int NULL,
+    ACTP_VALID_FROM nvarchar(25) NULL,
+    ACTP_SCHD_STOP_AFT nvarchar(25) NULL,
+    ACTP_SCHD_WTH_PERC nvarchar(25) NULL,
+    ACTP_SCHD_WTH_IND nvarchar(25) NULL,
+    ACTP_FTD_RATE_IND nvarchar(25) NULL,
+    ACTP_FTD_SUSP_IND nvarchar(25) NULL,
+    ACTP_FTD_PRWT_UNPINT_MNTHS nvarchar(25) NULL,
+    ACTP_FTD_PRWT_INT_PERC nvarchar(25) NULL,
+    ACTP_FTD_PRCL_INT_PERC nvarchar(25) NULL,
+    ACTP_FTD_PRCL_UNPINT_MNTHS nvarchar(25) NULL,
+    ACTP_FTD_PRWT_IMPCT int NULL,
+    ACTP_IE_INS_FLG int NULL,
+    STIT_CODE int NULL,
+    ACTP_FTD_CLS_AFT_IND int NULL,
+    ACTP_FTD_CLS_AFT_PERD nvarchar(25) NULL,
+    ACTP_SCHD_MATURITY_IND nvarchar(25) NULL,
+    ACTP_MAX_ACTIVE_ACC nvarchar(25) NULL,
+    ACTP_NOTICE_GRACE_DAYS nvarchar(25) NULL,
+    GRAT_CODE int NULL,
+    ACTP_FTD_PRWT_GRACE_DAYS int NULL,
+    ACTP_NOTICE_ACC_FLG int NULL,
+    ACTP_NOTICE_PERD_LEN int NULL,
+    ACTP_NOTICE_PERD_UNIT int NULL,
+    ACTP_BRCH_CUST_RESTR_FLG int NULL,
+    ACTP_FTD_PRNT_DAYS int NULL,
+    ACTP_FTD_DB_IND_CACC int NULL,
+    ACTP_FTD_DB_IND_GL int NULL,
+    ACTP_FTD_DB_IND_CHCK int NULL,
+    ACTP_FTD_CR_IND_CACC int NULL,
+    ACTP_FTD_CR_IND_TRSF int NULL,
+    ACTP_FTD_CR_IND_CHCK int NULL,
+    ACTP_SMS_DRM_CACC_IND int NULL,
+    ACTP_SMS_NBR_OF_DAYS int NULL,
+    ACTP_CLS_DRM_CACC_IND int NULL,
+    ACTP_COMP_ACCR_SAME_DAY_FLG int NULL,
+    ACTP_PERD_RATE_FLG int NULL,
+    ACTP_DEP_COMP_FLG int NULL,
+    ACTP_FTD_INT_PEN_RATE int NULL,
+    ACTP_FTD_INT_GRACE_PRD int NULL,
+    ACTP_FTD_PRWD_IND int NULL,
+    ACTP_APPLY_NEW_RATE_FLG int NULL,
+    ACTP_PROFIT_REINVEST_FLG int NULL,
+    ACTP_DISTRIBUTE_COMM_FLG int NULL,
+    ACTP_PROFIT_TO_SUSPENSE int NULL,
+    ACTP_SCHD_AGE_TO int NULL,
+    ACTP_MIN_BAL_IND int NULL,
+    ACTP_MIN_BAL_AMNT int NULL,
+    ACTP_E_STMT_IND int NULL,
+    ACTP_E_STMT_ASPR_CODE int NULL,
+    ACTP_PAPER_STMT_FEE_IND int NULL,
+    ACTP_PAPER_STMT_APPLY_FEE_IND int NULL,
+    ACTP_PAPER_STMT_IND int NULL,
+    ACTP_FRESH_FLG int NULL,
+    ACTP_UMA_SCND_TRS_PERD nvarchar(25) NULL,
+    ACTP_UMA_SCND_TRS_ACNT_NUM nvarchar(25) NULL,
+    ACTP_UMA_SCND_TRS_SMS_FLG nvarchar(25) NULL,
+    BENF_CODE nvarchar(25) NULL,
+    ACTP_NB_OF_DAYS nvarchar(25) NULL,
+    ACTP_FRESH_TYPE_FLG nvarchar(25) NULL,
+    ACTP_FTD_PRWD_PERC nvarchar(25) NULL
+);
 GO
-2. Add DTO to your Models (Archiving Project)
-csharppublic class BoxSentByUserDto
-{
-    public string BoxSentBy { get; set; }
-}
-3. Add BLL Method (Archiving Project - BLL.cs)
-Add this method to your BLL class:
-csharppublic string GetBoxSentByUser(string containerCode)
-{
-    DynamicParameters parameters = new();
-    parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
-
-    using (DAL.DAL dal = new(out var res))
-    {
-        var result = dal.ExecuteQuery<BoxSentByUserDto>(
-            "usp_GetBoxSentByUser",
-            parameters,
-            CommandType.StoredProcedure,
-            CommandDirection.Read
-        );
-
-        var userDto = result?.FirstOrDefault();
-        
-        // Return BoxSentBy if found, otherwise return "AlternaSystem" as default
-        return !string.IsNullOrWhiteSpace(userDto?.BoxSentBy) 
-            ? userDto.BoxSentBy 
-            : "AlternaSystem";
-    }
-}
-4. Update CustomCode.cs (Archiving Project)
-Modify your BLL_OnPreEventEditContainerStatus method to use the BoxSentBy user. Replace all occurrences of:
-csharpUser = editContainerStatusReq.BaseReq.CurrentUser!,
-With:
-csharpUser = GetBoxSentByUser(editContainerStatusReq.Code!),
-Here's the updated method (showing the key changes):
-csharpprivate void BLL_OnPreEventEditContainerStatus(ref EditContainerStatusReq editContainerStatusReq)
-{
-    if (editContainerStatusReq.StatusCode.Equals(ContainerStatusCode.SENT.ToString()) && !String.IsNullOrEmpty(editContainerStatusReq.Code))
-    {
-        editContainerStatusReq.PDF = String.Empty;
-        String Entity = GetActiveEntity(editContainerStatusReq.HoldingEntityCode);
-        
-        // Get the BoxSentBy user for this container
-        String pdfUser = GetBoxSentByUser(editContainerStatusReq.Code!);
-
-        GetContainerFilesReq getContainerFilesReq = new()
-        {
-            BaseReq = editContainerStatusReq.BaseReq,
-            ContainerId = editContainerStatusReq.ContainerId
-        };
-
-        List<ArchivedFile> files = [];
-        files = GetContainerFiles(getContainerFilesReq).Files;
-        
-        if (files.Count > 0 || editContainerStatusReq.Code is not null)
-        {
-            Boolean Unlimited = false;
-            DateTime ArchivePeriod = DateTime.Now;
-            ArchivePeriod = ArchivePeriod.AddYears(files[0].ArchivingPeriod);
-
-            if (files[0].ArchivingPeriod == -1)
-            {
-                Unlimited = true;
-            }
-
-            if (files[0].CustomerId != null)
-            {
-                CustomerDocRequest customerDocRequest = new()
-                {
-                    DestructionDate = Unlimited ? "Unlimited" : $"{ArchivePeriod:dd/MM/yyyy}",
-                    ContainerID = editContainerStatusReq.Code!,
-                    Entity = Entity,
-                    User = pdfUser,  // CHANGED: Use BoxSentBy user
-                    CustomerFiles = [],
-                    CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
-                };
-
-                Dictionary<String, List<String?>> fileDict = [];
-                foreach (ArchivedFile item in files)
-                {
-                    if (!fileDict.ContainsKey(item.Name))
-                    {
-                        fileDict.Add(item.Name, [item.CustomerId!.ToString()]);
-                    }
-                    else
-                    {
-                        fileDict[item.Name].Add(item.CustomerId!.ToString());
-                    }
-                }
-                
-                foreach (KeyValuePair<String, List<String?>> DictEntry in fileDict)
-                {
-                    customerDocRequest.CustomerFiles.Add(new() { DocumentType = DictEntry.Key, Id = DictEntry.Value! });
-                }
-                
-                try
-                {
-                    String data = JsonConvert.SerializeObject(customerDocRequest);
-                    HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
-                    HttpClient client = new();
-                    String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ?? throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
-
-                    Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateCustomerDocPDFForArchive", content);
-
-                    Request.Wait();
-                    Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
-                    responseString.Wait();
-                    editContainerStatusReq.PDF = responseString.Result;
-                }
-                catch (Exception ex)
-                {
-                    throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
-                }
-            }
-            else if (files[0].CompanyCode.StartsWith("LB"))
-            {
-                BranchDocRequest branchDocRequest = new()
-                {
-                    DestructionDate = Unlimited ? "Unlimited" : $"{ArchivePeriod:dd/MM/yyyy}",
-                    ContainerID = editContainerStatusReq.Code!,
-                    Entity = Entity,
-                    User = pdfUser,  // CHANGED: Use BoxSentBy user
-                    BranchFiles = [],
-                    CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
-                };
-                
-                foreach (ArchivedFile item in files)
-                {
-                    branchDocRequest.BranchFiles.Add(new()
-                    {
-                        DocumentType = item.Name,
-                        FromDate = $"{item.FromDate:dd-MM-yyyy}",
-                        ToDate = $"{item.ToDate:dd-MM-yyyy}"
-                    });
-                }
-                
-                try
-                {
-                    String data = JsonConvert.SerializeObject(branchDocRequest);
-                    HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
-                    HttpClient client = new();
-                    String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ?? throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
-
-                    Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateBranchDocPDFForArchive", content);
-
-                    Request.Wait();
-                    Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
-                    responseString.Wait();
-                    editContainerStatusReq.PDF = responseString.Result;
-                }
-                catch (Exception ex)
-                {
-                    throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
-                }
-            }
-            else if (files[0].CompanyCode.StartsWith("ET"))
-            {
-                EntityDocRequest entityDocRequest = new()
-                {
-                    DestructionDate = Unlimited ? "Unlimited" : $"{ArchivePeriod:dd/MM/yyyy}",
-                    ContainerID = editContainerStatusReq.Code!,
-                    Entity = files[0].CompanyCode,
-                    User = pdfUser,  // CHANGED: Use BoxSentBy user
-                    EntityFiles = [],
-                    CreationDate = $"{DateTime.Now:dd/MM/yyyy}"
-                };
-                
-                foreach (ArchivedFile item in files)
-                {
-                    entityDocRequest.EntityFiles.Add(new()
-                    {
-                        DocumentType = item.Name,
-                        DocumentDescription = item.AdditionalInfo ?? String.Empty
-                    });
-                }
-                
-                try
-                {
-                    String data = JsonConvert.SerializeObject(entityDocRequest);
-                    HttpContent content = new StringContent(data, Encoding.UTF8, "application/json");
-                    HttpClient client = new();
-                    String PDFRequestBase = ConfigurationManager.AppSettings["PDFService"] ?? throw new SGBLInternalServerException("PDF Service not initialized please Contact Support");
-
-                    Task<HttpResponseMessage> Request = client.PostAsync($"{PDFRequestBase}GenerateEntityDocPDFForArchive", content);
-
-                    Request.Wait();
-                    Task<String> responseString = Request.Result.Content.ReadAsStringAsync();
-                    responseString.Wait();
-                    editContainerStatusReq.PDF = responseString.Result;
-                }
-                catch (Exception ex)
-                {
-                    throw new SGBLInternalServerException("PDF Creation Failed Please Contact Support", ex.InnerException!);
-                }
-            }
-        }
-        else
-        {
-            throw new SGBLBadRequestException($"The Container With Sequence {editContainerStatusReq.Code} Dose Not Contain Any Files\n\rPlease Contact Support");
-        }
-        
-        if (String.IsNullOrEmpty(editContainerStatusReq.PDF))
-        {
-            throw new SGBLInternalServerException("PDF Service Malfunction");
-        }
-    }
-}
-5. Update RedownloadDocPDFForArchive (PDF Generator Project - BLL.ARCHIVIVE.cs)
-Add this method to handle re-downloads with the correct user:
-csharppublic byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest request)
-{
-    DynamicParameters parameters = new();
-    parameters.Add("ContainerID", request.ContainerID, DbType.String, ParameterDirection.Input);
-
-    using (DAL.DAL dal = new(Catalog_Archive, out var res))
-    {
-        // Get stored request from t_PDF
-        var command = ConfigurationManager.AppSettings["Get_PDF_Request_SP"] ?? "usp_GetPDFRequestByBoxReference";
-        var result = dal.ExecuteQuery<dynamic>(command, parameters);
-        var pdfRecord = result?.FirstOrDefault();
-
-        if (pdfRecord != null && !string.IsNullOrEmpty(pdfRecord.Request))
-        {
-            string apiMethod = pdfRecord.ApiMethod;
-            string jsonRequest = pdfRecord.Request;
-
-            // Regenerate PDF based on the stored request
-            byte[] pdfBytes = null;
-
-            if (apiMethod == "GenerateCustomerDocPDFForArchive")
-            {
-                var customerDocRequest = JsonConvert.DeserializeObject<CustomerDocRequest>(jsonRequest);
-                pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
-            }
-            else if (apiMethod == "GenerateBranchDocPDFForArchive")
-            {
-                var branchDocRequest = JsonConvert.DeserializeObject<BranchDocRequest>(jsonRequest);
-                pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
-            }
-            else if (apiMethod == "GenerateEntityDocPDFForArchive")
-            {
-                var entityDocRequest = JsonConvert.DeserializeObject<EntityDocRequest>(jsonRequest);
-                pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
-            }
-
-            return pdfBytes ?? [];
-        }
-
-        return [];
-    }
-}
-How It Works
-
-For Legacy Documents: When a container was imported via Excel with a BoxSentBy value, this value is stored in t_ContainerStatus when the status is set to 'SENT'
-PDF Generation: When generating a PDF (either during normal flow or re-download), the system calls GetBoxSentByUser() which retrieves the BoxSentBy value from the database
-Fallback: If no BoxSentBy is found, it defaults to "AlternaSystem"
-No Other Field Changes: This solution ONLY modifies the User field logic and doesn't touch any other fields like dates, holding entity, etc.
-
-The key changes are:
-
-Added usp_GetBoxSentByUser stored procedure
-Added GetBoxSentByUser() BLL method
-Modified all PDF request User assignments to use GetBoxSentByUser() instead of CurrentUser
-
-This maintains your current structure and only affects the User field printed on the PDF document.RetryPCorrect the BLL archiving project, i am getting : DAL: type used in a using statement must be implicitly convertible to 'system.idisposable'You're right! The issue is with the DAL constructor call. Looking at your existing code pattern, I can see how you're instantiating the DAL. Let me fix the GetBoxSentByUser method:
-Corrected BLL Method (Archiving Project - BLL.cs)
-csharppublic string GetBoxSentByUser(string containerCode)
-{
-    DynamicParameters parameters = new();
-    parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
-
-    DAL.DAL dal = new();  // Corrected: Removed 'using' and 'out var res'
-    
-    var result = dal.ExecuteQuery<BoxSentByUserDto>(
-        "usp_GetBoxSentByUser",
-        parameters,
-        CommandType.StoredProcedure,
-        CommandDirection.Read
-    );
-
-    var userDto = result?.FirstOrDefault();
-    
-    // Return BoxSentBy if found, otherwise return "AlternaSystem" as default
-    return !string.IsNullOrWhiteSpace(userDto?.BoxSentBy) 
-        ? userDto.BoxSentBy 
-        : "AlternaSystem";
-}
-The issue was that I was trying to use the DAL in a using statement, but based on your existing code pattern in ImportOldBoxes, the DAL should be instantiated without using and without the out var res parameter.
-Your existing pattern:
-csharpDAL.DAL _dal = new();
-Not:
-csharpusing (DAL.DAL dal = new(out var res))
-This should resolve the compilation error!RetryFormatException: Could not find any recognizable digits.
-System.ParseNumbers.StringToInt(ReadOnlySpan<char> s, int radix, int flags, ref int currPos)
-
-Stack Query Cookies Headers Routing
-FormatException: Could not find any recognizable digits.
-System.ParseNumbers.StringToInt(ReadOnlySpan<char> pastedPi got this error: take into consideration the controller FileController.The error indicates that the PDF string being returned is not a valid hexadecimal string. This is likely because the RedownloadDocPDFForArchive method in your PDF Generator project is returning an empty byte array or the API is not returning the expected hex string format.
-Let me fix both the PDF Generator and the Controller:
-1. Fix PDF Generator BLL.ARCHIVIVE.cs - RedownloadDocPDFForArchive Method
-csharppublic byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest request)
-{
-    try
-    {
-        DynamicParameters parameters = new();
-        parameters.Add("ContainerID", request.ContainerID, DbType.String, ParameterDirection.Input);
-
-        using (DAL.DAL dal = new(Catalog_Archive, out var res))
-        {
-            // First, try to get the PDF binary if it exists
-            var binaryCommand = ConfigurationManager.AppSettings["Get_PDF_Binary_SP"] ?? "usp_GetPDFVarBinaryByBoxReference";
-            var binaryResult = dal.ExecuteQuery<dynamic>(binaryCommand, parameters);
-            var pdfBinaryRecord = binaryResult?.FirstOrDefault();
-
-            // If PDF binary exists and is not empty, return it
-            if (pdfBinaryRecord != null && pdfBinaryRecord.PDF != null)
-            {
-                byte[] existingPdf = pdfBinaryRecord.PDF;
-                if (existingPdf.Length > 0)
-                {
-                    return existingPdf;
-                }
-            }
-
-            // If no binary, get the stored request and regenerate
-            var requestCommand = ConfigurationManager.AppSettings["Get_PDF_Request_SP"] ?? "usp_GetPDFRequestByBoxReference";
-            var requestResult = dal.ExecuteQuery<dynamic>(requestCommand, parameters);
-            var pdfRequestRecord = requestResult?.FirstOrDefault();
-
-            if (pdfRequestRecord != null && !string.IsNullOrEmpty(pdfRequestRecord.Request))
-            {
-                string apiMethod = pdfRequestRecord.ApiMethod;
-                string jsonRequest = pdfRequestRecord.Request;
-
-                byte[] pdfBytes = null;
-
-                // Regenerate PDF based on the stored request and API method
-                if (apiMethod == "GenerateCustomerDocPDFForArchive")
-                {
-                    var customerDocRequest = JsonConvert.DeserializeObject<CustomerDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
-                }
-                else if (apiMethod == "GenerateBranchDocPDFForArchive")
-                {
-                    var branchDocRequest = JsonConvert.DeserializeObject<BranchDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
-                }
-                else if (apiMethod == "GenerateEntityDocPDFForArchive" || apiMethod == "GenerateBranchDocPDFForArchive") // Note: Your EntityDoc has wrong ApiMethod
-                {
-                    var entityDocRequest = JsonConvert.DeserializeObject<EntityDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
-                }
-
-                if (pdfBytes != null && pdfBytes.Length > 0)
-                {
-                    // Update the database with the generated PDF binary
-                    UpdatePDFBinary(request.ContainerID, pdfBytes);
-                    return pdfBytes;
-                }
-            }
-
-            // If we reach here, no PDF could be generated
-            throw new Exception($"No PDF data found for container {request.ContainerID}");
-        }
-    }
-    catch (Exception ex)
-    {
-        throw new Exception($"Failed to retrieve/generate PDF for container {request.ContainerID}: {ex.Message}", ex);
-    }
-}
-
-// Helper method to update PDF binary in database
-private void UpdatePDFBinary(string containerID, byte[] pdfBytes)
-{
-    try
-    {
-        DynamicParameters parameters = new();
-        parameters.Add("ContainerID", containerID, DbType.String, ParameterDirection.Input);
-        parameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
-
-        using (DAL.DAL dal = new(Catalog_Archive, out var res))
-        {
-            var command = ConfigurationManager.AppSettings["Update_PDF_Binary_SP"] ?? "usp_UpdatePDFBinary";
-            dal.ExecuteQuery(command, parameters);
-        }
-    }
-    catch (Exception ex)
-    {
-        // Log error but don't throw - PDF generation succeeded, just couldn't save to DB
-        System.Diagnostics.Debug.WriteLine($"Failed to update PDF binary: {ex.Message}");
-    }
-}
-2. Add SQL Stored Procedures
-You need these stored procedures:
-sql-- Get PDF VarBinary
-CREATE PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-    @ContainerID NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    SELECT TOP 1 PDF
-    FROM [dbo].[t_PDF]
-    WHERE BranchList = @ContainerID
-    ORDER BY CreateDate DESC;
-END
-GO
-
--- Get PDF Request JSON
-CREATE PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-    @ContainerID NVARCHAR(50)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    SELECT TOP 1 Request, ApiMethod
-    FROM [dbo].[t_PDF]
-    WHERE BranchList = @ContainerID
-    ORDER BY CreateDate DESC;
-END
-GO
-
--- Update PDF Binary
-CREATE PROCEDURE [dbo].[usp_UpdatePDFBinary]
-    @ContainerID NVARCHAR(50),
-    @PDF VARBINARY(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    UPDATE [dbo].[t_PDF]
-    SET PDF = @PDF,
-        ModifiedDate = GETDATE()
-    WHERE BranchList = @ContainerID;
-END
-GO
-3. Fix FileController - ReDownloadSendPDF Method
-csharppublic ActionResult ReDownloadSendPDF(String boxReference)
-{
-    try
-    {
-        DownloadPDFModel model = new();
-        DownloadPDFRes downloadPDFRes = Common.ApiCall<DownloadPDFRes>(new DownloadPDFReq()
-        {
-            BaseReq = new BaseRequest(HttpContext, GetSession("ArchiveData")),
-            ContainerID = boxReference
-        }, "DownloadPDF");
-
-        if (downloadPDFRes.Resp is null || downloadPDFRes.Resp.Length == 0)
-        {
-            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
-            HttpContext.Session.SetString("ErrorMessage", "Invalid PDF or PDF not found");
-
-            throw new ErrorHandler(new ErrorModel() 
-            { 
-                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
-                ErrorMessage = "Invalid PDF or PDF not found for this container" 
-            });
-        }
-
-        String PDF = downloadPDFRes.Resp ?? String.Empty;
-
-        if (String.IsNullOrWhiteSpace(PDF))
-        {
-            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
-            HttpContext.Session.SetString("ErrorMessage", "Empty PDF response");
-
-            throw new ErrorHandler(new ErrorModel() 
-            { 
-                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
-                ErrorMessage = "PDF Server returned empty response" 
-            });
-        }
-
-        // Validate that PDF string contains valid hexadecimal characters
-        if (!System.Text.RegularExpressions.Regex.IsMatch(PDF, @"^[0-9A-Fa-f]+$"))
-        {
-            HttpContext.Session.SetString("CorrelationId", downloadPDFRes.WebResp.CorrelationId);
-            HttpContext.Session.SetString("ErrorMessage", "Invalid PDF format");
-
-            throw new ErrorHandler(new ErrorModel() 
-            { 
-                ErrorCorrelationId = downloadPDFRes.WebResp.CorrelationId, 
-                ErrorMessage = "PDF response is not in valid hexadecimal format" 
-            });
-        }
-
-        Byte[] bytearray = new Byte[PDF.Length / 2];
-        for (Int32 i = 0; i < PDF.Length; i += 2)
-        {
-            bytearray[i / 2] = Convert.ToByte(PDF.Substring(i, 2), 16);
-        }
-
-        String ModifiedRef = boxReference;
-        Regex specialCharacters = new("""
-                                        [<]|[>]|[:]|["]|[/]|[\\]|[|]|[?]|[*]
-                                        """);
-        ModifiedRef = specialCharacters.Replace(ModifiedRef, "_");
-        
-        FileContentResult fileContentResult = new(bytearray, "application/pdf")
-        {
-            FileDownloadName = $"{ModifiedRef}_{DateTime.Now:yyyy-MM-dd hh-mm-ss}.pdf"
-        };
-
-        return fileContentResult;
-    }
-    catch (ErrorHandler)
-    {
-        throw; // Re-throw ErrorHandler exceptions as-is
-    }
-    catch (Exception ex)
-    {
-        string correlationId = Guid.NewGuid().ToString();
-        HttpContext.Session.SetString("CorrelationId", correlationId);
-        HttpContext.Session.SetString("ErrorMessage", ex.Message);
-
-        throw new ErrorHandler(new ErrorModel() 
-        { 
-            ErrorCorrelationId = correlationId, 
-            ErrorMessage = $"Failed to download PDF: {ex.Message}" 
-        });
-    }
-}
-4. Fix EntityDocRequest ApiMethod Bug
-In your GenerateEntityDocPDFForArchive method in BLL.ARCHIVIVE.cs, there's a bug - it's using the wrong ApiMethod:
-csharppublic byte[] GenerateEntityDocPDFForArchive(EntityDocRequest entityDocRequest)
-{
-    var retRes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
-
-    byte[] empty = [];
-
-    DynamicParameters dynamicParameters = new();
-    dynamicParameters.Add("PDF", empty, DbType.Binary, ParameterDirection.Input);
-    dynamicParameters.Add("Request", JsonConvert.SerializeObject(entityDocRequest, Formatting.Indented),
-        DbType.String, ParameterDirection.Input);
-    // FIX THIS LINE - was "GenerateBranchDocPDFForArchive", should be:
-    dynamicParameters.Add("ApiMethod", "GenerateEntityDocPDFForArchive", DbType.String, ParameterDirection.Input);
-    dynamicParameters.Add("BranchList", entityDocRequest.BranchList, DbType.String, ParameterDirection.Input);
-    dynamicParameters.Add("Entity", entityDocRequest.Entity, DbType.String, ParameterDirection.Input);
-    dynamicParameters.Add("User", entityDocRequest.User, DbType.String, ParameterDirection.Input);
-
-    using (DAL.DAL dal = new(Catalog_Archive, out var res))
-    {
-        var command = ConfigurationManager.AppSettings["Insert_PDF_SP"] ?? "usp_InsertPDF";
-        dal.ExecuteQuery(command, dynamicParameters);
-    }
-
-    return retRes;
-}
-The main issue was that the RedownloadDocPDFForArchive was returning an empty byte array, which when converted to hex string resulted in an empty string, causing the parsing error. The fixes above ensure proper PDF generation and error handling throughout the flow.RetryPI have these 2 already existing procedures with different logic that you profided me . 
-which shoiuld i keep. taking into consideration that i dont want to remove the old stored procedures , to not make impact on other part of the project. what to do?
-============================
-ALTER PROCEDURE [dbo].[usp_GetPDFRequestByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SELECT TOP 1 Request, ApiMethod
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-    ORDER BY CreatedDate DESC;
-END
-================================
-ALTER PROCEDURE [dbo].[usp_GetPDFVarBinaryByBoxReference]
-    @BoxReference NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SELECT TOP 1 PDF 
-    FROM t_PDF 
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive')
-        AND PDF IS NOT NULL
-        AND DATALENGTH(PDF) > 0
-    ORDER BY CreatedDate DESC;
-END
-=======================================Show morePerfect! Your existing stored procedures are actually BETTER than what I provided because:
-
-They search by ContainerID within the JSON Request field (more accurate)
-They filter by specific ApiMethods (safer)
-They check for non-null and non-empty PDF (more robust)
-They use CreatedDate for ordering (proper audit trail)
-
-Keep your existing stored procedures! They're well-designed and already handle the logic correctly.
-What You Need to Do:
-1. Update the PDF Generator BLL Method Parameter
-The only change needed is to make sure the parameter name matches. Update the RedownloadDocPDFForArchive method in PDF Generator BLL.ARCHIVIVE.cs:
-csharppublic byte[] RedownloadDocPDFForArchive(RedownloadDocPDFForArchiveRequest request)
-{
-    try
-    {
-        DynamicParameters parameters = new();
-        // CHANGED: Use @BoxReference instead of @ContainerID to match your SP
-        parameters.Add("BoxReference", request.ContainerID, DbType.String, ParameterDirection.Input);
-
-        using (DAL.DAL dal = new(Catalog_Archive, out var res))
-        {
-            // First, try to get the PDF binary if it exists
-            var binaryCommand = ConfigurationManager.AppSettings["Get_PDF_Binary_SP"] ?? "usp_GetPDFVarBinaryByBoxReference";
-            var binaryResult = dal.ExecuteQuery<dynamic>(binaryCommand, parameters);
-            var pdfBinaryRecord = binaryResult?.FirstOrDefault();
-
-            // If PDF binary exists and is not empty, return it
-            if (pdfBinaryRecord != null && pdfBinaryRecord.PDF != null)
-            {
-                byte[] existingPdf = pdfBinaryRecord.PDF;
-                if (existingPdf.Length > 0)
-                {
-                    return existingPdf;
-                }
-            }
-
-            // If no binary, get the stored request and regenerate
-            var requestCommand = ConfigurationManager.AppSettings["Get_PDF_Request_SP"] ?? "usp_GetPDFRequestByBoxReference";
-            
-            // Re-create parameters for the second query
-            DynamicParameters requestParameters = new();
-            requestParameters.Add("BoxReference", request.ContainerID, DbType.String, ParameterDirection.Input);
-            
-            var requestResult = dal.ExecuteQuery<dynamic>(requestCommand, requestParameters);
-            var pdfRequestRecord = requestResult?.FirstOrDefault();
-
-            if (pdfRequestRecord != null && !string.IsNullOrEmpty(pdfRequestRecord.Request))
-            {
-                string apiMethod = pdfRequestRecord.ApiMethod;
-                string jsonRequest = pdfRequestRecord.Request;
-
-                byte[] pdfBytes = null;
-
-                // Regenerate PDF based on the stored request and API method
-                if (apiMethod == "GenerateCustomerDocPDFForArchive")
-                {
-                    var customerDocRequest = JsonConvert.DeserializeObject<CustomerDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
-                }
-                else if (apiMethod == "GenerateBranchDocPDFForArchive")
-                {
-                    var branchDocRequest = JsonConvert.DeserializeObject<BranchDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
-                }
-                else if (apiMethod == "GenerateEntityDocPDFForArchive")
-                {
-                    var entityDocRequest = JsonConvert.DeserializeObject<EntityDocRequest>(jsonRequest);
-                    pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
-                }
-
-                if (pdfBytes != null && pdfBytes.Length > 0)
-                {
-                    // Update the database with the generated PDF binary
-                    UpdatePDFBinary(request.ContainerID, pdfBytes);
-                    return pdfBytes;
-                }
-            }
-
-            // If we reach here, no PDF could be generated
-            throw new Exception($"No PDF data found for container {request.ContainerID}");
-        }
-    }
-    catch (Exception ex)
-    {
-        throw new Exception($"Failed to retrieve/generate PDF for container {request.ContainerID}: {ex.Message}", ex);
-    }
-}
-
-// Helper method to update PDF binary in database
-private void UpdatePDFBinary(string containerID, byte[] pdfBytes)
-{
-    try
-    {
-        DynamicParameters parameters = new();
-        // CHANGED: Use @BoxReference to match your existing SP pattern
-        parameters.Add("BoxReference", containerID, DbType.String, ParameterDirection.Input);
-        parameters.Add("PDF", pdfBytes, DbType.Binary, ParameterDirection.Input);
-
-        using (DAL.DAL dal = new(Catalog_Archive, out var res))
-        {
-            var command = ConfigurationManager.AppSettings["Update_PDF_Binary_SP"] ?? "usp_UpdatePDFBinary";
-            dal.ExecuteQuery(command, parameters);
-        }
-    }
-    catch (Exception ex)
-    {
-        // Log error but don't throw - PDF generation succeeded, just couldn't save to DB
-        System.Diagnostics.Debug.WriteLine($"Failed to update PDF binary: {ex.Message}");
-    }
-}
-2. Create Only the Update Stored Procedure (if it doesn't exist)
-You only need to add this one if you don't already have it:
-sqlCREATE PROCEDURE [dbo].[usp_UpdatePDFBinary]
-    @BoxReference NVARCHAR(MAX),
-    @PDF VARBINARY(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    UPDATE [dbo].[t_PDF]
-    SET PDF = @PDF,
-        ModifiedDate = GETDATE()
-    WHERE Request LIKE '%"ContainerID": "' + @BoxReference + '"%' 
-        AND ApiMethod IN ('GenerateBranchDocPDFForArchive','GenerateCustomerDocPDFForArchive', 'GenerateEntityDocPDFForArchive');
-END
-GO
-3. Keep the Controller Fix
-Keep the updated ReDownloadSendPDF method I provided earlier in the FileController - that handles validation properly.
-4. Don't Forget the ApiMethod Fix
-Make sure you fix the bug in GenerateEntityDocPDFForArchive where it uses wrong ApiMethod:
-csharp// Change this line from "GenerateBranchDocPDFForArchive" to:
-dynamicParameters.Add("ApiMethod", "GenerateEntityDocPDFForArchive", DbType.String, ParameterDirection.Input);
-Summary
-Keep your existing stored procedures - they're good! Just:
-
-✅ Use @BoxReference parameter name in the BLL code
-✅ Add the usp_UpdatePDFBinary stored procedure (if missing)
-✅ Fix the ApiMethod bug in GenerateEntityDocPDFForArchive
-✅ Update the FileController with validation
-✅ Keep the GetBoxSentByUser changes for the User field logic
-
-Your existing SPs are production-ready and shouldn't be removed!RetryI have in BLL.ARchive.cs these metod that are rendrering a pdf docuemtn with user = "System". fix them to get the user with BoxSentBy field received in the excel file.
---------------------------------------------
-    #region Generate PDF From Container Data (For Legacy Containers)
-
-    private byte[pastedPPerfect! I can see the issue. These methods are hardcoding User = "System" instead of retrieving the BoxSentBy value. Let me fix all of them to use the GetBoxSentByUser method we created earlier.
-Updated Methods in BLL.ARCHIVE.cs
-csharp#region Generate PDF From Container Data (For Legacy Containers)
-
-private byte[] GeneratePDFFromContainerData(string containerCode, DAL.DAL dal)
-{
-    try
-    {
-        // Get container data with files using stored procedure
-        DynamicParameters param = new();
-        param.Add("ContainerCode", containerCode);
-
-        string command = ConfigurationManager.AppSettings["Get_Container_Data_For_PDF_Generation_SP"] ??
-                       "usp_GetContainerDataForPDFGeneration";
-
-        var containerData = dal.ExecuteQuery<ContainerFileData>(command, param).ToList();
-
-        if (!containerData.Any())
-        {
-            throw new Exception($"No data found for container: {containerCode}");
-        }
-
-        var firstRow = containerData.First();
-        string documentType = firstRow.DocumentType;
-        string companyCode = firstRow.CompanyCode;
-        DateTime? archivingDate = firstRow.ArchivingDate;
-        int archivingPeriod = firstRow.ArchivingPeriod;
-
-        // Calculate destruction date
-        bool unlimited = archivingPeriod == -1;
-        DateTime archivePeriodDate = (archivingDate ?? DateTime.Now).AddYears(archivingPeriod);
-        string destructionDate = unlimited ? "Unlimited" : $"{archivePeriodDate:dd/MM/yyyy}";
-        string creationDate = archivingDate.HasValue ? $"{archivingDate.Value:dd/MM/yyyy}" : $"{DateTime.Now:dd/MM/yyyy}";
-
-        // Get entity
-        string entity = GetEntityDescription(firstRow.Entity ?? companyCode, dal);
-
-        // ADDED: Get the user who sent the box (BoxSentBy)
-        string pdfUser = GetBoxSentByUser(containerCode);
-
-        // Generate PDF based on document type
-        byte[] pdfBytes = [];
-
-        switch (documentType)
-        {
-            case "CUSTOMER":
-                pdfBytes = GenerateCustomerPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate, pdfUser, dal);
-                break;
-
-            case "BRANCH":
-                pdfBytes = GenerateBranchPDFFromContainerData(containerData, containerCode, entity, destructionDate, creationDate, pdfUser);
-                break;
-
-            case "ENTITY":
-                pdfBytes = GenerateEntityPDFFromContainerData(containerData, containerCode, companyCode, destructionDate, creationDate, pdfUser);
-                break;
-
-            default:
-                throw new Exception($"Unknown document type: {documentType}");
-        }
-
-        return pdfBytes;
-    }
-    catch (Exception ex)
-    {
-        throw new Exception($"Failed to generate PDF from container data for {containerCode}: {ex.Message}", ex);
-    }
-}
-
-private byte[] GenerateCustomerPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
-    string entity, string destructionDate, string creationDate, string pdfUser, DAL.DAL dal)
-{
-    // Get customer files grouped by document type
-    DynamicParameters param = new();
-    param.Add("ContainerCode", containerCode);
-
-    string command = ConfigurationManager.AppSettings["Get_Customer_Files_By_Container_SP"] ??
-                   "usp_GetCustomerFilesByContainer";
-
-    var customerFiles = dal.ExecuteQuery<dynamic>(command, param).ToList();
-
-    CustomerDocRequest customerDocRequest = new()
-    {
-        DestructionDate = destructionDate,
-        ContainerID = containerCode,
-        Entity = entity,
-        User = pdfUser, // CHANGED: Use pdfUser parameter instead of "System"
-        CustomerFiles = new(),
-        CreationDate = creationDate
-    };
-
-    // Group customer IDs by document type
-    Dictionary<string, List<string>> fileDict = new();
-    foreach (var file in customerFiles)
-    {
-        string docType = file.DocumentType;
-        string customerId = file.CustomerIdString ?? "";
-
-        if (!fileDict.ContainsKey(docType))
-        {
-            fileDict.Add(docType, new List<string> { customerId });
-        }
-        else if (!fileDict[docType].Contains(customerId))
-        {
-            fileDict[docType].Add(customerId);
-        }
-    }
-
-    foreach (var dictEntry in fileDict)
-    {
-        customerDocRequest.CustomerFiles.Add(new CustomerFile
-        {
-            DocumentType = dictEntry.Key,
-            Id = dictEntry.Value
-        });
-    }
-
-    var pdfBytes = GetByteArrayForCustomerDocPDFForArchive(customerDocRequest);
-
-    // Save to database
-    SavePDFToDatabase(pdfBytes, customerDocRequest, "GenerateCustomerDocPDFForArchive", entity, pdfUser); // CHANGED: Use pdfUser
-
-    return pdfBytes;
-}
-
-private byte[] GenerateBranchPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
-    string entity, string destructionDate, string creationDate, string pdfUser)
-{
-    BranchDocRequest branchDocRequest = new()
-    {
-        DestructionDate = destructionDate,
-        ContainerID = containerCode,
-        Entity = entity,
-        User = pdfUser, // CHANGED: Use pdfUser parameter instead of "System"
-        BranchFiles = new(),
-        CreationDate = creationDate
-    };
-
-    foreach (var row in containerData)
-    {
-        branchDocRequest.BranchFiles.Add(new BranchFile
-        {
-            DocumentType = row.FileName,
-            FromDate = row.FromDate.HasValue ? $"{row.FromDate.Value:dd-MM-yyyy}" : "",
-            ToDate = row.ToDate.HasValue ? $"{row.ToDate.Value:dd-MM-yyyy}" : ""
-        });
-    }
-
-    var pdfBytes = GetByteArrayForBranchDocPDFForArchive(branchDocRequest);
-
-    // Save to database
-    SavePDFToDatabase(pdfBytes, branchDocRequest, "GenerateBranchDocPDFForArchive", entity, pdfUser); // CHANGED: Use pdfUser
-
-    return pdfBytes;
-}
-
-private byte[] GenerateEntityPDFFromContainerData(List<ContainerFileData> containerData, string containerCode,
-    string companyCode, string destructionDate, string creationDate, string pdfUser)
-{
-    EntityDocRequest entityDocRequest = new()
-    {
-        DestructionDate = destructionDate,
-        ContainerID = containerCode,
-        Entity = companyCode,
-        User = pdfUser, // CHANGED: Use pdfUser parameter instead of "System"
-        EntityFiles = new(),
-        CreationDate = creationDate
-    };
-
-    foreach (var row in containerData)
-    {
-        entityDocRequest.EntityFiles.Add(new EntityFile
-        {
-            DocumentType = row.FileName,
-            DocumentDescription = row.AdditionalInfo ?? string.Empty
-        });
-    }
-
-    var pdfBytes = GetByteArrayForEntityDocPDFForArchive(entityDocRequest);
-
-    // Save to database
-    SavePDFToDatabase(pdfBytes, entityDocRequest, "GenerateEntityDocPDFForArchive", companyCode, pdfUser); // CHANGED: Use pdfUser
-
-    return pdfBytes;
-}
-
-private string GetEntityDescription(string entityCode, DAL.DAL dal)
-{
-    try
-    {
-        DynamicParameters param = new();
-        param.Add("EntityCode", entityCode);
-
-        string command = ConfigurationManager.AppSettings["Get_Entity_By_Code_SP"] ??
-                       "usp_GetEntityByCode";
-
-        var entity = dal.ExecuteQuery<dynamic>(command, param)
-            .FirstOrDefault();
-
-        return entity?.Description ?? entityCode;
-    }
-    catch
-    {
-        return entityCode;
-    }
-}
-
-#endregion
-Summary of Changes
-All the changes are marked with // CHANGED: comments:
-
-GeneratePDFFromContainerData:
-
-Added string pdfUser = GetBoxSentByUser(containerCode); to retrieve the BoxSentBy user
-Passed pdfUser to all three PDF generation methods
-
-
-GenerateCustomerPDFFromContainerData:
-
-Added string pdfUser parameter
-Changed User = "System" to User = pdfUser
-Changed SavePDFToDatabase last parameter from "System" to pdfUser
-
-
-GenerateBranchPDFFromContainerData:
-
-Added string pdfUser parameter
-Changed User = "System" to User = pdfUser
-Changed SavePDFToDatabase last parameter from "System" to pdfUser
-
-
-GenerateEntityPDFFromContainerData:
-
-Added string pdfUser parameter
-Changed User = "System" to User = pdfUser
-Changed SavePDFToDatabase last parameter from "System" to pdfUser
-
-
-
-Now, all legacy containers will use the BoxSentBy value from the Excel import (stored in t_ContainerStatus) instead of hardcoding "System". If no BoxSentBy is found, it will default to "AlternaSystem" as defined in the GetBoxSentByUser method.RetryPin the BLL.ALTERNA.cs in pdf Generator project, in the public byte[] GeneratePDFFromContainerData(string containerCode, DAL.DAL dal){
-....
-string pdfUser = GetBoxSentByUser(containerCode);  
-}
-is giving an error: The name 'GetBoxSentByUser' dpes not exist in the current context
-or this method is used in BLL.cs in Archiving Project.You're absolutely right! The GetBoxSentByUser method is in the Archiving Project BLL.cs, but you're trying to call it from the PDF Generator Project BLL.ALTERNA.cs.
-The PDF Generator project doesn't have access to the Archiving project's BLL methods directly.
-Solution: Add GetBoxSentByUser to PDF Generator Project
-You need to add the same method to the PDF Generator Project's BLL class. Add this method to your BLL.ALTERNA.cs (or wherever your PDF Generator BLL is):
-csharppublic string GetBoxSentByUser(string containerCode)
-{
-    DynamicParameters parameters = new();
-    parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
-
-    using (DAL.DAL dal = new(Catalog_Archive, out var res))
-    {
-        var result = dal.ExecuteQuery<BoxSentByUserDto>(
-            "usp_GetBoxSentByUser",
-            parameters,
-            CommandType.StoredProcedure,
-            CommandDirection.Read
-        );
-
-        var userDto = result?.FirstOrDefault();
-        
-        // Return BoxSentBy if found, otherwise return "AlternaSystem" as default
-        return !string.IsNullOrWhiteSpace(userDto?.BoxSentBy) 
-            ? userDto.BoxSentBy 
-            : "AlternaSystem";
-    }
-}
-Also Add the DTO to PDF Generator Project
-Add this DTO class to your PDF Generator Models (Models.cs):
-csharppublic class BoxSentByUserDto
-{
-    public string BoxSentBy { get; set; }
-}
-Important Note About DAL Constructor
-Make sure the DAL constructor pattern in the PDF Generator project matches. Looking at your existing code, you're using:
-csharpusing (DAL.DAL dal = new(Catalog_Archive, out var res))
-So the method above should work. However, if your PDF Generator project uses a different DAL pattern, adjust accordingly. For example, if it doesn't use the out var res parameter, change it to match your existing pattern in that project.
-Check your existing methods in the PDF Generator BLL to see how you instantiate DAL, and make sure GetBoxSentByUser follows the same pattern. For instance, if you see:
-csharpDAL.DAL dal = new();
-Then change the method to:
-csharppublic string GetBoxSentByUser(string containerCode)
-{
-    DynamicParameters parameters = new();
-    parameters.Add("ContainerCode", containerCode, DbType.String, ParameterDirection.Input);
-
-    DAL.DAL dal = new(Catalog_Archive);  // Or however your DAL is instantiated
-    
-    var result = dal.ExecuteQuery<BoxSentByUserDto>(
-        "usp_GetBoxSentByUser",
-        parameters,
-        CommandType.StoredProcedure,
-        CommandDirection.Read
-    );
-
-    var userDto = result?.FirstOrDefault();
-    
-    return !string.IsNullOrWhiteSpace(userDto?.BoxSentBy) 
-        ? userDto.BoxSentBy 
-        : "AlternaSystem";
-}
