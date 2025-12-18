@@ -1,110 +1,157 @@
 -- ============================================================================
--- SQL SCRIPT - PART 1 (NEW BATCH)
+-- SQL SCRIPT - PART 2
 -- Tables with t_ prefix
 -- Primary Key: First column (row 1) - NOT NULL
 -- All other fields: NULL allowed
 -- ============================================================================
 
 -- ============================================
--- Table: t_BBSC_BRANCHES
+-- Table: t_BBSC_MEMBERS_ROLES
 -- ============================================
-CREATE TABLE t_BBSC_BRANCHES
+CREATE TABLE t_BBSC_MEMBERS_ROLES
 (
-    BRCH_CODE int NOT NULL PRIMARY KEY,
-    CLRG_CODE int NULL,
-    BRCH_B_DESC nvarchar(50) NULL,
-    BRCH_S_DESC nvarchar(50) NULL,
-    BRCH_BR_NUM_AT_CB int NULL,
-    BRCH_ICBS_BRANCH_FLG int NULL,
-    BRCH_CLOSING_DATE datetime NULL,
-    BRCH_COMPUTERIZED_FLG int NULL,
-    BRCH_CURRENT_DATE datetime NULL,
-    BRCH_LAST_INT_CAL_DATE datetime NULL,
-    BRCH_LAST_PROCESS_DATE datetime NULL,
-    BRCH_REMOTE_USER nvarchar(25) NULL,
+    MERO_CODE int NOT NULL PRIMARY KEY,
+    MERO_B_DESC nvarchar(25) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
     TIME_STAMP datetime NULL,
-    BRCH_ABREV nvarchar(25) NULL,
-    RREG_CODE nvarchar(25) NULL,
-    BRCH_ADDRESS nvarchar(25) NULL,
-    BRCH_WORK_DIR nvarchar(25) NULL,
-    BRCH_STATUS int NULL,
-    BRCH_CLASSIFICATION nvarchar(25) NULL,
-    BRCH_ADDRESS1 nvarchar(25) NULL,
-    BRCH_ADDRESS2 nvarchar(25) NULL,
-    BRCH_ADDRESS3 nvarchar(25) NULL,
-    BRCH_ADDRESS4 nvarchar(25) NULL,
-    BRCH_PHONE1 nvarchar(25) NULL,
-    BRCH_PHONE2 nvarchar(25) NULL,
-    BRCH_PHONE3 nvarchar(25) NULL,
-    BRCH_PHONE4 nvarchar(25) NULL,
-    BRCH_PHONE5 nvarchar(25) NULL,
-    BRCH_CBK_APPROVAL nvarchar(25) NULL,
-    BRCH_CBK_PERD_FEES nvarchar(25) NULL,
-    BRCH_CBK_PERD_DUE nvarchar(25) NULL,
-    BRCH_MINISTRY_PERD_FEES nvarchar(25) NULL,
-    BRCH_MINISTRY_PERD_DUE nvarchar(25) NULL,
-    BRCH_STMT_LANG int NULL,
-    BRCH_CONNECT_STRING nvarchar(25) NULL,
-    BRCH_LAST_INT_CAL_DATE2 nvarchar(25) NULL,
-    BRCH_HOST_NAME nvarchar(25) NULL,
-    BRCH_ON_LINE nvarchar(25) NULL,
-    BRCH_BR_DECL_AT_CB int NULL,
-    INTC_CODE nvarchar(25) NULL,
-    BRCH_BRANCH_O_C_IND int NULL,
-    BRCH_SESSION_O_C_IND int NULL,
-    BRCH_HLP_DSK nvarchar(25) NULL,
-    BRCH_RPL_HLP_DSK nvarchar(25) NULL,
-    BRCH_MNGR_DSK nvarchar(25) NULL,
-    BRCH_MNGR_IND int NULL,
-    BRCH_BRCH_SWIFT nvarchar(25) NULL,
-    BRCH_SESSION_NBR nvarchar(25) NULL,
-    BRCH_CHG_SESSION_DATE_IND nvarchar(25) NULL,
-    BRCH_HOLIDAY_FLG int NULL,
-    CRRG_CODE int NULL,
-    BRCH_ABR_FLG int NULL,
-    BRCH_IP_IND int NULL,
-    BRCH_IP_FR_1 nvarchar(25) NULL,
-    BRCH_IP_FR_2 nvarchar(25) NULL,
-    BRCH_IP_FR_3 nvarchar(25) NULL,
-    BRCH_IP_FR_4 nvarchar(25) NULL,
-    BRCH_IP_TO_1 nvarchar(25) NULL,
-    BRCH_IP_TO_2 nvarchar(25) NULL,
-    BRCH_IP_TO_3 nvarchar(25) NULL,
-    BRCH_IP_TO_4 nvarchar(25) NULL,
-    BRCH_E_CURRENT_DATE datetime NULL,
-    BRCH_E_STATUS int NULL,
-    BRCH_OVR_IND int NULL,
-    BRCH_CATEGORY_IND int NULL,
-    BRCH_FUND_ENTITY int NULL,
-    BRCH_PRINT_ODT_FLG int NULL,
-    BRCH_MNGR_AML nvarchar(25) NULL,
-    BRCH_PARENT nvarchar(25) NULL,
-    BRCH_LEVEL int NULL,
-    LCTY_CODE int NULL,
-    SLTY_CODE int NULL,
-    CSHC_CODE nvarchar(25) NULL,
-    BRCH_WARH_FLG int NULL,
-    BRCH_PRM_CLS_DATE nvarchar(25) NULL,
-    BRCH_PRM_REPL_BRCH nvarchar(25) NULL,
-    BRCH_TAXABLE_FLG int NULL,
-    BRCH_SKIP_CLOSE_FLG nvarchar(25) NULL,
-    BRCH_LONGITUDE nvarchar(25) NULL,
-    BRCH_LATITUDE nvarchar(25) NULL,
-    BRCH_IBAN_REFERENCE nvarchar(25) NULL
+    MERO_S_DESC nvarchar(25) NULL,
+    MERO_LOGIC_VAL int NULL
 );
 GO
 
 -- ============================================
--- Table: t_BBSC_COMMISSION_TYPES
+-- Table: t_BBSC_MRPR_MEMBER_TYPES
 -- ============================================
-CREATE TABLE t_BBSC_COMMISSION_TYPES
+CREATE TABLE t_BBSC_MRPR_MEMBER_TYPES
 (
-    COMT_CODE int NOT NULL PRIMARY KEY,
-    COMT_B_DESC nvarchar(25) NULL,
-    COMT_S_DESC nvarchar(25) NULL,
+    MPMT_CODE int NOT NULL PRIMARY KEY,
+    MPMT_B_DESC nvarchar(50) NULL,
+    MPMT_S_DESC nvarchar(50) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    MPMT_LOGIC_VAL nvarchar(25) NULL,
+    MPMT_FTC_LGC_IND nvarchar(25) NULL,
+    MPMT_CP_MEMBER_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_PARTNER_SHIP
+-- ============================================
+CREATE TABLE t_BBSC_PARTNER_SHIP
+(
+    PART_CODE int NOT NULL PRIMARY KEY,
+    PART_B_DESC nvarchar(25) NULL,
+    PART_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    PART_VALUE nvarchar(25) NULL,
+    PART_CP_MEMBER_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_POSTAL_ZONE_EXTS
+-- Composite Primary Key: PZON_CODE, PZEX_CODE
+-- ============================================
+CREATE TABLE t_BBSC_POSTAL_ZONE_EXTS
+(
+    PZON_CODE int NOT NULL,
+    PZEX_CODE int NOT NULL,
+    PZEX_B_DESC nvarchar(25) NULL,
+    PZEX_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    CONSTRAINT PK_t_BBSC_POSTAL_ZONE_EXTS PRIMARY KEY (PZON_CODE, PZEX_CODE)
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_POSTAL_ZONES
+-- ============================================
+CREATE TABLE t_BBSC_POSTAL_ZONES
+(
+    PZON_CODE int NOT NULL PRIMARY KEY,
+    PZON_B_DESC nvarchar(25) NULL,
+    PZON_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    PZON_FR_POBOX int NULL,
+    PZON_TO_POBOX int NULL,
+    PZON_ZIPCODE int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_PROF_STATUS
+-- ============================================
+CREATE TABLE t_BBSC_PROF_STATUS
+(
+    PRFS_CODE int NOT NULL PRIMARY KEY,
+    PRFS_B_DESC nvarchar(25) NULL,
+    PRFS_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    PRFS_LOGIC_VAL nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_PROFESSIONS
+-- ============================================
+CREATE TABLE t_BBSC_PROFESSIONS
+(
+    PROF_CODE int NOT NULL PRIMARY KEY,
+    PROF_B_DESC nvarchar(50) NULL,
+    PROF_S_DESC nvarchar(50) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    ACTV_CODE int NULL,
+    PROF_RISKY_FLG datetime NULL,
+    PROF_EMPL_FLG int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_QUALITIES
+-- ============================================
+CREATE TABLE t_BBSC_QUALITIES
+(
+    QLTY_CODE int NOT NULL PRIMARY KEY,
+    QLTY_B_DESC nvarchar(25) NULL,
+    QLTY_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    QLTY_DETAILED_DESC nvarchar(25) NULL,
+    QLTY_GENDER nvarchar(25) NULL,
+    QLTY_PP_MP_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_RELATION_NATURES
+-- ============================================
+CREATE TABLE t_BBSC_RELATION_NATURES
+(
+    RLNT_CODE int NOT NULL PRIMARY KEY,
+    RLNT_B_DESC nvarchar(25) NULL,
+    RLNT_S_DESC nvarchar(25) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
@@ -113,332 +160,709 @@ CREATE TABLE t_BBSC_COMMISSION_TYPES
 GO
 
 -- ============================================
--- Table: t_BBSC_COMPANY_RATING
+-- Table: t_BBSC_RELATION_REASONS
 -- ============================================
-CREATE TABLE t_BBSC_COMPANY_RATING
+CREATE TABLE t_BBSC_RELATION_REASONS
 (
-    CORT_CODE int NOT NULL PRIMARY KEY,
-    CORT_B_DESC nvarchar(25) NULL,
-    CORT_S_DESC nvarchar(25) NULL,
+    RLRS_CODE int NOT NULL PRIMARY KEY,
+    RLRS_B_DESC nvarchar(50) NULL,
+    RLRS_S_DESC nvarchar(50) NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    CORT_OLD_CODE nvarchar(25) NULL
+    TIME_STAMP datetime NULL
 );
 GO
 
 -- ============================================
--- Table: t_BBSC_COUNTRIES
+-- Table: t_BBSC_RELIGIONS
 -- ============================================
-CREATE TABLE t_BBSC_COUNTRIES
+CREATE TABLE t_BBSC_RELIGIONS
 (
-    CTRY_CODE int NOT NULL PRIMARY KEY,
+    RELG_CODE int NOT NULL PRIMARY KEY,
+    RELG_B_DESC nvarchar(25) NULL,
+    RELG_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_REPORTING_REGIONS
+-- ============================================
+CREATE TABLE t_BBSC_REPORTING_REGIONS
+(
+    RREG_CODE int NOT NULL PRIMARY KEY,
+    RREG_B_DESC nvarchar(25) NULL,
+    RREG_S_DESC nvarchar(25) NULL,
+    RREG_ABRV_CODE nvarchar(25) NULL,
+    RREG_B_SHORT_D nvarchar(25) NULL,
+    RREG_S_SHORT_D nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    RREG_MANAGER nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_REQUIRED_DOCUMENTS
+-- Composite Primary Key: DCMT_CODE, CNAT_CODE
+-- ============================================
+CREATE TABLE t_BBSC_REQUIRED_DOCUMENTS
+(
+    DCMT_CODE int NOT NULL,
+    CNAT_CODE int NOT NULL,
+    RDOC_MAND_FLG nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    DCMT_UPLOAD_FLG nvarchar(25) NULL,
+    DCMT_REQ_SIGN_FLG nvarchar(25) NULL,
+    DCMT_INDEXES nvarchar(25) NULL,
+    DCMT_REF1 nvarchar(25) NULL,
+    DCMT_REF2 nvarchar(25) NULL,
+    DCMT_REF3 nvarchar(25) NULL,
+    CONSTRAINT PK_t_BBSC_REQUIRED_DOCUMENTS PRIMARY KEY (DCMT_CODE, CNAT_CODE)
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_RESIDENTS
+-- ============================================
+CREATE TABLE t_BBSC_RESIDENTS
+(
+    RESD_CODE int NOT NULL PRIMARY KEY,
+    RESD_B_DESC nvarchar(25) NULL,
+    RESD_S_DESC nvarchar(25) NULL,
+    RESD_LOGIC_FLG int NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    RESD_PP_MP_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_RETURNED_MAIL_REASONS
+-- ============================================
+CREATE TABLE t_BBSC_RETURNED_MAIL_REASONS
+(
+    RTMR_CODE int NOT NULL PRIMARY KEY,
+    RTMR_B_DESC nvarchar(25) NULL,
+    RTMR_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SECRECY_LEVELS
+-- ============================================
+CREATE TABLE t_BBSC_SECRECY_LEVELS
+(
+    SCLV_CODE int NOT NULL PRIMARY KEY,
+    SCLV_B_DESC nvarchar(25) NULL,
+    SCLV_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SECT_DOMECTIC_ECOS
+-- ============================================
+CREATE TABLE t_BBSC_SECT_DOMECTIC_ECOS
+(
+    SDEC_CODE int NOT NULL PRIMARY KEY,
+    SDEC_ISO int NULL,
+    SDEC_B_DESC nvarchar(25) NULL,
+    SDEC_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SIGN_COMBINATIONS
+-- ============================================
+CREATE TABLE t_BBSC_SIGN_COMBINATIONS
+(
+    SGNC_CODE int NOT NULL PRIMARY KEY,
+    SGNC_B_DESC nvarchar(50) NULL,
+    SGNC_S_DESC nvarchar(50) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SOURCE_OF_INCOME
+-- ============================================
+CREATE TABLE t_BBSC_SOURCE_OF_INCOME
+(
+    ISCR_CODE int NOT NULL PRIMARY KEY,
+    ISCR_B_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    ISCR_S_DESC nvarchar(25) NULL,
+    ISCR_DISP_FLG int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_STMT_MAIL_CODES
+-- ============================================
+CREATE TABLE t_BBSC_STMT_MAIL_CODES
+(
+    STMC_CODE int NOT NULL PRIMARY KEY,
+    STMC_B_DESC nvarchar(25) NULL,
+    STMC_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_STP_REASONS
+-- ============================================
+CREATE TABLE t_BBSC_STP_REASONS
+(
+    STPR_CODE int NOT NULL PRIMARY KEY,
+    STPR_B_DESC nvarchar(25) NULL,
+    STPR_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_STRATEGIES
+-- ============================================
+CREATE TABLE t_BBSC_STRATEGIES
+(
+    STRA_CODE int NOT NULL PRIMARY KEY,
+    STRA_B_DESC nvarchar(25) NULL,
+    STRA_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_STUDIES_DEGREES
+-- ============================================
+CREATE TABLE t_BBSC_STUDIES_DEGREES
+(
+    STDG_CODE int NOT NULL PRIMARY KEY,
+    STDG_B_DESC nvarchar(25) NULL,
+    STDG_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SUB_LOCALITIES
+-- Composite Primary Key: LCTY_CODE, SLTY_CODE
+-- ============================================
+CREATE TABLE t_BBSC_SUB_LOCALITIES
+(
+    LCTY_CODE int NOT NULL,
+    SLTY_CODE int NOT NULL,
+    SLTY_B_DESC nvarchar(25) NULL,
+    SLTY_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    CONSTRAINT PK_t_BBSC_SUB_LOCALITIES PRIMARY KEY (LCTY_CODE, SLTY_CODE)
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_SUFFIXES
+-- ============================================
+CREATE TABLE t_BBSC_SUFFIXES
+(
+    SUFX_CODE int NOT NULL PRIMARY KEY,
+    SUFX_B_DESC nvarchar(25) NULL,
+    SUFX_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_TAX_LEVELS
+-- ============================================
+CREATE TABLE t_BBSC_TAX_LEVELS
+(
+    TAXL_CODE int NOT NULL PRIMARY KEY,
+    TAXL_DESC nvarchar(25) NULL,
+    TAXL_RATE nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_TELLERS
+-- String Primary Key: UDEF_CODE
+-- ============================================
+CREATE TABLE t_BBSC_TELLERS
+(
+    UDEF_CODE nvarchar(25) NOT NULL PRIMARY KEY,
+    TLLR_CASH_CODE int NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    TLLR_SEND_IND nvarchar(25) NULL,
+    TLLR_CASH_ACT_FLG int NULL,
+    CHBX_CODE int NULL,
+    TLLR_DIRECTION_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_TRANSACTION_TYPES
+-- ============================================
+CREATE TABLE t_BBSC_TRANSACTION_TYPES
+(
+    TTYP_CODE int NOT NULL PRIMARY KEY,
+    TTYP_B_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    TTYP_S_DESC nvarchar(25) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSC_TUTOR_RELATION_SHIPS
+-- ============================================
+CREATE TABLE t_BBSC_TUTOR_RELATION_SHIPS
+(
+    TRLS_CODE int NOT NULL PRIMARY KEY,
+    TRLS_B_DESC nvarchar(25) NULL,
+    TRLS_S_DESC nvarchar(25) NULL,
+    NODE_ID nvarchar(25) NULL,
+    PROGRAM_ID nvarchar(25) NULL,
+    USER_ID nvarchar(25) NULL,
+    TIME_STAMP datetime NULL,
+    TRLS_LEG_JUDC_IND int NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSD_CBKBALS
+-- DateTime Primary Key: BDATE
+-- 210 columns total
+-- ============================================
+CREATE TABLE t_BBSD_CBKBALS
+(
+    BDATE datetime NOT NULL PRIMARY KEY,
+    BBRCH int NULL,
+    BCURR int NULL,
+    BGL nvarchar(25) NULL,
+    BCACC nvarchar(25) NULL,
+    BCUST int NULL,
+    BTYPE int NULL,
+    BSIGN nvarchar(5) NULL,
+    BRATE decimal(18,2) NULL,
+    BRATI int NULL,
+    BRESD int NULL,
+    BCNAT int NULL,
+    BREFF nvarchar(25) NULL,
+    BECOS int NULL,
+    BCECO int NULL,
+    BREMDAYS int NULL,
+    BPRDDAYS int NULL,
+    BRATECR decimal(18,2) NULL,
+    BRATEDB decimal(18,2) NULL,
+    BCODECR decimal(18,2) NULL,
+    BCODEDB decimal(18,2) NULL,
+    BMRGCR decimal(18,2) NULL,
+    BMRGDB decimal(18,2) NULL,
+    BCSTCTG int NULL,
+    BBREG int NULL,
+    BOPNDT datetime NULL,
+    BMATDT datetime NULL,
+    BRNWDT datetime NULL,
+    BCLSS int NULL,
+    BLIMDAY int NULL,
+    BCTRY int NULL,
+    BTYPNAT int NULL,
+    BCSTS int NULL,
+    BREMITNBR int NULL,
+    BACCIND int NULL,
+    BACCRAMNT decimal(18,2) NULL,
+    BCTYP int NULL,
+    BINST int NULL,
+    BCAOF decimal(18,2) NULL,
+    BBAL decimal(18,2) NULL,
+    BCVBAL decimal(18,2) NULL,
+    BBALCR decimal(18,2) NULL,
+    BBALDB decimal(18,2) NULL,
+    BMBAL decimal(18,2) NULL,
+    BMCVBAL decimal(18,2) NULL,
+    BMTHMVCR decimal(18,2) NULL,
+    BMTHCVMVCR decimal(18,2) NULL,
+    BMTHMVDB decimal(18,2) NULL,
+    BMTHCVMVDB decimal(18,2) NULL,
+    BVDATB decimal(18,2) NULL,
+    BVDATCVB decimal(18,2) NULL,
+    BPRVMB decimal(18,2) NULL,
+    BPRVMCVB decimal(18,2) NULL,
+    BPRVDB decimal(18,2) NULL,
+    BPRVDCVB decimal(18,2) NULL,
+    BLIMCR decimal(18,2) NULL,
+    BLIMCV decimal(18,2) NULL,
+    BMMEANB decimal(18,2) NULL,
+    BMMEANCVB decimal(18,2) NULL,
+    BMMINB decimal(18,2) NULL,
+    BMMINCVB decimal(18,2) NULL,
+    BMMAXB decimal(18,2) NULL,
+    BMMAXCVB decimal(18,2) NULL,
+    BMMEANAVB decimal(18,2) NULL,
+    BMMEANAVCVB decimal(18,2) NULL,
+    BMMINAVB decimal(18,2) NULL,
+    BMMINAVCVB decimal(18,2) NULL,
+    BMMAXAVB decimal(18,2) NULL,
+    BMMAXAVCVB decimal(18,2) NULL,
+    BYMEANB decimal(18,2) NULL,
+    BYMEANCVB decimal(18,2) NULL,
+    BYMINB decimal(18,2) NULL,
+    BYMINCVB decimal(18,2) NULL,
+    BYMAXB decimal(18,2) NULL,
+    BYMAXCVB decimal(18,2) NULL,
+    BYMEANAVB decimal(18,2) NULL,
+    BYMEANAVCVB decimal(18,2) NULL,
+    BYMINAVB decimal(18,2) NULL,
+    BYMINAVCVB decimal(18,2) NULL,
+    BYMAXAVB decimal(18,2) NULL,
+    BYMAXAVCVB decimal(18,2) NULL,
+    BLAMNT decimal(18,2) NULL,
+    BLPMNT decimal(18,2) NULL,
+    BLIMNT decimal(18,2) NULL,
+    BMTHPCR decimal(18,2) NULL,
+    BMTHPCVCR decimal(18,2) NULL,
+    BMTHLDR decimal(18,2) NULL,
+    BMTHLCVDR decimal(18,2) NULL,
+    BDDEP decimal(18,2) NULL,
+    BDWTH decimal(18,2) NULL,
+    BMAVGDBBAL decimal(18,2) NULL,
+    BMAVGDBCVBAL decimal(18,2) NULL,
+    BMAVGCRBAL decimal(18,2) NULL,
+    BMAVGCRCVBAL decimal(18,2) NULL,
+    BMDAYDBTOT decimal(18,2) NULL,
+    BMDAYCRTOT decimal(18,2) NULL,
+    BACCRCVAMNT decimal(18,2) NULL,
+    BCDRSNUM decimal(18,2) NULL,
+    BNATIONALNUM nvarchar(25) NULL,
+    BNATIONALITY int NULL,
+    BCACCBNAME nvarchar(50) NULL,
+    BCACCSNAME nvarchar(50) NULL,
+    BCORTCODE int NULL,
+    BOLDREF nvarchar(25) NULL,
+    BMAVGDBAVBAL decimal(18,2) NULL,
+    BMAVGDBCVAVBAL decimal(18,2) NULL,
+    BMAVGCRAVBAL decimal(18,2) NULL,
+    BMAVGCRCVAVBAL decimal(18,2) NULL,
+    BMDAYDBAVTOT int NULL,
+    BMDAYCRAVTOT int NULL,
+    BILSL int NULL,
+    BCVLAMNT decimal(18,2) NULL,
+    BMEANB decimal(18,2) NULL,
+    BMEANCVB decimal(18,2) NULL,
+    BYEARCVCRPL decimal(18,2) NULL,
+    BYEARCRPL decimal(18,2) NULL,
+    BMATBR int NULL,
+    BMATACC nvarchar(25) NULL,
+    BDBACCRGL nvarchar(25) NULL,
+    BCRACCRGL nvarchar(25) NULL,
+    BUNPPRINCCV decimal(18,2) NULL,
+    BDBTINTCV decimal(18,2) NULL,
+    BLILORDESC int NULL,
+    BUNPPRINC decimal(18,2) NULL,
+    BUNPPENALTY decimal(18,2) NULL,
+    BPROVPRINC decimal(18,2) NULL,
+    BACCRNOTPAID decimal(18,2) NULL,
+    BCVACCRNOTPAID decimal(18,2) NULL,
+    BTERM int NULL,
+    BTOTDAYS int NULL,
+    BCTRYISO nvarchar(25) NULL,
+    BCECOISO nvarchar(25) NULL,
+    BECOSISO nvarchar(25) NULL,
+    BCURRISO nvarchar(25) NULL,
+    BFCTFLG int NULL,
+    BDRMFLG int NULL,
+    BWTHFLG int NULL,
+    BBLKFLG int NULL,
+    BDEPFLG int NULL,
+    BSALARY decimal(18,2) NULL,
+    BPROPRENT decimal(18,2) NULL,
+    BBUSINC decimal(18,2) NULL,
+    BANNINC decimal(18,2) NULL,
+    BOTHINC decimal(18,2) NULL,
+    BSEX int NULL,
+    BCOLCOMM decimal(18,2) NULL,
+    BCOLCOMMCV decimal(18,2) NULL,
+    BHLDAMNT decimal(18,2) NULL,
+    BHLDCVAMNT decimal(18,2) NULL,
+    BACCRCRMTD decimal(18,2) NULL,
+    BACCRCRCVMTD decimal(18,2) NULL,
+    BACCRDBMTD decimal(18,2) NULL,
+    BACCRDBCVMTD decimal(18,2) NULL,
+    BACCRCRYTD decimal(18,2) NULL,
+    BACCRCRCVYTD decimal(18,2) NULL,
+    BACCRDBYTD decimal(18,2) NULL,
+    BACCRDBCVYTD decimal(18,2) NULL,
+    BINTDBNETAMNT decimal(18,2) NULL,
+    BINTDBNETCVAMNT decimal(18,2) NULL,
+    BGRTMCVAMNT decimal(18,2) NULL,
+    BCRSTDRATE decimal(18,2) NULL,
+    BINTRATE decimal(18,2) NULL,
+    BINTPAID decimal(18,2) NULL,
+    BINTPAIDCV decimal(18,2) NULL,
+    BPRINCAMNT decimal(18,2) NULL,
+    BPAYAMNT decimal(18,2) NULL,
+    BMINDRATE decimal(18,2) NULL,
+    BRATEDEBIT decimal(18,2) NULL,
+    BAVGCRBAL decimal(18,2) NULL,
+    BAVGDBBAL decimal(18,2) NULL,
+    BMNTHDEP decimal(18,2) NULL,
+    BMNTHCVDEP decimal(18,2) NULL,
+    BMNTHWTH decimal(18,2) NULL,
+    BAVGDBBALCV decimal(18,2) NULL,
+    BAVGCRBALCV decimal(18,2) NULL,
+    BMRPTUOV decimal(18,2) NULL,
+    BCBRCH int NULL,
+    BCUSMTYPE int NULL,
+    BCUSMID int NULL,
+    BACCHOLD int NULL,
+    BMAXRATE decimal(18,2) NULL,
+    BFCTDATE datetime NULL,
+    BSOLETRIND int NULL,
+    BCITIZEN int NULL,
+    BLGLS int NULL,
+    BGRPC int NULL,
+    BBIRTHDATE datetime NULL,
+    BLCTY int NULL,
+    BSLC int NULL,
+    BFSIT int NULL,
+    BACTV int NULL,
+    BPROF int NULL,
+    BNBDEPT int NULL,
+    BPRVACCRCR decimal(18,2) NULL,
+    BPRVACCRCVCR decimal(18,2) NULL,
+    BPRVACCRDB decimal(18,2) NULL,
+    BPRVACCRCVDB decimal(18,2) NULL,
+    BEMPNBR int NULL,
+    BISSDT datetime NULL,
+    BEXCESSAMT decimal(18,2) NULL,
+    BEXCESSAMTCV decimal(18,2) NULL,
+    BEXCESSDAYS int NULL,
+    BGRAT int NULL,
+    BMERO int NULL,
+    BLCTYDESC nvarchar(50) NULL,
+    BDEPCOMFLG int NULL,
+    BOLDISSDT datetime NULL,
+    BECLAMNT decimal(18,2) NULL,
+    BECLCVAMNT decimal(18,2) NULL,
+    BTOTCUSTDEP decimal(18,2) NULL
+);
+GO
+
+-- ============================================
+-- Table: t_BBSD_CUSTOMERS
+-- 138 columns total
+-- ============================================
+CREATE TABLE t_BBSD_CUSTOMERS
+(
+    CUST_ID int NOT NULL PRIMARY KEY,
+    BRCH_CODE int NULL,
+    LANG_CODE int NULL,
     RESD_CODE int NULL,
-    CTRY_B_DESC nvarchar(25) NULL,
-    CTRY_S_DESC int NULL,
-    CTRY_ISO nvarchar(25) NULL,
-    CTRY_COURRIER_FEES nvarchar(25) NULL,
-    CTRY_TELEX_FEES nvarchar(25) NULL,
-    CTRY_OTHER_FEES nvarchar(25) NULL,
+    SGNC_CODE int NULL,
+    PHPR_ID nvarchar(25) NULL,
+    QLTY_CODE int NULL,
+    CECO_CODE int NULL,
+    CNAT_CODE int NULL,
+    CORT_CODE int NULL,
+    CSTS_CODE int NULL,
+    ECOS_CODE int NULL,
+    UDEF_CODE nvarchar(25) NULL,
+    MAIL_CODE int NULL,
+    CUST_B_NAME nvarchar(50) NULL,
+    CUST_S_NAME nvarchar(50) NULL,
+    CUST_SECRET_FLG int NULL,
+    CUST_VIP_FLG int NULL,
+    CUST_VIP_INFORMATION int NULL,
+    CUST_CHECK_BOOK_FLG int NULL,
+    CUST_PART_COMM_FLG int NULL,
+    CUST_PART_V_DATE_FLG int NULL,
+    CUST_TAXABLE_FLG int NULL,
+    CUST_BANK_CODE nvarchar(25) NULL,
+    CUST_GUICHET_CODE nvarchar(25) NULL,
+    CUST_CLEARING_CODE nvarchar(25) NULL,
+    CUST_MAIL_ADR_NUM int NULL,
+    CUST_OTHER_ADR_NUM int NULL,
+    CUST_REQ_SIGN_DESC nvarchar(50) NULL,
+    CUST_OPENING_DATE datetime NULL,
+    CUST_LAST_MODIFICATION_DATE datetime NULL,
     NODE_ID nvarchar(25) NULL,
     PROGRAM_ID nvarchar(25) NULL,
     USER_ID nvarchar(25) NULL,
     TIME_STAMP datetime NULL,
-    CTRY_B_DESC_2 nvarchar(25) NULL,
-    CTRY_S_DESC_2 nvarchar(25) NULL,
-    CTRY_TEL_CODE int NULL,
-    CTRY_TEL_FORMAT nvarchar(25) NULL,
-    CTRY_IBAN_FLG int NULL,
-    CTRY_INCOMING_IBAN_CTRL_IND nvarchar(25) NULL,
-    CTRY_CURR_CODE int NULL,
-    CTRY_RISKY_FLG nvarchar(25) NULL,
-    GRPC_CODE int NULL,
-    CTRY_APPLY_STP_FLG int NULL,
-    CTRY_CRS_FLG int NULL,
-    CTRY_CRS_BILATERAL_FLG int NULL,
-    CTRY_CRS_TIN_REQ_FLG int NULL,
-    CTRY_CRS_PHPR_TIN_FORMAT nvarchar(25) NULL,
-    CTRY_CRS_MRPR_TIN_FORMAT nvarchar(25) NULL,
-    CTRY_CRS_PHPR_TIN_FORMAT2 nvarchar(25) NULL,
-    CTRY_CRS_PHPR_TIN_FORMAT3 nvarchar(25) NULL,
-    CTRY_CRS_MRPR_TIN_FORMAT2 nvarchar(25) NULL,
-    CTRY_HLIDAY_1 nvarchar(25) NULL,
-    CTRY_HLIDAY_2 nvarchar(25) NULL,
-    CTCG_CODE int NULL,
-    CTRY_ACTIVE_FLG int NULL,
-    CTRY_AREA_SUB_CODE int NULL,
-    CTRY_ALLOW_CHANNEL int NULL,
-    CTRY_ENCRYPT_FLG nvarchar(25) NULL,
-    CTRY_USER_LVL_DEC nvarchar(25) NULL,
-    CTRY_US_RELATED int NULL,
-    CTRY_PURP_ALLOW_26T int NULL,
-    CTRY_PURP_ALLOW_77B int NULL,
-    CTRY_PURP_CODE_REQ int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_ECONOMIC_CODES
--- ============================================
-CREATE TABLE t_BBSC_ECONOMIC_CODES
-(
-    ECOD_CODE int NOT NULL PRIMARY KEY,
-    ECOD_B_DESC nvarchar(50) NULL,
-    ECOD_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    ECOD_ISO nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_ECONOMIC_SECTORS
--- ============================================
-CREATE TABLE t_BBSC_ECONOMIC_SECTORS
-(
-    ECOS_CODE int NOT NULL PRIMARY KEY,
-    ECOS_B_DESC nvarchar(50) NULL,
-    ECOS_S_DESC nvarchar(50) NULL,
-    ECOS_ISO nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    DAES_CODE nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_ESTIMATED_TURNOVERS
--- ============================================
-CREATE TABLE t_BBSC_ESTIMATED_TURNOVERS
-(
-    ESTO_CODE int NOT NULL PRIMARY KEY,
-    ESTO_B_DESC nvarchar(50) NULL,
-    ESTO_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    ESTO_REQ_FLG nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_FAMILY_SITUATIONS
--- ============================================
-CREATE TABLE t_BBSC_FAMILY_SITUATIONS
-(
-    FSIT_CODE int NOT NULL PRIMARY KEY,
-    FSIT_B_DESC nvarchar(25) NULL,
-    FSIT_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_GL_GROUPS_D
--- ============================================
-CREATE TABLE t_BBSC_GL_GROUPS_D
-(
-    GLGM_CODE int NOT NULL PRIMARY KEY,
-    ACNT_NUM nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_GL_TYPES
--- ============================================
-CREATE TABLE t_BBSC_GL_TYPES
-(
-    GLTY_CODE int NOT NULL PRIMARY KEY,
-    GLTY_B_DESC nvarchar(25) NULL,
-    GLTY_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_GRP_ACCNT_TYPES
--- ============================================
-CREATE TABLE t_BBSC_GRP_ACCNT_TYPES
-(
-    GRAT_CODE int NOT NULL PRIMARY KEY,
-    GRAT_B_DESC nvarchar(25) NULL,
-    GRAT_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_INCOME_RANGES
--- ============================================
-CREATE TABLE t_BBSC_INCOME_RANGES
-(
-    INCR_CODE int NOT NULL PRIMARY KEY,
-    INCR_B_DESC nvarchar(25) NULL,
-    INCR_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    INCR_UPTO_AMOUNT nvarchar(25) NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_INCOMPLETE_FILE_REASONS
--- ============================================
-CREATE TABLE t_BBSC_INCOMPLETE_FILE_REASONS
-(
-    INFR_CODE int NOT NULL PRIMARY KEY,
-    INFR_B_DESC nvarchar(50) NULL,
-    INFR_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_INTEREST_PERIODICITIES
--- ============================================
-CREATE TABLE t_BBSC_INTEREST_PERIODICITIES
-(
-    INTP_CODE int NOT NULL PRIMARY KEY,
-    INTP_B_DESC nvarchar(50) NULL,
-    INTP_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_INTERNAL_COMPANIES
--- ============================================
-CREATE TABLE t_BBSC_INTERNAL_COMPANIES
-(
-    INTC_CODE int NOT NULL PRIMARY KEY,
-    INTC_B_DESC nvarchar(25) NULL,
-    INTC_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_JOB_TITLES
--- ============================================
-CREATE TABLE t_BBSC_JOB_TITLES
-(
-    JTIT_CODE int NOT NULL PRIMARY KEY,
-    JTIT_B_DESC nvarchar(50) NULL,
-    JTIT_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_LEGAL_STATUS_CODES
--- ============================================
-CREATE TABLE t_BBSC_LEGAL_STATUS_CODES
-(
-    BSLC_CODE int NOT NULL PRIMARY KEY,
-    BSLC_B_DESC nvarchar(50) NULL,
-    BSLC_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_LEGAL_STATUS
--- ============================================
-CREATE TABLE t_BBSC_LEGAL_STATUS
-(
-    LGLS_CODE int NOT NULL PRIMARY KEY,
-    LGLS_B_DESC nvarchar(50) NULL,
-    LGLS_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    MPMT_CODE int NULL,
-    LGLS_REQ_REG int NULL,
-    LGLS_NATURE int NULL,
-    LGLS_RISKY_FLG int NULL,
-    LGLS_SHLDR_COND_FLG int NULL,
-    LGLS_DFLT_TAX_IND int NULL,
-    LGLS_CRTL_PERS_IND int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_LOCALITIES
--- ============================================
-CREATE TABLE t_BBSC_LOCALITIES
-(
-    LCTY_CODE int NOT NULL PRIMARY KEY,
-    LCTY_B_DESC nvarchar(25) NULL,
-    LCTY_S_DESC nvarchar(25) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL,
-    LCTY_ISO int NULL,
-    LCTY_LOCAL_FLG int NULL,
-    CRRG_CODE nvarchar(25) NULL,
-    LCTY_CDR_CODE nvarchar(25) NULL,
-    DA_LCTY_CODE int NULL
-);
-GO
-
--- ============================================
--- Table: t_BBSC_MAIL_DESTINATIONS
--- ============================================
-CREATE TABLE t_BBSC_MAIL_DESTINATIONS
-(
-    MAIL_CODE int NOT NULL PRIMARY KEY,
-    MAIL_B_DESC nvarchar(50) NULL,
-    MAIL_S_DESC nvarchar(50) NULL,
-    NODE_ID nvarchar(25) NULL,
-    PROGRAM_ID nvarchar(25) NULL,
-    USER_ID nvarchar(25) NULL,
-    TIME_STAMP datetime NULL
+    LAST_CHCK nvarchar(25) NULL,
+    LCTY_CODE int NULL,
+    SDEC_CODE int NULL,
+    CUST_CHECK_BOOK_DATE nvarchar(25) NULL,
+    CCLS_CODE int NULL,
+    CTYP_CODE int NULL,
+    CUST_OTHER_BANK_ID nvarchar(25) NULL,
+    STRA_CODE int NULL,
+    CUST_TAXABLE_REF nvarchar(25) NULL,
+    CUST_CLOSING_DATE nvarchar(25) NULL,
+    CUST_E_BANKING int NULL,
+    CUST_IVR int NULL,
+    CUST_SMS int NULL,
+    CUST_PIN_CODE nvarchar(25) NULL,
+    CTSC_CODE int NULL,
+    CUST_CATEGORY int NULL,
+    CAOF_CODE int NULL,
+    CUST_B_SHORT_NAME nvarchar(25) NULL,
+    CUST_S_SHORT_NAME nvarchar(25) NULL,
+    CTRY_CODE int NULL,
+    SCLV_CODE int NULL,
+    ASPR_CODE int NULL,
+    CUST_CSFP int NULL,
+    CUST_BKA int NULL,
+    CCTG_CODE int NULL,
+    CUST_KYC_DATE datetime NULL,
+    CUST_REVIEW_DATE datetime NULL,
+    CUST_LGLS_NATURE int NULL,
+    MRPR_COMMENTS nvarchar(50) NULL,
+    CSNL_CODE int NULL,
+    CUST_CSTS_COMMENTS nvarchar(50) NULL,
+    CUST_HUNT_IND nvarchar(50) NULL,
+    CUST_HUNT_PRIORITY nvarchar(50) NULL,
+    CUST_PP_PM_IND int NULL,
+    CUST_PP_PM_ID int NULL,
+    CUST_PP_PM_DESC nvarchar(25) NULL,
+    ECOM_CODE nvarchar(25) NULL,
+    CUST_MIN_BAL_IND int NULL,
+    CUST_FORBID_ACC_CLS_FLG int NULL,
+    CUST_RISK_BATCH_CODE int NULL,
+    CUST_RISK_MANUAL_CODE int NULL,
+    CUST_RISK_BATCH_PRV_CODE nvarchar(25) NULL,
+    CUST_RISK_MANUAL_PRV_CODE nvarchar(25) NULL,
+    CUST_CLOSING_FLG int NULL,
+    CUST_REOPENING_DATE nvarchar(25) NULL,
+    CUST_INC_DATA_FLG nvarchar(25) NULL,
+    CUST_PP_PM_IND_2 int NULL,
+    CUST_PP_PM_ID_2 nvarchar(25) NULL,
+    CUST_PP_PM_REL_2 nvarchar(25) NULL,
+    CUST_PP_PM_PURPOSE_2 nvarchar(25) NULL,
+    CUST_PP_PM_RFRL_ID nvarchar(25) NULL,
+    RFRL_CODE nvarchar(25) NULL,
+    CUST_PP_PM_DESC_2 nvarchar(25) NULL,
+    CUST_PP_PM_PURPOSE nvarchar(25) NULL,
+    CUST_PP_PM_REL nvarchar(25) NULL,
+    CRIF_CODE int NULL,
+    CSCS_CODE int NULL,
+    CAOF_CODE_1 int NULL,
+    CUST_LAST_MODIFICATION_USER nvarchar(25) NULL,
+    CUST_OTHER_NAT int NULL,
+    CUST_FORBID_PRCH_CHECKS_FLG int NULL,
+    CUST_FINGERPRINT nvarchar(25) NULL,
+    CUST_BLK_IND nvarchar(25) NULL,
+    CUST_FTCL_CODE int NULL,
+    CUST_FTCS_CODE nvarchar(25) NULL,
+    CUST_SUBJ_FTC_IND int NULL,
+    CUST_TEXT1 nvarchar(25) NULL,
+    CUST_BLCK_LISTED_IND nvarchar(25) NULL,
+    CUST_ACC_OPENING_IND nvarchar(25) NULL,
+    CUST_BLCK_LISTED_PERS_ID nvarchar(25) NULL,
+    CUST_BLCK_LISTED_PERS_TYPE int NULL,
+    CUST_LAST_CCLS_DATE nvarchar(25) NULL,
+    CUST_LCTY_CODE nvarchar(25) NULL,
+    CDCP_CODE nvarchar(25) NULL,
+    CUST_PP_PM_IND_1 int NULL,
+    CRIR_CODE nvarchar(25) NULL,
+    CUST_CRSC_CODE nvarchar(25) NULL,
+    CUST_GPI int NULL,
+    CUST_AML_PROFILE nvarchar(25) NULL,
+    CUST_CHECK_STRIKE_FLG int NULL,
+    CUST_CHECK_STRIKE_STOP_DATE nvarchar(25) NULL,
+    CUST_CHECK_STRIKE_EXPIRY_DATE nvarchar(25) NULL,
+    CUST_RESD_CTRY_CODE nvarchar(25) NULL,
+    CUST_PARNT_CTRY_CODE nvarchar(25) NULL,
+    CUST_INTER_RISK_CTRY_CODE nvarchar(25) NULL,
+    CCLR_CODE nvarchar(25) NULL,
+    CUST_BLOCK_ACC_OPN_FLG int NULL,
+    CUST_AML_RISK_IND nvarchar(25) NULL,
+    CUST_TAX_FROM_DATE nvarchar(25) NULL,
+    CUST_TAX_TO_DATE nvarchar(25) NULL,
+    CUST_VERSION nvarchar(25) NULL,
+    CUST_RLEV_CODE int NULL,
+    CUST_FULL_KYC_FLG int NULL,
+    CUST_NXT_REVIEW_DATE nvarchar(25) NULL,
+    CUST_RISK_NEXT_REVIEW_DATE datetime NULL,
+    CUST_LST_REVIEW_DATE datetime NULL,
+    CUST_INPUT_DATE nvarchar(25) NULL,
+    CUST_INPUT_USER nvarchar(25) NULL,
+    CUST_VALD_DATE datetime NULL,
+    CUST_VALD_USER nvarchar(25) NULL,
+    CUST_VERSION_DATE datetime NULL,
+    CUST_B_LONG_NAME nvarchar(25) NULL,
+    CUST_S_LONG_NAME nvarchar(25) NULL
 );
 GO
 
 -- ============================================================================
--- SUMMARY - PART 1 (NEW BATCH)
+-- SUMMARY - PART 2
 -- ============================================================================
--- Total tables created: 20
--- New tables in this batch: 4 (BRANCHES, COMMISSION_TYPES, COMPANY_RATING, COUNTRIES)
+-- Total tables created: 32
+-- Composite primary keys: 3 tables
+--   - t_BBSC_POSTAL_ZONE_EXTS (PZON_CODE, PZEX_CODE)
+--   - t_BBSC_REQUIRED_DOCUMENTS (DCMT_CODE, CNAT_CODE)
+--   - t_BBSC_SUB_LOCALITIES (LCTY_CODE, SLTY_CODE)
+-- Special primary keys:
+--   - t_BBSC_TELLERS: String PK (UDEF_CODE nvarchar)
+--   - t_BBSD_CBKBALS: DateTime PK (BDATE datetime) with 210 columns
+-- Large tables:
+--   - t_BBSD_CUSTOMERS: 138 columns
 -- All tables use t_ prefix
 -- All PRIMARY KEY columns: NOT NULL
 -- All other columns: NULL allowed
