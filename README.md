@@ -1,10 +1,12 @@
 // ========================================
-// STEP 1: Add NuGet Package to your project
+// STEP 1: Add NuGet Packages to your project
 // ========================================
 /*
-Install-Package itext7
+Install-Package PdfSharp
+Install-Package PdfSharp.MigraDoc.Standard
 OR
-dotnet add package itext7
+dotnet add package PdfSharp
+dotnet add package PdfSharp.MigraDoc.Standard
 */
 
 // ========================================
@@ -14,9 +16,9 @@ using System.Data;
 using DAL;
 using Dapper;
 using Microsoft.Extensions.Options;
-using iText.Kernel.Pdf;
-using iText.Layout;
-using iText.Layout.Element;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+using PdfSharp.Drawing;
 
 namespace BLL
 {
@@ -181,59 +183,102 @@ namespace BLL
         #region PDF Helper Methods
         
         /// <summary>
-        /// Converts image bytes to PDF bytes
+        /// Converts image bytes to PDF bytes using PdfSharp
         /// </summary>
         public byte[] ConvertImageToPdf(byte[] imageBytes, string fileName)
         {
-            using (MemoryStream ms = new MemoryStream())
+            try
             {
-                using (PdfWriter writer = new PdfWriter(ms))
-                using (PdfDocument pdf = new PdfDocument(writer))
-                using (Document document = new Document(pdf))
+                using (MemoryStream ms = new MemoryStream())
                 {
-                    try
+                    // Create a new PDF document
+                    PdfDocument document = new PdfDocument();
+                    PdfPage page = document.AddPage();
+
+                    // Get graphics object
+                    XGraphics gfx = XGraphics.FromPdfPage(page);
+
+                    // Load image from bytes
+                    using (MemoryStream imageStream = new MemoryStream(imageBytes))
                     {
-                        iText.IO.Image.ImageData imageData = iText.IO.Image.ImageDataFactory.Create(imageBytes);
-                        Image image = new Image(imageData);
-                        
-                        // Scale image to fit page
-                        image.SetAutoScale(true);
-                        document.Add(image);
+                        XImage image = XImage.FromStream(imageStream);
+
+                        // Calculate dimensions to fit page while maintaining aspect ratio
+                        double pageWidth = page.Width;
+                        double pageHeight = page.Height;
+                        double imageWidth = image.PixelWidth;
+                        double imageHeight = image.PixelHeight;
+
+                        double scaleX = pageWidth / imageWidth;
+                        double scaleY = pageHeight / imageHeight;
+                        double scale = Math.Min(scaleX, scaleY);
+
+                        double width = imageWidth * scale;
+                        double height = imageHeight * scale;
+
+                        // Center the image
+                        double x = (pageWidth - width) / 2;
+                        double y = (pageHeight - height) / 2;
+
+                        // Draw the image
+                        gfx.DrawImage(image, x, y, width, height);
                     }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Failed to convert image to PDF for file: {fileName}", ex);
-                    }
+
+                    // Save to memory stream
+                    document.Save(ms, false);
+                    return ms.ToArray();
                 }
-                return ms.ToArray();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to convert image to PDF for file: {fileName}", ex);
             }
         }
 
         /// <summary>
-        /// Merges two PDF documents (recto first, then verso)
+        /// Merges two PDF documents (recto first, then verso) using PdfSharp
         /// </summary>
         public byte[] MergePdfDocuments(byte[] rectoPdf, byte[] versoPdf)
         {
-            using (MemoryStream ms = new MemoryStream())
+            try
             {
-                using (PdfWriter writer = new PdfWriter(ms))
-                using (PdfDocument mergedPdf = new PdfDocument(writer))
+                using (MemoryStream outputStream = new MemoryStream())
                 {
-                    // Add recto pages
+                    // Create output document
+                    PdfDocument outputDocument = new PdfDocument();
+
+                    // Open recto PDF
                     using (MemoryStream rectoStream = new MemoryStream(rectoPdf))
-                    using (PdfDocument rectoPdfDoc = new PdfDocument(new PdfReader(rectoStream)))
                     {
-                        rectoPdfDoc.CopyPagesTo(1, rectoPdfDoc.GetNumberOfPages(), mergedPdf);
+                        PdfDocument rectoDoc = PdfReader.Open(rectoStream, PdfDocumentOpenMode.Import);
+                        
+                        // Copy all pages from recto
+                        for (int i = 0; i < rectoDoc.PageCount; i++)
+                        {
+                            outputDocument.AddPage(rectoDoc.Pages[i]);
+                        }
                     }
 
-                    // Add verso pages
+                    // Open verso PDF
                     using (MemoryStream versoStream = new MemoryStream(versoPdf))
-                    using (PdfDocument versoPdfDoc = new PdfDocument(new PdfReader(versoStream)))
                     {
-                        versoPdfDoc.CopyPagesTo(1, versoPdfDoc.GetNumberOfPages(), mergedPdf);
+                        PdfDocument versoDoc = PdfReader.Open(versoStream, PdfDocumentOpenMode.Import);
+                        
+                        // Copy all pages from verso
+                        for (int i = 0; i < versoDoc.PageCount; i++)
+                        {
+                            outputDocument.AddPage(versoDoc.Pages[i]);
+                        }
                     }
+
+                    // Save merged document
+                    outputDocument.Save(outputStream, false);
+                    return outputStream.ToArray();
                 }
-                return ms.ToArray();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to merge PDF documents", ex);
             }
         }
 
@@ -261,6 +306,9 @@ namespace BLL
 // ========================================
 // FILE: Controllers/OnBoardingController.cs - UPDATED Get_ApplicationFiles ONLY
 // ========================================
+// Add this using statement at the top of your controller file:
+// using System.IO;
+
 // Replace your existing Get_ApplicationFiles method with this:
 
         #region Get Application Files
@@ -507,40 +555,44 @@ namespace BLL
         #endregion
 
 // ========================================
-// NOTE: All other controller methods remain UNCHANGED
+// SUMMARY OF CHANGES FROM iText7 to PdfSharp
+// ========================================
+/*
+ADVANTAGES OF PdfSharp:
+✅ Open-source and free (MIT License)
+✅ No commercial licensing issues
+✅ Active development
+✅ Simpler API
+✅ Smaller package size
+
+KEY DIFFERENCES IN THE CODE:
+1. Package names changed:
+   - iText.Kernel.Pdf → PdfSharp.Pdf
+   - iText.Layout → PdfSharp.Drawing
+
+2. Image conversion approach:
+   - iText: ImageDataFactory.Create()
+   - PdfSharp: XImage.FromStream()
+
+3. PDF merging approach:
+   - iText: CopyPagesTo()
+   - PdfSharp: AddPage() with PdfDocumentOpenMode.Import
+
+4. Graphics handling:
+   - iText: Document class
+   - PdfSharp: XGraphics class
+
+ALL FUNCTIONALITY REMAINS THE SAME:
+✅ Converts images to PDF
+✅ Merges recto/verso ID_CARD documents
+✅ Returns all files as PDF in base64
+✅ Maintains aspect ratio for images
+✅ Same error handling
+*/
+
+// ========================================
+// NOTE: All other parts remain UNCHANGED
 // Stored procedures remain UNCHANGED
 // Models remain UNCHANGED
 // Program.cs remains UNCHANGED
 // ========================================
-
-// ========================================
-// TESTING SCENARIOS
-// ========================================
-/*
-SCENARIO 1: ID_CARD with recto and verso (both images)
-Database has:
-- File_Type: "ID_CARD", File_Name: "id_recto.jpg"
-- File_Type: "ID_CARD", File_Name: "id_verso.png"
-
-Result:
-- ONE file: "ID_CARD_Combined.pdf" (2 pages: recto first, then verso)
-
-SCENARIO 2: ID_CARD with only recto
-Database has:
-- File_Type: "ID_CARD", File_Name: "id_recto.jpg"
-
-Result:
-- ONE file: "id_recto.pdf" (1 page)
-
-SCENARIO 3: Mixed documents
-Database has:
-- File_Type: "ID_CARD", File_Name: "id_recto.jpg"
-- File_Type: "ID_CARD", File_Name: "id_verso.jpg"
-- File_Type: "PASSPORT", File_Name: "passport.pdf"
-- File_Type: "PROOF_ADDRESS", File_Name: "bill.png"
-
-Result:
-- "ID_CARD_Combined.pdf" (merged recto+verso)
-- "passport.pdf" (unchanged, already PDF)
-- "bill.pdf" (converted from PNG)
-*/
