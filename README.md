@@ -1,223 +1,215 @@
-/****** Object:  StoredProcedure [dbo].[usp_Update_File_Import_Content_Alfa_Msisdn]    Script Date: 14/01/2026 ******/
+I'll create a complete API to get file imports with flexible filtering.
+1. SQL Stored Procedure
+sql/****** Object:  StoredProcedure [dbo].[usp_Get_File_Import_By_Where]    Script Date: 16/01/2026 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER PROCEDURE [dbo].[usp_Update_File_Import_Content_Alfa_Msisdn]
-    @P__Id BIGINT,
-    @P__MsisdnPrimaryContact NVARCHAR(255),
-    @P__User NVARCHAR(255),
+CREATE PROCEDURE [dbo].[usp_Get_File_Import_By_Where]
+    @P__FromDate DATETIME2(0) = NULL,
+    @P__ToDate DATETIME2(0) = NULL,
+    @P__StatusCode NVARCHAR(50) = NULL,
     @P__Error NVARCHAR(4000) OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @CurrentDate DATETIME2(0) = GETDATE();
-    DECLARE @TrimmedMsisdn NVARCHAR(255);
-    DECLARE @FileImportId BIGINT;
-    DECLARE @StatusCode NVARCHAR(50);
+    DECLARE @StartOfToday DATETIME2(0);
+    DECLARE @EndOfToday DATETIME2(0);
 
     SET @P__Error = '';
-    SET @TrimmedMsisdn = LTRIM(RTRIM(@P__MsisdnPrimaryContact));
 
-    -- Check if record exists and get FileImportId
-    IF NOT EXISTS (SELECT 1 FROM [dbo].[t_File_Import_Content_Alfa] WHERE Id = @P__Id)
+    -- Set default dates to today if not provided
+    IF @P__FromDate IS NULL
     BEGIN
-        SET @P__Error = CONCAT('File Import Content with Id ', @P__Id, ' does not exist.');
-        RETURN;
+        SET @StartOfToday = CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0));
+        SET @P__FromDate = @StartOfToday;
     END
 
-    -- Get FileImportId from the content record
-    SELECT @FileImportId = FileImportId 
-    FROM [dbo].[t_File_Import_Content_Alfa] 
-    WHERE Id = @P__Id;
-
-    -- Check the status of the File Import
-    SELECT @StatusCode = StatusCode 
-    FROM [dbo].[t_File_Import] 
-    WHERE Id = @FileImportId;
-
-    -- Prevent editing if status is in the blocked list
-    IF @StatusCode IN ('Completed', 'AwaitingT24FileReturned', 'Discarded')
+    IF @P__ToDate IS NULL
     BEGIN
-        SET @P__Error = CONCAT('Cannot edit MSISDN. The file import status is "', @StatusCode, '" and cannot be modified.');
-        RETURN;
+        SET @EndOfToday = DATEADD(SECOND, -1, DATEADD(DAY, 1, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))));
+        SET @P__ToDate = @EndOfToday;
     END
 
-    -- Validate MSISDN is not empty
-    IF @TrimmedMsisdn IS NULL OR @TrimmedMsisdn = ''
-    BEGIN
-        SET @P__Error = 'MSISDN Primary Contact cannot be empty.';
-        RETURN;
-    END
+    -- Ensure FromDate is start of day (00:00:00)
+    SET @P__FromDate = CAST(CAST(@P__FromDate AS DATE) AS DATETIME2(0));
 
-    -- Validate MSISDN length (exactly 11 characters)
-    IF LEN(@TrimmedMsisdn) != 11
-    BEGIN
-        SET @P__Error = 'MSISDN Primary Contact must be exactly 11 digits.';
-        RETURN;
-    END
+    -- Ensure ToDate is end of day (23:59:59)
+    SET @P__ToDate = DATEADD(SECOND, -1, DATEADD(DAY, 1, CAST(CAST(@P__ToDate AS DATE) AS DATETIME2(0))));
 
-    -- Validate MSISDN contains only digits (0-9)
-    IF @TrimmedMsisdn LIKE '%[^0-9]%'
-    BEGIN
-        SET @P__Error = 'MSISDN Primary Contact must contain only digits (0-9).';
-        RETURN;
-    END
-
-    -- Update only MsisdnPrimaryContact, LastModifiedDate, and LastModifiedBy
-    UPDATE [dbo].[t_File_Import_Content_Alfa]
-    SET 
-        [MsisdnPrimaryContact] = @TrimmedMsisdn,
-        [LastModifiedDate] = @CurrentDate,
-        [LastModifiedBy] = @P__User
-    WHERE Id = @P__Id;
-
-    -- Insert the UPDATED record into audit table (after the update)
-    INSERT INTO [dbo].[t_File_Import_Content_Alfa_Audit]
-    (
-        [Id],
-        [FileImportId],
-        [BankCode],
-        [BankName],
-        [BankBranch],
-        [BankAccountNumber],
-        [CustomerName],
-        [PrimaryAccountNumber],
-        [MsisdnPrimaryContact],
-        [AccountBalance],
-        [InvoiceDate],
-        [AmountPaid],
-        [SayrafaRate],
-        [CreatedDate],
-        [CreatedBy],
-        [LastModifiedDate],
-        [LastModifiedBy]
-    )
+    -- Get file imports based on filters
     SELECT 
-        [Id],
-        [FileImportId],
-        [BankCode],
-        [BankName],
-        [BankBranch],
-        [BankAccountNumber],
-        [CustomerName],
-        [PrimaryAccountNumber],
-        [MsisdnPrimaryContact],
-        [AccountBalance],
-        [InvoiceDate],
-        [AmountPaid],
-        [SayrafaRate],
-        [CreatedDate],
-        [CreatedBy],
-        [LastModifiedDate],
-        [LastModifiedBy]
-    FROM [dbo].[t_File_Import_Content_Alfa]
-    WHERE Id = @P__Id;
+        fi.[Id],
+        fi.[FileId],
+        fi.[AttachmentId],
+        att.[Name],
+        fi.[CurrencyCode],
+        fi.[StatusCode],
+        lk.[Description] AS StatusDescription,
+        fi.[CheckSum],
+        fi.[T24FileCheckSum],
+        fi.[CreatedDate],
+        fi.[CreatedBy],
+        fi.[LastModifiedDate],
+        fi.[LastModifiedBy]
+    FROM [dbo].[t_File_Import] fi
+    INNER JOIN [dbo].[t_Attachment] att 
+        ON fi.AttachmentId = att.Id
+    LEFT JOIN [dbo].[t_Lookup] lk
+        ON lk.Code = fi.StatusCode
+       AND lk.TableName = 'FileImportStatus'
+       AND lk.IsActive = 1
+    WHERE 
+        fi.[LastModifiedDate] >= @P__FromDate
+        AND fi.[LastModifiedDate] <= @P__ToDate
+        AND (@P__StatusCode IS NULL OR fi.[StatusCode] = @P__StatusCode)
+    ORDER BY fi.[LastModifiedDate] DESC, fi.[Id] DESC;
 END
 GO
-
-Easy Bal.cs
-------------
-#region UpdateFileImportContentMsisdn
-public async Task UpdateFileImportContentMsisdn(UpdateFileImportContentMsisdnRequest request)
+2. Request Class (Add to Request.cs)
+csharp#region GetFileImportByWhereRequest
+public class GetFileImportByWhereRequest
 {
-    // Validate MSISDN - will throw on FIRST error only
-    Utils.ValidateMsisdnOrThrow(request.MsisdnPrimaryContact);
-
-    // Let stored procedure handle status validation
-    DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
-
-    DynamicParameters parameters = new DynamicParameters();
-
-    parameters.Add("@P__Id", request.Id);
-    parameters.Add("@P__MsisdnPrimaryContact", request.MsisdnPrimaryContact.Trim());
-    parameters.Add("@P__User", request.BaseReq.UserName);
-    parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
-
-    _ = await dal.ExecuteQueryAsync<dynamic>(
-        "usp_Update_File_Import_Content_Alfa_Msisdn",
-        parameters,
-        CommandType.StoredProcedure,
-        DapperDal.CommandDirection.Update);
-
-    string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
-
-    if (!string.IsNullOrWhiteSpace(storedProcedureErrorMessage))
-    {
-        throw new SGBLBadRequestException(storedProcedureErrorMessage);
-    }
+    public required BaseRequest BaseReq { get; set; }
+    
+    /// <summary>
+    /// Start date filter. If null, defaults to today at 00:00:00
+    /// </summary>
+    public DateTime? FromDate { get; set; }
+    
+    /// <summary>
+    /// End date filter. If null, defaults to today at 23:59:59
+    /// </summary>
+    public DateTime? ToDate { get; set; }
+    
+    /// <summary>
+    /// Status code filter. If null or empty, returns all statuses
+    /// Valid values: AwaitingT24FileUpload, AwaitingT24FileReturned, AwaitingAlfaUpload, Completed, Discarded
+    /// </summary>
+    public string? StatusCode { get; set; }
 }
 #endregion
-
---------------------------
---------------------------
-#region UpdateFileImportContentMsisdn
-public async Task UpdateFileImportContentMsisdn(UpdateFileImportContentMsisdnRequest request)
+3. Response Class (Add to Response.cs)
+csharp#region GetFileImportByWhereResponse
+public class GetFileImportByWhereResponse
 {
-    // Validate MSISDN - will throw on FIRST error only
-    Utils.ValidateMsisdnOrThrow(request.MsisdnPrimaryContact);
-
-    // Check status before attempting update
-    await ValidateFileImportStatusForEdit(request.Id);
-
-    // If we reach here, validation passed
-    DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
-
-    DynamicParameters parameters = new DynamicParameters();
-
-    parameters.Add("@P__Id", request.Id);
-    parameters.Add("@P__MsisdnPrimaryContact", request.MsisdnPrimaryContact.Trim());
-    parameters.Add("@P__User", request.BaseReq.UserName);
-    parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
-
-    _ = await dal.ExecuteQueryAsync<dynamic>(
-        "usp_Update_File_Import_Content_Alfa_Msisdn",
-        parameters,
-        CommandType.StoredProcedure,
-        DapperDal.CommandDirection.Update);
-
-    string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
-
-    if (!string.IsNullOrWhiteSpace(storedProcedureErrorMessage))
-    {
-        throw new SGBLBadRequestException(storedProcedureErrorMessage);
-    }
+    public BaseResponse BaseResp { get; set; } = new BaseResponse();
+    public GetFileImportByWhereRequest Req { get; set; }
+    public List<FileImport> FileImportList { get; set; } = [];
+    public int TotalRecords { get; set; }
 }
 #endregion
-
-#region ValidateFileImportStatusForEdit
-private async Task ValidateFileImportStatusForEdit(long fileImportContentId)
+4. BAL Method (Add to Bal.cs)
+csharp#region GetFileImportByWhere
+public async Task<GetFileImportByWhereResponse> GetFileImportByWhere(GetFileImportByWhereRequest request)
 {
     DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
 
     DynamicParameters parameters = new DynamicParameters();
 
-    parameters.Add("@P__FileImportContentId", fileImportContentId);
+    // Pass null if not provided, stored procedure will handle defaults
+    parameters.Add("@P__FromDate", request.FromDate);
+    parameters.Add("@P__ToDate", request.ToDate);
+    parameters.Add("@P__StatusCode", string.IsNullOrWhiteSpace(request.StatusCode) ? null : request.StatusCode.Trim());
+    parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
 
-    string query = @"
-        SELECT fi.StatusCode 
-        FROM t_File_Import fi
-        INNER JOIN t_File_Import_Content_Alfa fica ON fi.Id = fica.FileImportId
-        WHERE fica.Id = @P__FileImportContentId";
-
-    IEnumerable<string> result = await dal.ExecuteQueryAsync<string>(
-        query,
+    IEnumerable<FileImport> response = await dal.ExecuteQueryAsync<FileImport>(
+        "usp_Get_File_Import_By_Where",
         parameters,
-        CommandType.Text,
+        CommandType.StoredProcedure,
         DapperDal.CommandDirection.Select);
 
-    string? statusCode = result.FirstOrDefault();
+    string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
 
-    if (statusCode == null)
+    if (!string.IsNullOrEmpty(storedProcedureErrorMessage))
     {
-        throw new SGBLBadRequestException("File Import Content record not found.");
+        throw new SGBLBadRequestException(storedProcedureErrorMessage);
     }
 
-    if (statusCode.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+    List<FileImport> fileImportList = response.ToList();
+
+    return new GetFileImportByWhereResponse
     {
-        throw new SGBLBadRequestException("Cannot edit MSISDN. The file import status is Completed and cannot be modified.");
+        Req = request,
+        FileImportList = fileImportList,
+        TotalRecords = fileImportList.Count
+    };
+}
+#endregion
+5. Controller Method (Add to TelecomController.cs)
+csharp#region GetFileImportByWhere
+[HttpPost]
+[Route("GetFileImportByWhere")]
+public async Task<GetFileImportByWhereResponse> GetFileImportByWhere(GetFileImportByWhereRequest request)
+{
+    GetFileImportByWhereResponse response = new GetFileImportByWhereResponse()
+    {
+        Req = request,
+        BaseResp = new BaseResponse()
+        {
+            CorrelationId = request.BaseReq.CorrelationId,
+            ReturnCode = _responseCodesDictionary["200"].Content,
+            ReturnDescription = _responseCodesDictionary["200"].Description
+        }
+    };
+
+    CorrelationInfo correlationInfo = new CorrelationInfo()
+    {
+        CorrelationId = request.BaseReq.CorrelationId,
+        RDirection = RequestDirection.Request,
+        RequestURL = "GetFileImportByWhere",
+        UserName = request.BaseReq.UserName
+    };
+
+    try
+    {
+        correlationInfo.Reserved = "GetFileImportByWhere has been called with the following Request";
+        LogInfoJson(request, correlationInfo);
+
+        response = await _bal.GetFileImportByWhere(request);
+
+        // Set BaseResp after getting data from BAL
+        response.BaseResp = new BaseResponse()
+        {
+            CorrelationId = request.BaseReq.CorrelationId,
+            ReturnCode = _responseCodesDictionary["200"].Content,
+            ReturnDescription = _responseCodesDictionary["200"].Description
+        };
+
+        correlationInfo.RDirection = RequestDirection.Response;
+        correlationInfo.Reserved = $"GetFileImportByWhere replied with {response.TotalRecords} records";
+        LogInfoJson(response, correlationInfo);
+
+        return response;
+    }
+    catch (SGBLBadRequestException ex)
+    {
+        StringBuilder sb = new(_responseCodesDictionary["400"].Description);
+        sb.Replace("{0}", ex.Message);
+
+        response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
+        response.BaseResp.ReturnCode = _responseCodesDictionary["400"].Content;
+        response.BaseResp.ReturnDescription = sb.ToString();
+        correlationInfo.RDirection = RequestDirection.Response;
+        correlationInfo.Reserved = ex.Message;
+        LogErrorJson(response, correlationInfo, ex);
+
+        return response;
+    }
+    catch (Exception ex)
+    {
+        StringBuilder sb = new(_responseCodesDictionary["500"].Description);
+        sb.Replace("{0}", ex.Message);
+
+        response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
+        response.BaseResp.ReturnCode = _responseCodesDictionary["500"].Content;
+        response.BaseResp.ReturnDescription = sb.ToString();
+        correlationInfo.RDirection = RequestDirection.Response;
+        correlationInfo.Reserved = ex.Message;
+        LogErrorJson(response, correlationInfo, ex);
+
+        return response;
     }
 }
 #endregion
-
