@@ -1,215 +1,152 @@
-I'll create a complete API to get file imports with flexible filtering.
-1. SQL Stored Procedure
-sql/****** Object:  StoredProcedure [dbo].[usp_Get_File_Import_By_Where]    Script Date: 16/01/2026 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE PROCEDURE [dbo].[usp_Get_File_Import_By_Where]
-    @P__FromDate DATETIME2(0) = NULL,
-    @P__ToDate DATETIME2(0) = NULL,
-    @P__StatusCode NVARCHAR(50) = NULL,
-    @P__Error NVARCHAR(4000) OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
+        #region UpdateFileImportDetails
 
-    DECLARE @StartOfToday DATETIME2(0);
-    DECLARE @EndOfToday DATETIME2(0);
-
-    SET @P__Error = '';
-
-    -- Set default dates to today if not provided
-    IF @P__FromDate IS NULL
-    BEGIN
-        SET @StartOfToday = CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0));
-        SET @P__FromDate = @StartOfToday;
-    END
-
-    IF @P__ToDate IS NULL
-    BEGIN
-        SET @EndOfToday = DATEADD(SECOND, -1, DATEADD(DAY, 1, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))));
-        SET @P__ToDate = @EndOfToday;
-    END
-
-    -- Ensure FromDate is start of day (00:00:00)
-    SET @P__FromDate = CAST(CAST(@P__FromDate AS DATE) AS DATETIME2(0));
-
-    -- Ensure ToDate is end of day (23:59:59)
-    SET @P__ToDate = DATEADD(SECOND, -1, DATEADD(DAY, 1, CAST(CAST(@P__ToDate AS DATE) AS DATETIME2(0))));
-
-    -- Get file imports based on filters
-    SELECT 
-        fi.[Id],
-        fi.[FileId],
-        fi.[AttachmentId],
-        att.[Name],
-        fi.[CurrencyCode],
-        fi.[StatusCode],
-        lk.[Description] AS StatusDescription,
-        fi.[CheckSum],
-        fi.[T24FileCheckSum],
-        fi.[CreatedDate],
-        fi.[CreatedBy],
-        fi.[LastModifiedDate],
-        fi.[LastModifiedBy]
-    FROM [dbo].[t_File_Import] fi
-    INNER JOIN [dbo].[t_Attachment] att 
-        ON fi.AttachmentId = att.Id
-    LEFT JOIN [dbo].[t_Lookup] lk
-        ON lk.Code = fi.StatusCode
-       AND lk.TableName = 'FileImportStatus'
-       AND lk.IsActive = 1
-    WHERE 
-        fi.[LastModifiedDate] >= @P__FromDate
-        AND fi.[LastModifiedDate] <= @P__ToDate
-        AND (@P__StatusCode IS NULL OR fi.[StatusCode] = @P__StatusCode)
-    ORDER BY fi.[LastModifiedDate] DESC, fi.[Id] DESC;
-END
-GO
-2. Request Class (Add to Request.cs)
-csharp#region GetFileImportByWhereRequest
-public class GetFileImportByWhereRequest
-{
-    public required BaseRequest BaseReq { get; set; }
-    
-    /// <summary>
-    /// Start date filter. If null, defaults to today at 00:00:00
-    /// </summary>
-    public DateTime? FromDate { get; set; }
-    
-    /// <summary>
-    /// End date filter. If null, defaults to today at 23:59:59
-    /// </summary>
-    public DateTime? ToDate { get; set; }
-    
-    /// <summary>
-    /// Status code filter. If null or empty, returns all statuses
-    /// Valid values: AwaitingT24FileUpload, AwaitingT24FileReturned, AwaitingAlfaUpload, Completed, Discarded
-    /// </summary>
-    public string? StatusCode { get; set; }
-}
-#endregion
-3. Response Class (Add to Response.cs)
-csharp#region GetFileImportByWhereResponse
-public class GetFileImportByWhereResponse
-{
-    public BaseResponse BaseResp { get; set; } = new BaseResponse();
-    public GetFileImportByWhereRequest Req { get; set; }
-    public List<FileImport> FileImportList { get; set; } = [];
-    public int TotalRecords { get; set; }
-}
-#endregion
-4. BAL Method (Add to Bal.cs)
-csharp#region GetFileImportByWhere
-public async Task<GetFileImportByWhereResponse> GetFileImportByWhere(GetFileImportByWhereRequest request)
-{
-    DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
-
-    DynamicParameters parameters = new DynamicParameters();
-
-    // Pass null if not provided, stored procedure will handle defaults
-    parameters.Add("@P__FromDate", request.FromDate);
-    parameters.Add("@P__ToDate", request.ToDate);
-    parameters.Add("@P__StatusCode", string.IsNullOrWhiteSpace(request.StatusCode) ? null : request.StatusCode.Trim());
-    parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
-
-    IEnumerable<FileImport> response = await dal.ExecuteQueryAsync<FileImport>(
-        "usp_Get_File_Import_By_Where",
-        parameters,
-        CommandType.StoredProcedure,
-        DapperDal.CommandDirection.Select);
-
-    string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
-
-    if (!string.IsNullOrEmpty(storedProcedureErrorMessage))
-    {
-        throw new SGBLBadRequestException(storedProcedureErrorMessage);
-    }
-
-    List<FileImport> fileImportList = response.ToList();
-
-    return new GetFileImportByWhereResponse
-    {
-        Req = request,
-        FileImportList = fileImportList,
-        TotalRecords = fileImportList.Count
-    };
-}
-#endregion
-5. Controller Method (Add to TelecomController.cs)
-csharp#region GetFileImportByWhere
-[HttpPost]
-[Route("GetFileImportByWhere")]
-public async Task<GetFileImportByWhereResponse> GetFileImportByWhere(GetFileImportByWhereRequest request)
-{
-    GetFileImportByWhereResponse response = new GetFileImportByWhereResponse()
-    {
-        Req = request,
-        BaseResp = new BaseResponse()
+        public async Task UpdateFileImportDetails(UpdateFileImportDetailsRequest request)
         {
-            CorrelationId = request.BaseReq.CorrelationId,
-            ReturnCode = _responseCodesDictionary["200"].Content,
-            ReturnDescription = _responseCodesDictionary["200"].Description
+            DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
+            DynamicParameters parameters = new DynamicParameters();
+
+            parameters.Add("@P__Id", request.Id);
+            parameters.Add("@P__StatusCode", request.StatusCode);
+            parameters.Add("@P__T24FileCheckSum", request.T24FileCheckSum);
+            parameters.Add("@P__User", request.T24FileCheckSum);
+            parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
+
+            _ = await dal.ExecuteQueryAsync<dynamic>(
+                "usp_Update_File_Import_Details",
+                parameters,
+                CommandType.StoredProcedure,
+                DapperDal.CommandDirection.Update);
+
+            string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
+            if (!string.IsNullOrEmpty(storedProcedureErrorMessage))
+            {
+                throw new SGBLBadRequestException(storedProcedureErrorMessage);
+            }
         }
-    };
 
-    CorrelationInfo correlationInfo = new CorrelationInfo()
-    {
-        CorrelationId = request.BaseReq.CorrelationId,
-        RDirection = RequestDirection.Request,
-        RequestURL = "GetFileImportByWhere",
-        UserName = request.BaseReq.UserName
-    };
+        #endregion
 
-    try
-    {
-        correlationInfo.Reserved = "GetFileImportByWhere has been called with the following Request";
-        LogInfoJson(request, correlationInfo);
+        #region GenerateAndUploadT24FileViaFtp
 
-        response = await _bal.GetFileImportByWhere(request);
-
-        // Set BaseResp after getting data from BAL
-        response.BaseResp = new BaseResponse()
+        public async Task<GenerateAndUploadT24FileViaFtpResponse> GenerateAndUploadT24FileViaFtp(
+            GenerateAndUploadT24FileViaFtpRequest request)
         {
-            CorrelationId = request.BaseReq.CorrelationId,
-            ReturnCode = _responseCodesDictionary["200"].Content,
-            ReturnDescription = _responseCodesDictionary["200"].Description
-        };
+            GenerateAndUploadT24FileViaFtpResponse response = new GenerateAndUploadT24FileViaFtpResponse()
+            {
+                Req = request,
+            };
 
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = $"GetFileImportByWhere replied with {response.TotalRecords} records";
-        LogInfoJson(response, correlationInfo);
+            GetFileImportContentByFileImportIdRequest getFileImportContentByFileImportIdRequest = new()
+            {
+                BaseReq = request.BaseReq,
+                FileImportId = request.FileImportId
+            };
 
-        return response;
-    }
-    catch (SGBLBadRequestException ex)
-    {
-        StringBuilder sb = new(_responseCodesDictionary["400"].Description);
-        sb.Replace("{0}", ex.Message);
+            List<AlfaFileImportContent> fileImportContent =
+                await GetFileImportContentByFileImportId(getFileImportContentByFileImportIdRequest);
 
-        response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
-        response.BaseResp.ReturnCode = _responseCodesDictionary["400"].Content;
-        response.BaseResp.ReturnDescription = sb.ToString();
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = ex.Message;
-        LogErrorJson(response, correlationInfo, ex);
+            if (fileImportContent.Count == 0)
+            {
+                throw new SGBLBadRequestException("Cannot Generate T24 File For a File That Does Not Have Content!");
+            }
 
-        return response;
-    }
-    catch (Exception ex)
-    {
-        StringBuilder sb = new(_responseCodesDictionary["500"].Description);
-        sb.Replace("{0}", ex.Message);
+            String fileName = $"{Utils.GetJulianDate()}-{Utils.GetPaddedSeconds()}_ALFA.txt";
+            ;
+            // String totalFileName = $"total_alfa_TSAL.txt";
 
-        response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
-        response.BaseResp.ReturnCode = _responseCodesDictionary["500"].Content;
-        response.BaseResp.ReturnDescription = sb.ToString();
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = ex.Message;
-        LogErrorJson(response, correlationInfo, ex);
+            // Mapping FileImportContent Records to T24 File Fields
+            List<Dictionary<String, String>> bodyRecords = GetAlfaT24FileContentRecords(fileImportContent);
 
-        return response;
-    }
-}
-#endregion
+            // Generate checksum for data before generating the t24 file
+            string t24Checksum = Utils.GetObjectChecksum(bodyRecords);
+
+            // Calling the Data Export API to Generate the actual T24 file
+            String dataExportGenerateFileContentUrl = $"{_globalSettings.DataExportUrl}/GenerateAndUploadFileViaFtp";
+
+            DataExportGenerateAndUploadFileViaFtpRequest dataExportGenerateFileContentRequest = new()
+            {
+                CorrelationId = request.BaseReq.CorrelationId,
+                FileCode = _globalSettings.GenerateT24FileCode,
+                FileName = fileName,
+                FilePath = _globalSettings.FtpConfigurations.AlfaFtpConfig.RemotePath,
+                BodyRecords = bodyRecords
+            };
+
+            DataExportGenerateFileContentResponse responseData =
+                await PostAsync<DataExportGenerateFileContentResponse>(dataExportGenerateFileContentRequest,
+                    dataExportGenerateFileContentUrl);
+
+            if (responseData is not { WebResp.StatusCode: HttpStatusCode.OK })
+            {
+                throw new SGBLBadRequestException(String.Join(',', responseData.WebResp.Errors));
+            }
+
+            // Update file import status and t24 checksum
+            UpdateFileImportDetailsRequest updateFileImportDetailsRequest = new UpdateFileImportDetailsRequest()
+            {
+                Id = request.FileImportId,
+                BaseReq = request.BaseReq,
+                StatusCode = FileImportStatus.AwaitingT24FileReturned.ToString(),
+                T24FileCheckSum = t24Checksum
+            };
+
+            await UpdateFileImportDetails(updateFileImportDetailsRequest);
+
+            return response;
+        }
+
+        #endregion
+
+        #region UploadAndValidateT24File
+
+        public async Task<UploadAndValidateT24FileResponse> UploadAndValidateT24File(
+            UploadAndValidateT24FileRequest request)
+        {
+            UploadAndValidateT24FileResponse response = new UploadAndValidateT24FileResponse()
+            {
+                Req = request
+            };
+
+            string dataExportValidateFileUrl = $"{_globalSettings.DataExportUrl}/ValidateFile";
+
+            if (request.T24File == null || request.T24File.Length == 0)
+            {
+                throw new SGBLBadRequestException("Invalid t24 file");
+            }
+
+            //get the file configurations
+            Common.Model.File fileConfig = await GetFileConfigurationByCode(nameof(FileConfigCodes.AlfaT24Config));
+
+            Common.Dto.FileInfo dataExportFileInfo = fileConfig.ToFileInfoDto();
+
+            // Read data from TEXT using data export
+            byte[] fileBytes = await Utils.ToByteArrayAsync(request.T24File);
+
+            string hex = Utils.ByteArrayToHexString(fileBytes);
+
+            dataExportFileInfo.FileBinary = hex;
+
+            DataExportValidateFileRequest dataExportValidateFileRequest = new()
+            {
+                CorrelationId = request.BaseReq.CorrelationId,
+                FileInfo = dataExportFileInfo,
+                FileCode = _globalSettings.GenerateT24FileCode,
+                FieldNames = fileConfig.FileColumns!.Select(x => x.ColTypeCode).ToList()
+            };
+
+            DataExportValidateFileResponse responseData = await PostAsync<DataExportValidateFileResponse>(dataExportValidateFileRequest, dataExportValidateFileUrl);
+
+            if (responseData is not { WebResp.StatusCode: HttpStatusCode.OK })
+            {
+                throw new SGBLBadGateWayException(string.Join(Environment.NewLine, responseData.WebResp.Errors));
+            }
+
+            GetAlfaT24ClientsFromParsedDataResponse t24ParsedData = GetAlfaT24ClientsFromParsedData(responseData.ParsedDataList, fileConfig);
+
+            // Generate checksum for data before generating the t24 file
+            string t24Checksum = Utils.GetObjectChecksum(t24ParsedData.t24NormalizedData);
+
+            return response;
+        }
+
+        #endregion
