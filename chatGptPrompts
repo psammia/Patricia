@@ -1,63 +1,246 @@
-I'll convert the entire API to use ClosedXML, which is completely free and open-source.
-1. SQL Stored Procedure (Same as before)
-sql/****** Object:  StoredProcedure [dbo].[usp_Get_File_Import_Content_Alfa_For_Export]    Script Date: 14/01/2026 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE PROCEDURE [dbo].[usp_Get_File_Import_Content_Alfa_For_Export]
-    @P__FileImportId BIGINT,
-    @P__Error NVARCHAR(4000) OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    SET @P__Error = '';
-
-    -- Check if FileImport exists
-    IF NOT EXISTS (SELECT 1 FROM [dbo].[t_File_Import] WHERE Id = @P__FileImportId)
-    BEGIN
-        SET @P__Error = CONCAT('File Import with Id ', @P__FileImportId, ' does not exist.');
-        RETURN;
-    END
-
-    -- Get all data except the last 4 audit fields
-    SELECT
-        [BankCode],
-        [BankName],
-        [BankBranch],
-        [BankAccountNumber],
-        [CustomerName],
-        [PrimaryAccountNumber],
-        [MsisdnPrimaryContact],
-        [AccountBalance],
-        [InvoiceDate],
-        [AmountPaid],
-        [SayrafaRate]
-    FROM [dbo].[t_File_Import_Content_Alfa]
-    WHERE FileImportId = @P__FileImportId
-    ORDER BY Id;
-END
-GO
-2. Install ClosedXML NuGet Package
-bashdotnet add package ClosedXML --version 0.102.2
-Or add to your .csproj:
-xml<PackageReference Include="ClosedXML" Version="0.102.2" />
-3. Request Class (Add to Request.cs)
-csharp#region ExportFileImportContentToExcelRequest
-public class ExportFileImportContentToExcelRequest
+Changes Needed in Bal.cs
+Add this method after the UploadAndValidateT24File method:
+csharp#region MergeOriginalDataWithT24PaymentDetails
+private List<AlfaClient> MergeOriginalDataWithT24PaymentDetails(
+    List<AlfaFileImportContent> originalData,
+    List<T24File> t24FileRecords)
 {
-    public required BaseRequest BaseReq { get; set; }
-    
-    [Required(ErrorMessage = "FileImportId is required")]
-    public required long FileImportId { get; set; }
+    List<AlfaClient> mergedClients = new List<AlfaClient>();
+
+    // Create a dictionary of T24 data keyed by REFERENCE (MSISDN) for quick lookup
+    Dictionary<string, T24File> t24DataByReference = t24FileRecords.ToDictionary(
+        t24 => t24.REFERENCE.Trim(),
+        t24 => t24
+    );
+
+    foreach (var originalRecord in originalData)
+    {
+        string msisdn = originalRecord.MsisdnPrimaryContact.Trim();
+
+        // Find matching T24 record by REFERENCE (which contains MSISDN)
+        if (!t24DataByReference.TryGetValue(msisdn, out var t24Record))
+        {
+            throw new SGBLBadRequestException(
+                $"MSISDN {msisdn} not found in T24 file. All original records must be present in T24 file.");
+        }
+
+        // Parse AMOUNT from T24 (this is the account balance in T24 format)
+        if (!decimal.TryParse(t24Record.AMOUNT, out decimal amountT24))
+        {
+            throw new SGBLBadRequestException(
+                $"Invalid AMOUNT for MSISDN {msisdn}: {t24Record.AMOUNT}");
+        }
+        decimal amount = amountT24 / 1000;  // Convert from T24 format
+
+        // Determine AmountPaid based on PAYMENT_DETAILS
+        decimal amountPaid;
+        if (string.IsNullOrWhiteSpace(t24Record.PAYMENT_DETAILS))
+        {
+            // If PAYMENT_DETAILS is empty → Use AMOUNT value
+            amountPaid = amount;
+        }
+        else
+        {
+            // If PAYMENT_DETAILS has a value → Parse it
+            if (!decimal.TryParse(t24Record.PAYMENT_DETAILS, out decimal paymentDetailsT24))
+            {
+                throw new SGBLBadRequestException(
+                    $"Invalid PAYMENT_DETAILS for MSISDN {msisdn}: {t24Record.PAYMENT_DETAILS}");
+            }
+            amountPaid = paymentDetailsT24 / 1000;  // Convert from T24 format
+        }
+
+        // Keep original SayrafaRate (T24 file doesn't have this field)
+        decimal sayrafaRate = originalRecord.SayrafaRate ?? 0;
+
+        // Create merged AlfaClient with original data + T24 payment details
+        mergedClients.Add(new AlfaClient
+        {
+            BankCode = originalRecord.BankCode,
+            BankName = originalRecord.BankName,
+            BankBranch = originalRecord.BankBranch,
+            BankAccountNumber = originalRecord.BankAccountNumber,
+            CustomerName = originalRecord.CustomerName,
+            PrimaryAccountNumber = originalRecord.PrimaryAccountNumber,
+            MsisdnPrimaryContact = originalRecord.MsisdnPrimaryContact,
+            AccountBalance = originalRecord.AccountBalance,  // Keep original
+            InvoiceDate = originalRecord.InvoiceDate,        // Keep original
+            AmountPaid = amountPaid,                         // From T24
+            SayrafaRate = sayrafaRate                        // Keep original
+        });
+    }
+
+    return mergedClients;
 }
 #endregion
-4. DTO for Excel Export (Add to Dto.cs)
-csharp#region AlfaClientExport
-public class AlfaClientExport
+
+#region UpdateAlfaClientsUsingStoredProcedure
+private async Task UpdateAlfaClientsUsingStoredProcedure(
+    long fileImportId, 
+    List<AlfaClient> alfaClients, 
+    string userName)
 {
-    public int BankCode { get; set; }
+    if (alfaClients == null || alfaClients.Count == 0)
+    {
+        throw new SGBLBadRequestException("No data provided to update.");
+    }
+
+    DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
+
+    DynamicParameters parameters = new DynamicParameters();
+
+    parameters.Add("@NewFileImportId", fileImportId);
+    parameters.Add("@P__FileImportContentAlfa", GetFileImportContentAlfaDt(alfaClients).AsTableValuedParameter());
+    parameters.Add("@P__User", userName);
+    parameters.Add("@P__Error", direction: ParameterDirection.Output, size: 4000);
+
+    _ = await dal.ExecuteQueryAsync<dynamic>(
+        "usp_Edit_File_Import_Content_Alfa",
+        parameters,
+        CommandType.StoredProcedure,
+        DapperDal.CommandDirection.Update);
+
+    string errorMessage = parameters.Get<string>("@P__Error");
+
+    if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        throw new SGBLBadRequestException(errorMessage);
+    }
+}
+#endregion
+Update the UploadAndValidateT24File Method
+Replace the existing UploadAndValidateT24File method with this complete version:
+csharp#region UploadAndValidateT24File
+
+public async Task<UploadAndValidateT24FileResponse> UploadAndValidateT24File(UploadAndValidateT24FileRequest request)
+{
+    UploadAndValidateT24FileResponse response = new UploadAndValidateT24FileResponse()
+    {
+        Req = request
+    };
+
+    string dataExportValidateFileUrl = $"{_globalSettings.DataExportUrl}/ValidateFile";
+
+    if (request.T24File == null || request.T24File.Length == 0)
+    {
+        throw new SGBLBadRequestException("Invalid T24 file");
+    }
+
+    // Get the T24 file configuration
+    Common.Model.File fileConfig = await GetFileConfigurationByCode(nameof(FileConfigCodes.AlfaT24Config));
+    
+    Common.Dto.FileInfo dataExportFileInfo = fileConfig.ToFileInfoDto();
+
+    // Read data from T24 file
+    byte[] fileBytes = await Utils.ToByteArrayAsync(request.T24File);
+    string hex = Utils.ByteArrayToHexString(fileBytes);
+    dataExportFileInfo.FileBinary = hex;
+
+    DataExportValidateFileRequest dataExportValidateFileRequest = new()
+    {
+        CorrelationId = request.BaseReq.CorrelationId,
+        FileInfo = dataExportFileInfo,
+        FileCode = _globalSettings.GenerateT24FileCode,
+        FieldNames = fileConfig.FileColumns!.Select(x => x.ColTypeCode).ToList()
+    };
+
+    // Validate and parse T24 file
+    DataExportValidateFileResponse responseData = await PostAsync<DataExportValidateFileResponse>(
+        dataExportValidateFileRequest, 
+        dataExportValidateFileUrl);
+
+    if (responseData is not { WebResp.StatusCode: HttpStatusCode.OK })
+    {
+        throw new SGBLBadGateWayException(string.Join(Environment.NewLine, responseData.WebResp.Errors));
+    }
+
+    // Parse T24 file data
+    GetAlfaT24ClientsFromParsedDataResponse t24ParsedData = GetAlfaT24ClientsFromParsedData(
+        responseData.ParsedDataList, 
+        fileConfig);
+
+    // Generate checksum for T24 file content
+    string t24Checksum = Utils.GetObjectChecksum(t24ParsedData.t24NormalizedData);
+
+    // Get original file import content to merge with T24 data
+    GetFileImportContentByFileImportIdRequest getFileImportRequest = new()
+    {
+        BaseReq = request.BaseReq,
+        FileImportId = request.FileImportId
+    };
+
+    List<AlfaFileImportContent> originalFileContent = await GetFileImportContentByFileImportId(getFileImportRequest);
+
+    if (originalFileContent.Count == 0)
+    {
+        throw new SGBLBadRequestException("No original file import content found for this FileImportId.");
+    }
+
+    // Merge original data with T24 payment details
+    List<AlfaClient> updatedAlfaClients = MergeOriginalDataWithT24PaymentDetails(
+        originalFileContent, 
+        t24ParsedData.t24File);
+
+    // Validate record count matches
+    if (updatedAlfaClients.Count != originalFileContent.Count)
+    {
+        throw new SGBLBadRequestException(
+            $"Record count mismatch. Expected {originalFileContent.Count} records but T24 merge resulted in {updatedAlfaClients.Count} records.");
+    }
+
+    // Call stored procedure to update records (UPSERT based on MSISDN)
+    await UpdateAlfaClientsUsingStoredProcedure(
+        request.FileImportId, 
+        updatedAlfaClients, 
+        request.BaseReq.UserName);
+
+    // Update file import status to Completed
+    UpdateFileImportDetailsRequest updateFileImportDetailsRequest = new()
+    {
+        Id = request.FileImportId,
+        BaseReq = request.BaseReq,
+        StatusCode = FileImportStatus.Completed.ToString(),
+        T24FileCheckSum = t24Checksum
+    };
+
+    await UpdateFileImportDetails(updateFileImportDetailsRequest);
+
+    return response;
+}
+
+#endregion
+Update Model.cs
+Change BankCode property in AlfaFileImportContent from string to int:
+csharp#region AlfaFileImportContent
+
+public class AlfaFileImportContent
+{
+    public long Id { get; set; }
+    public long FileImportId { get; set; }
+    public string? FileImportDescription { get; set; }
+    public int BankCode { get; set; }  // Changed from string to int
+    public string BankName { get; set; } = string.Empty;
+    public string BankBranch { get; set; } = string.Empty;
+    public string BankAccountNumber { get; set; } = string.Empty;
+    public string CustomerName { get; set; } = string.Empty;
+    public string PrimaryAccountNumber { get; set; } = string.Empty;
+    public string MsisdnPrimaryContact { get; set; } = string.Empty;
+    public decimal AccountBalance { get; set; }
+    public DateTime InvoiceDate { get; set; }
+    public decimal? AmountPaid { get; set; }
+    public decimal? SayrafaRate { get; set; }
+
+    public DateTime? LastModifiedDate { get; set; }
+    public string? LastModifiedBy { get; set; }
+}
+
+#endregion
+Update Dto.cs
+Change BankCode property in AlfaClient from string to int:
+csharp#region AlfaClient
+public class AlfaClient
+{
+    public int BankCode { get; set; }  // Changed from string to int
     public string BankName { get; set; } = string.Empty;
     public string BankBranch { get; set; } = string.Empty;
     public string BankAccountNumber { get; set; } = string.Empty;
@@ -70,160 +253,50 @@ public class AlfaClientExport
     public decimal? SayrafaRate { get; set; }
 }
 #endregion
-5. BAL Method (Add to Bal.cs)
-csharpusing ClosedXML.Excel;
-
-#region ExportFileImportContentToExcel
-public async Task<(byte[] fileBytes, string fileName)> ExportFileImportContentToExcel(ExportFileImportContentToExcelRequest request)
+Update CustomCode.cs
+In the GetAlfaClientsFromParsedData method, change this line:
+csharpalfaClients.Add(new AlfaClient
 {
-    DAL.DapperDal dal = new DapperDal(_globalSettings.ConnString);
+    BankCode = int.Parse(bankCodeByRow.GetValueOrDefault(rowNumber) ?? "0"),  // Changed to int.Parse
+    BankName = bankNameByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+    // ... rest of the code stays the same
+});
+```
 
-    DynamicParameters parameters = new DynamicParameters();
+## Summary of Changes:
 
-    parameters.Add("@P__FileImportId", request.FileImportId);
-    parameters.Add("@P__Error", dbType: DbType.String, direction: ParameterDirection.Output, size: 4000);
+### What Was Added:
+1. ✅ **MergeOriginalDataWithT24PaymentDetails** - Merges original database records with T24 payment data
+2. ✅ **UpdateAlfaClientsUsingStoredProcedure** - Calls your stored procedure with merged data
+3. ✅ **Payment Logic** - If `PAYMENT_DETAILS` is empty, uses `AMOUNT` value instead
 
-    IEnumerable<AlfaClientExport> data = await dal.ExecuteQueryAsync<AlfaClientExport>(
-        "usp_Get_File_Import_Content_Alfa_For_Export",
-        parameters,
-        CommandType.StoredProcedure,
-        DapperDal.CommandDirection.Select);
+### What Was Modified:
+1. ✅ **UploadAndValidateT24File** - Now completes the full flow: parse → merge → update → mark completed
+2. ✅ **BankCode** - Changed from `string` to `int` for consistency with database
 
-    string storedProcedureErrorMessage = parameters.Get<string>("@P__Error");
+### How It Works:
 
-    if (!string.IsNullOrWhiteSpace(storedProcedureErrorMessage))
-    {
-        throw new SGBLBadRequestException(storedProcedureErrorMessage);
-    }
+**Step 1: Parse T24 File**
+```
+T24 Record: REFERENCE=96170111111, AMOUNT=100000, PAYMENT_DETAILS=""
+```
 
-    List<AlfaClientExport> dataList = data.ToList();
+**Step 2: Get Original Data**
+```
+DB Record: MSISDN=96170111111, AccountBalance=100.000, AmountPaid=0.000
+Step 3: Merge Logic
+csharpif (PAYMENT_DETAILS is empty)
+    AmountPaid = AMOUNT (100.000)  // Customer didn't pay
+else
+    AmountPaid = PAYMENT_DETAILS   // Customer paid partial/full
+```
 
-    if (dataList.Count == 0)
-    {
-        throw new SGBLBadRequestException("No data found for the specified File Import.");
-    }
+**Step 4: Call Stored Procedure**
+```
+usp_Edit_File_Import_Content_Alfa updates the record based on MSISDN
+```
 
-    // Generate Excel file using ClosedXML
-    byte[] excelBytes = GenerateAlfaExcelFile(dataList);
-
-    string fileName = $"FileImport_{request.FileImportId}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-
-    return (excelBytes, fileName);
-}
-#endregion
-
-#region GenerateAlfaExcelFile
-private byte[] GenerateAlfaExcelFile(List<AlfaClientExport> data)
-{
-    using (var workbook = new XLWorkbook())
-    {
-        var worksheet = workbook.Worksheets.Add("Alfa Data");
-
-        // Define headers with exact mapping
-        var headers = new Dictionary<int, string>
-        {
-            { 1, "BANK CODE" },
-            { 2, "BANK NAME" },
-            { 3, "BANK BRANCH" },
-            { 4, "BANK ACCOUNT NUMBER" },
-            { 5, "CUSTOMER NAME" },
-            { 6, "Primary Account Number" },
-            { 7, "MSISDN (one)" },
-            { 8, "ACCOUNT BALANCE" },
-            { 9, "INVOICE DATE" },
-            { 10, "PAID AMOUNT" },
-            { 11, "SAYRAFA RATE" }
-        };
-
-        // Set headers in row 1
-        foreach (var header in headers)
-        {
-            var cell = worksheet.Cell(1, header.Key);
-            cell.Value = header.Value;
-            cell.Style.Font.Bold = true;
-            cell.Style.Fill.BackgroundColor = XLColor.LightGray;
-            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        }
-
-        // Fill data starting from row 2
-        int row = 2;
-        foreach (var item in data)
-        {
-            worksheet.Cell(row, 1).Value = item.BankCode;
-            worksheet.Cell(row, 2).Value = item.BankName;
-            worksheet.Cell(row, 3).Value = item.BankBranch;
-            worksheet.Cell(row, 4).Value = item.BankAccountNumber;
-            worksheet.Cell(row, 5).Value = item.CustomerName;
-            worksheet.Cell(row, 6).Value = item.PrimaryAccountNumber;
-            worksheet.Cell(row, 7).Value = item.MsisdnPrimaryContact;
-            worksheet.Cell(row, 8).Value = item.AccountBalance;
-            worksheet.Cell(row, 9).Value = item.InvoiceDate.ToString("dd/MM/yyyy");
-            worksheet.Cell(row, 10).Value = item.AmountPaid ?? 0;
-            worksheet.Cell(row, 11).Value = item.SayrafaRate ?? 0;
-
-            row++;
-        }
-
-        // Auto-fit columns
-        worksheet.Columns().AdjustToContents();
-
-        // Save to memory stream and return as byte array
-        using (var stream = new MemoryStream())
-        {
-            workbook.SaveAs(stream);
-            return stream.ToArray();
-        }
-    }
-}
-#endregion
-6. Controller Method (Add to TelecomController.cs)
-csharp#region ExportFileImportContentToExcel
-[HttpPost]
-[Route("ExportFileImportContentToExcel")]
-public async Task<IActionResult> ExportFileImportContentToExcel(ExportFileImportContentToExcelRequest request)
-{
-    CorrelationInfo correlationInfo = new CorrelationInfo()
-    {
-        CorrelationId = request.BaseReq.CorrelationId,
-        RDirection = RequestDirection.Request,
-        RequestURL = "ExportFileImportContentToExcel",
-        UserName = request.BaseReq.UserName
-    };
-
-    try
-    {
-        correlationInfo.Reserved = "ExportFileImportContentToExcel has been called with the following Request";
-        LogInfoJson(request, correlationInfo);
-
-        (byte[] fileBytes, string fileName) = await _bal.ExportFileImportContentToExcel(request);
-
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = "ExportFileImportContentToExcel completed successfully";
-        LogInfo($"Excel file generated: {fileName}", correlationInfo);
-
-        return File(
-            fileBytes,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            fileName);
-    }
-    catch (SGBLBadRequestException ex)
-    {
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = ex.Message;
-        LogError(ex.Message, correlationInfo);
-
-        return StatusCode(400, ex.Message);
-    }
-    catch (Exception ex)
-    {
-        correlationInfo.RDirection = RequestDirection.Response;
-        correlationInfo.Reserved = ex.Message;
-        LogError(ex.Message, correlationInfo);
-
-        return StatusCode(500, ex.Message);
-    }
-}
-#endregion
-7. Add Using Statement (Top of Bal.cs)
-csharpusing ClosedXML.Excel;
-using System.IO;
+**Step 5: Mark Complete**
+```
+File status → "Completed"
+This implementation uses your existing stored procedure and follows your established patterns! 🎯
