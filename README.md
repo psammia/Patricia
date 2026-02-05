@@ -1,262 +1,391 @@
-        [HttpPost]
-        public ActionResult ImportOldBoxesArchive(IFormFile excelFile)
-        {
-            string correlationId = Guid.NewGuid().ToString();
+USE [Alterna_Telecom]
+GO
+/****** Object:  StoredProcedure [dbo].[usp_Bulk_Insert_File_Import_Content_Alfa]    Script Date: 05/02/2026 1:21:02 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[usp_Bulk_Insert_File_Import_Content_Alfa]
+	@P__FileId INT,
+	@P__CurrencyCode NVARCHAR(50),
+	@P__Name NVARCHAR(255),
+	@P__CheckSum NVARCHAR(255),
+	@P__Directory NVARCHAR(255),
+	@P__Cycle DATETIME2(0) NULL,
+	@P__FileImportContentAlfa [dbo].[TVP_File_Import_Content_Alfa] READONLY,
+	@P__Error NVARCHAR(4000) OUTPUT,
+	@P__User NVARCHAR(255)
+AS
+BEGIN
+	SET NOCOUNT ON;
 
-            try
-            {
-                //if (!ExcelValidationService(excelFile, out string message))
-                //{
-                //    return Json(new { isSuccess = false, message = message, correlationId = correlationId });
-                //}
-                // Configure validation for OldBoxes Excel file
-                var validationConfig = new ExcelValidationConfig
-                {
-                    WorksheetIndex = 1,
-                    HeaderRow = 1,
-                    DataStartRow = 2,
-                    CaseSensitiveHeaders = false,
-                    MinimumDataRows = 1,
-                    ExpectedHeaders = new List<ColumnConfig>
-                {
-                    new ColumnConfig
-                    {
-                        Name = "Code",
-                        DataType = CellDataType.Text,
-                        IsRequired = true,
-                        MaxLength = 11
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "CompanyName",
-                        DataType = CellDataType.Text,
-                        IsRequired = true,
-                        MaxLength = 22
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "IsActive",
-                        DataType = CellDataType.Number,
-                        IsRequired = true,
-                        MinValue = 0,
-                        MaxValue = 1,
-                        MaxDecimalPlaces = 0
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "BoxRef",
-                        DataType = CellDataType.Text,
-                        IsRequired = true,
-                        //MustBeUnique = false,
-                        MaxLength = 50
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "FileName",
-                        DataType = CellDataType.Text,
-                        IsRequired = true,
-                        MaxLength = 255
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "FileAdditionalInfo",
-                        DataType = CellDataType.Text,
-                        IsRequired = false,
-                        MaxLength = 1000
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "BoxStatus",
-                        DataType = CellDataType.Text,
-                        IsRequired = true,
-                        MaxLength = 10
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "ArchivingPeriod",
-                        DataType = CellDataType.Number,
-                        IsRequired = true,
-                        MinValue = -1,
-                        MaxValue = 99,
-                        MaxDecimalPlaces = 0
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "BoxSentBy",
-                        DataType = CellDataType.Text,
-                        IsRequired = false,
-                        MaxLength = 250
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "BoxSentDate",
-                        DataType = CellDataType.Date,
-                        IsRequired = true,
-                        DisallowFutureDates = true
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "LastIndex",
-                        DataType = CellDataType.Number,
-                        IsRequired = true,
-                        MinValue = 0,
-                        MaxDecimalPlaces = 0
-                    },
-                    new ColumnConfig
-                    {
-                        Name = "CanBeUsed",
-                        DataType = CellDataType.Number,
-                        IsRequired = true,
-                        MinValue = 0,
-                        MaxValue = 1,
-                        MaxDecimalPlaces = 0
-                    }
-                }
-                };
+	DECLARE @StatusCode_AwaitingT24FileUpload NVARCHAR(50)=(SELECT RTRIM(LTRIM([Code])) FROM t_Lookup WHERE TableName = 'FileImportStatus' AND [Code]='Pending');
+	DECLARE @StatusCode_Discarded NVARCHAR(50)=(SELECT RTRIM(LTRIM([Code])) FROM t_Lookup WHERE TableName = 'FileImportStatus' AND [Code]='Discarded');
 
-                // Use the injected service -- Validate the file
-                ValidationResult? validationResult = _validationService.ValidateExcelFile(excelFile, validationConfig);
+	DECLARE @CurrentDate DATETIME2(0)=GETDATE();
 
-                if (!validationResult.IsValid)
-                {
-                    var errorMessages = string.Join("\n", validationResult.Errors.Select(e => $"{e.Location}: {e.Message}"));
-                    return Json(new
-                    {
-                        isSuccess = false,
-                        message = $"File validation failed:\n{errorMessages}",
-                        correlationId = correlationId
-                    });
-                }
+	--Validate Lookups
+	IF(@StatusCode_AwaitingT24FileUpload IS NULL OR @StatusCode_Discarded IS NULL)
+	BEGIN
+		SET @P__Error = 'Missing Status Code in the Lookup Tables';
+		RETURN;
+	END
 
-                // IMPORTANT: Copy file to memory stream to allow re-reading
-                byte[] fileBytes;
-                using (var memoryStream = new MemoryStream())
-                {
-                    excelFile.CopyTo(memoryStream);
-                    fileBytes = memoryStream.ToArray();
-                }
+	--Check for duplicates
+	DECLARE @ExistingFile INT = (SELECT 1 FROM t_File_Import WHERE [CheckSum] = @P__CheckSum AND [StatusCode] != @StatusCode_Discarded);
+	IF(@ExistingFile IS NOT NULL)
+	BEGIN
+		SET @P__Error = 'This file has already been imported. Duplicate files are not allowed.';
+		RETURN;
+	END
 
-                // Create new IFormFile from bytes for GetOldBoxes
-                var reReadableFile = new FormFile(
-                    new MemoryStream(fileBytes),
-                    0,
-                    fileBytes.Length,
-                    excelFile.Name,
-                    excelFile.FileName)
-                {
-                    Headers = excelFile.Headers,
-                    ContentType = excelFile.ContentType
-                };
+	BEGIN --Insert Attachment
+	INSERT INTO [dbo].[t_Attachment]
+           ([Name]
+		   ,[Directory]
+           ,[CreatedDate]
+           ,[CreatedBy]
+           ,[LastModifiedDate]
+           ,[LastModifiedBy])
+     VALUES
+           (@P__Name
+		   ,@P__Directory
+           ,@CurrentDate
+           ,@P__User
+           ,@CurrentDate
+           ,@P__User)
+	END
 
-                // Now read the data
-                ImportOldBoxesReq req = new ImportOldBoxesReq()
-                {
-                    BaseReq = new BaseRequest(HttpContext, GetSession("ArchiveData")),
-                    OldBoxesList = GetOldBoxes(reReadableFile)
-                };
+	DECLARE @NewAttachmentId BIGINT=SCOPE_IDENTITY();
 
-                correlationId = req.BaseReq.CorrelationId;
+	BEGIN --Insert File Import
+	INSERT INTO [dbo].[t_File_Import]
+           ([FileId]
+           ,[AttachmentId]
+           ,[CurrencyCode]
+           ,[StatusCode]
+           ,[CheckSum]
+           ,[T24FileCheckSum]
+		   ,[Cycle]
+           ,[CreatedDate]
+           ,[CreatedBy]
+           ,[LastModifiedDate]
+           ,[LastModifiedBy])
+     VALUES
+           (@P__FileId
+           ,@NewAttachmentId
+           ,@P__CurrencyCode
+           ,@StatusCode_AwaitingT24FileUpload
+		   ,@P__CheckSum
+		   ,NULL
+           ,CAST(@P__Cycle AS date)
+           ,@CurrentDate
+           ,@P__User
+           ,@CurrentDate
+           ,@P__User)
+	
+	DECLARE @NewFileImportId BIGINT=SCOPE_IDENTITY();
 
-                ImportOldBoxesRes resp = Common.ApiCall<ImportOldBoxesRes>(req, "ImportOldBoxes");
+	INSERT INTO [dbo].[t_File_Import_Audit]
+           ([Id]
+		   ,[FileId]
+           ,[AttachmentId]
+           ,[CurrencyCode]
+           ,[StatusCode]
+           ,[CheckSum]
+           ,[T24FileCheckSum]
+		   ,[Cycle]
+           ,[CreatedDate]
+           ,[CreatedBy]
+           ,[LastModifiedDate]
+           ,[LastModifiedBy])
+	SELECT	
+			[Id]
+		   ,[FileId]
+           ,[AttachmentId]
+           ,[CurrencyCode]
+           ,[StatusCode]
+           ,[CheckSum]
+           ,[T24FileCheckSum]
+		   ,[Cycle]
+           ,[CreatedDate]
+           ,[CreatedBy]
+           ,[LastModifiedDate]
+           ,[LastModifiedBy]
+	FROM t_File_Import
+	WHERE Id=@NewFileImportId;
+	END	
 
-                if (resp.WebResp.HttpResponseCode != HttpStatusCode.OK)
-                {
-                    return Json(new
-                    {
-                        isSuccess = false,
-                        message = resp.WebResp.ResponseMessage,
-                        correlationId = req.BaseReq.CorrelationId
-                    });
-                }
+	EXEC [dbo].[usp_Edit_File_Import_Content_Alfa]
+			@NewFileImportId,
+			@P__FileImportContentAlfa,
+			@P__Error OUTPUT,
+			@P__User;
+	
+	if @P__Error IS NOT NULL		
+	BEGIN
+        RETURN;
+    END
 
-                return Json(new
-                {
-                    isSuccess = true,
-                    message = "File has been successfully processed!"
-                });
-            }
-            catch (Exception ex)
-            {
-                Dictionary<string, object> dic = Common.GenerateVariables(HttpContext, GetSession("ArchiveData")!);
+	--BEGIN --Insert File ImportContent / Audit
+	--INSERT INTO [dbo].[t_File_Import_Content_Alfa]
+ --          ([FileImportId]
+ --          ,[BankCode]
+ --          ,[BankName]
+ --          ,[BankBranch]
+ --          ,[BankAccountNumber]
+ --          ,[CustomerName]
+ --          ,[PrimaryAccountNumber]
+ --          ,[MsisdnPrimaryContact]
+ --          ,[AccountBalance]
+ --          ,[InvoiceDate]
+ --          ,[AmountPaid]
+ --          ,[SayrafaRate]
+ --          ,[CreatedDate]
+ --          ,[CreatedBy]
+ --          ,[LastModifiedDate]
+ --          ,[LastModifiedBy])
+	--SELECT 
+	--	   @NewFileImportId
+	--	  ,[BankCode]
+	--	  ,[BankName]
+	--	  ,[BankBranch]
+	--	  ,[BankAccountNumber]
+	--	  ,[CustomerName]
+	--	  ,[PrimaryAccountNumber]
+	--	  ,[MsisdnPrimaryContact]
+	--	  ,[AccountBalance]
+	--	  ,[InvoiceDate]
+	--	  ,[AmountPaid]
+	--	  ,[SayrafaRate]
+	--	  ,@CurrentDate
+	--	  ,@P__User
+	--	  ,@CurrentDate
+	--	  ,@P__User
+	--FROM @P__FileImportContentAlfa
 
-                LogError(ex.Message, new CorrelationInfo()
-                {
-                    CorrelationId = correlationId,
-                    UserName = dic["user"].ToString(),
-                    RequestURL = "File/Import",
-                    StatusCode = HttpStatusCode.InternalServerError,
-                    RDirection = RequestDirection.Response,
-                    RType = RequestType.POST,
-                }, ex);
+	--INSERT INTO [dbo].[t_File_Import_Content_Alfa_Audit]
+ --          ([Id]
+	--	   ,[FileImportId]
+ --          ,[BankCode]
+ --          ,[BankName]
+ --          ,[BankBranch]
+ --          ,[BankAccountNumber]
+ --          ,[CustomerName]
+ --          ,[PrimaryAccountNumber]
+ --          ,[MsisdnPrimaryContact]
+ --          ,[AccountBalance]
+ --          ,[InvoiceDate]
+ --          ,[AmountPaid]
+ --          ,[SayrafaRate]
+ --          ,[CreatedDate]
+ --          ,[CreatedBy]
+ --          ,[LastModifiedDate]
+ --          ,[LastModifiedBy])
+	--SELECT 
+	--	   [Id]
+	--	  ,[FileImportId]
+	--	  ,[BankCode]
+	--	  ,[BankName]
+	--	  ,[BankBranch]
+	--	  ,[BankAccountNumber]
+	--	  ,[CustomerName]
+	--	  ,[PrimaryAccountNumber]
+	--	  ,[MsisdnPrimaryContact]
+	--	  ,[AccountBalance]
+	--	  ,[InvoiceDate]
+	--	  ,[AmountPaid]
+	--	  ,[SayrafaRate]
+	--	  ,@CurrentDate
+	--	  ,@P__User
+	--	  ,@CurrentDate
+	--	  ,@P__User
+	--FROM [dbo].[t_File_Import_Content_Alfa] 
+	--WHERE FileImportId=@NewFileImportId;
+	--END
+END
 
-                return Json(new
-                {
-                    isSuccess = false,
-                    message = ex.Message, // Changed from ex.ToString() for cleaner message
-                    correlationId = correlationId
-                });
-            }
-        }
-        private List<OldBox> GetOldBoxes(IFormFile file)
-        {
-            List<OldBox> result = new List<OldBox>();
+USE [Alterna_Telecom]
+GO
+/****** Object:  StoredProcedure [dbo].[usp_Edit_File_Import_Content_Alfa]    Script Date: 05/02/2026 1:21:48 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[usp_Edit_File_Import_Content_Alfa]
+	@NewFileImportId INT,
+	@P__FileImportContentAlfa [dbo].[TVP_File_Import_Content_Alfa] READONLY,
+	@P__Error NVARCHAR(4000) OUTPUT,
+	@P__User NVARCHAR(255)
+AS
+BEGIN
+    SET NOCOUNT ON;
 
-            using (Stream stream = file.OpenReadStream())
-            {
-                using (XLWorkbook workbook = new XLWorkbook(stream))
-                {
-                    IXLWorksheet workSheet = workbook.Worksheets.First();
+    DECLARE @CurrentDate DATETIME2(0) = GETDATE();
+    DECLARE @StatusCode NVARCHAR(50);
 
-                    Dictionary<string, int> headers = workSheet.Row(1).Cells()
-                        .Where(c => !string.IsNullOrWhiteSpace(c.GetString()))
-                        .ToDictionary(c => c.GetString().Trim(), c => c.Address.ColumnNumber);
+    SET @P__Error = '';
 
-                    string[] requiredColumns = new[]
-                    {
-                    "Code",
-                    "CompanyName",
-                    "IsActive",
-                    "BoxRef",
-                    "FileName",
-                    "FileAdditionalInfo",
-                    "BoxStatus",
-                    "ArchivingPeriod",
-                    "BoxSentBy",
-                    "BoxSentDate",
-                    "LastIndex",
-                    "CanBeUsed"
-                    };
+    -- Check if FileImport exists
+    IF NOT EXISTS (SELECT 1 FROM [dbo].[t_File_Import] WHERE Id = @NewFileImportId)
+    BEGIN
+        SET @P__Error = CONCAT('File Import with Id ', @NewFileImportId, ' does not exist.');
+        RETURN;
+    END
 
-                    foreach (string col in requiredColumns)
-                    {
-                        if (!headers.ContainsKey(col))
-                        {
-                            throw new Exception($"Missing required column: [{col}]");
-                        }
-                    }
+    -- Check if status allows editing
+    SELECT @StatusCode = StatusCode 
+    FROM [dbo].[t_File_Import] 
+    WHERE Id = @NewFileImportId;
 
-                    foreach (IXLRow row in workSheet.RowsUsed().Skip(1))
-                    {
-                        OldBox record = new OldBox()
-                        {
-                            Code = row.Cell(headers["Code"]).GetString().Trim(),
-                            CompanyName = row.Cell(headers["CompanyName"]).GetString().Trim(),
-                            IsActive = int.Parse(row.Cell(headers["IsActive"]).GetString().Trim()),
-                            BoxRef = row.Cell(headers["BoxRef"]).GetString().Trim(),
-                            FileName = row.Cell(headers["FileName"]).GetString().Trim(),
-                            FileAdditionalInfo = row.Cell(headers["FileAdditionalInfo"]).GetString().Trim(),
-                            BoxStatus = row.Cell(headers["BoxStatus"]).GetString().Trim(),
-                            ArchivingPeriod = int.Parse(row.Cell(headers["ArchivingPeriod"]).GetString().Trim()),
-                            BoxSentBy = row.Cell(headers["BoxSentBy"]).GetString().Trim(),
-                            BoxSentDate = row.Cell(headers["BoxSentDate"]).GetString().Trim(),
-                            LastIndex = long.Parse(row.Cell(headers["LastIndex"]).GetString().Trim()),
-                            CanBeUsed = int.Parse(row.Cell(headers["CanBeUsed"]).GetString().Trim())
-                        };
+    IF @StatusCode NOT IN ('AwaitingT24FileReturned', 'Pending')
+    BEGIN
+        SET @P__Error = CONCAT('Cannot edit records. The file import status is "', @StatusCode, '" and cannot be modified.');
+        RETURN;
+    END
 
-                        result.Add(record);
-                    }
-                }
-            }
+    -- Validate that we have data to process
+    IF NOT EXISTS (SELECT 1 FROM @P__FileImportContentAlfa)
+    BEGIN
+        SET @P__Error = 'No data provided to update or insert.';
+        RETURN;
+    END
 
-            return result;
-        }
+    -- MERGE: Use MsisdnPrimaryContact + FileImportId as the business key
+    MERGE [dbo].[t_File_Import_Content_Alfa] AS TARGET
+    USING @P__FileImportContentAlfa AS SOURCE
+    ON (TARGET.[FileImportId] = @NewFileImportId 
+        AND TARGET.[MsisdnPrimaryContact] = SOURCE.[MsisdnPrimaryContact])
+    
+    -- UPDATE existing records 
+    WHEN MATCHED THEN 
+        UPDATE SET
+		-- Keep existing BankCode if SOURCE is 0 or NULL
+
+            TARGET.[BankCode] = CASE
+			WHEN SOURCE.[BankCode] = 0 OR SOURCE.[BankCode] IS NULL 
+			THEN TARGET.[Bankcode]
+			ELSE SOURCE.[BankCode]
+			END,
+
+            TARGET.[BankName] = SOURCE.[BankName],
+            TARGET.[BankBranch] = SOURCE.[BankBranch],
+            TARGET.[BankAccountNumber] = SOURCE.[BankAccountNumber],
+            TARGET.[CustomerName] = SOURCE.[CustomerName],
+            TARGET.[ModifiedMsisdn] = SOURCE.[ModifiedMsisdn],
+			TARGET.[ManuallyMarkedAsPaid] = SOURCE.[ManuallyMarkedAsPaid],
+			TARGET.[PrimaryAccountNumber] = SOURCE.[PrimaryAccountNumber],
+            TARGET.[AccountBalance] = SOURCE.[AccountBalance],
+            TARGET.[InvoiceDate] = SOURCE.[InvoiceDate],
+
+			TARGET.[AmountPaid] = CASE
+			WHEN SOURCE.[AmountPaid] = 0 OR SOURCE.[AmountPaid] IS NULL 
+			THEN TARGET.[AmountPaid]
+			ELSE SOURCE.[AccountBalance]
+			END,
+
+			TARGET.[SayrafaRate] = CASE
+			WHEN SOURCE.[SayrafaRate] = 0 OR SOURCE.[SayrafaRate] IS NULL 
+			THEN TARGET.[SayrafaRate]
+			ELSE SOURCE.[SayrafaRate]
+			END,
+
+            TARGET.[LastModifiedDate] = @CurrentDate,
+            TARGET.[LastModifiedBy] = @P__User
+    
+
+
+    -- INSERT new records (when MSISDN doesn't exist for this FileImportId)
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (
+            [FileImportId],
+            [BankCode],
+            [BankName],
+            [BankBranch],
+            [BankAccountNumber],
+            [CustomerName],
+            [PrimaryAccountNumber],
+            [MsisdnPrimaryContact],
+			[ModifiedMsisdn],
+			[ManuallyMarkedAsPaid],
+            [AccountBalance],
+            [InvoiceDate],
+            [AmountPaid],
+            [SayrafaRate],
+            [CreatedDate],
+            [CreatedBy],
+            [LastModifiedDate],
+            [LastModifiedBy]
+        )
+        VALUES (
+            @NewFileImportId,
+            SOURCE.[BankCode],
+            SOURCE.[BankName],
+            SOURCE.[BankBranch],
+            SOURCE.[BankAccountNumber],
+            SOURCE.[CustomerName],
+            SOURCE.[PrimaryAccountNumber],
+            SOURCE.[MsisdnPrimaryContact],
+			SOURCE.[ModifiedMsisdn],
+			SOURCE.[ManuallyMarkedAsPaid],
+            SOURCE.[AccountBalance],
+            SOURCE.[InvoiceDate],
+            SOURCE.[AmountPaid],
+            SOURCE.[SayrafaRate],
+            @CurrentDate,
+            @P__User,
+            @CurrentDate,
+            @P__User
+        );
+
+    -- Insert into audit table
+    INSERT INTO [dbo].[t_File_Import_Content_Alfa_Audit]
+    (
+        [Id],
+        [FileImportId],
+        [BankCode],
+        [BankName],
+        [BankBranch],
+        [BankAccountNumber],
+        [CustomerName],
+        [PrimaryAccountNumber],
+        [MsisdnPrimaryContact],
+		[ModifiedMsisdn],
+		[ManuallyMarkedAsPaid],
+        [AccountBalance],
+        [InvoiceDate],
+        [AmountPaid],
+        [SayrafaRate],
+        [CreatedDate],
+        [CreatedBy],
+        [LastModifiedDate],
+        [LastModifiedBy]
+    )
+    SELECT 
+        [Id],
+        [FileImportId],
+        [BankCode],
+        [BankName],
+        [BankBranch],
+        [BankAccountNumber],
+        [CustomerName],
+        [PrimaryAccountNumber],
+        [MsisdnPrimaryContact],
+		[ModifiedMsisdn],
+		[ManuallyMarkedAsPaid],
+        [AccountBalance],
+        [InvoiceDate],
+        [AmountPaid],
+        [SayrafaRate],
+        [CreatedDate],          
+        [CreatedBy],      
+        [LastModifiedDate],  
+        [LastModifiedBy]        
+    FROM [dbo].[t_File_Import_Content_Alfa] 
+    WHERE FileImportId = @NewFileImportId;
+END
+
+
+
+
+
