@@ -1,391 +1,487 @@
-USE [Alterna_Telecom]
-GO
-/****** Object:  StoredProcedure [dbo].[usp_Bulk_Insert_File_Import_Content_Alfa]    Script Date: 05/02/2026 1:21:02 PM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-ALTER PROCEDURE [dbo].[usp_Bulk_Insert_File_Import_Content_Alfa]
-	@P__FileId INT,
-	@P__CurrencyCode NVARCHAR(50),
-	@P__Name NVARCHAR(255),
-	@P__CheckSum NVARCHAR(255),
-	@P__Directory NVARCHAR(255),
-	@P__Cycle DATETIME2(0) NULL,
-	@P__FileImportContentAlfa [dbo].[TVP_File_Import_Content_Alfa] READONLY,
-	@P__Error NVARCHAR(4000) OUTPUT,
-	@P__User NVARCHAR(255)
-AS
-BEGIN
-	SET NOCOUNT ON;
+== TelecomController.cs
+        #region ProcessAlfaAttachment
 
-	DECLARE @StatusCode_AwaitingT24FileUpload NVARCHAR(50)=(SELECT RTRIM(LTRIM([Code])) FROM t_Lookup WHERE TableName = 'FileImportStatus' AND [Code]='Pending');
-	DECLARE @StatusCode_Discarded NVARCHAR(50)=(SELECT RTRIM(LTRIM([Code])) FROM t_Lookup WHERE TableName = 'FileImportStatus' AND [Code]='Discarded');
+        [HttpPost]
+        [Route("ProcessAlfaAttachment")]
+        public async Task<ProcessAlfaAttachmentResponse> ProcessAlfaAttachment([FromForm] ProcessAlfaAttachmentRequest request)
+        {
+            ProcessAlfaAttachmentResponse response = new ProcessAlfaAttachmentResponse()
+            {
+                Req = request,
+                BaseResp = new BaseResp()
+                {
+                    CorrelationId = request.BaseReq.CorrelationId,
+                    ReturnCode = _responseCodesDictionary["200"].Content,
+                    ReturnDescription = _responseCodesDictionary["200"].Description
+                }
+            };
 
-	DECLARE @CurrentDate DATETIME2(0)=GETDATE();
+            CorrelationInfo correlationInfo = new()
+            {
+                CorrelationId = request.BaseReq.CorrelationId,
+                RDirection = RequestDirection.Request,
+                RequestURL = "ProcessAlfaAttachment",
+                UserName = request.BaseReq.UserName
+            };
 
-	--Validate Lookups
-	IF(@StatusCode_AwaitingT24FileUpload IS NULL OR @StatusCode_Discarded IS NULL)
-	BEGIN
-		SET @P__Error = 'Missing Status Code in the Lookup Tables';
-		RETURN;
-	END
+            try
+            {
+                correlationInfo.Reserved = "ProcessAlfaAttachment has been called with the following Request";
 
-	--Check for duplicates
-	DECLARE @ExistingFile INT = (SELECT 1 FROM t_File_Import WHERE [CheckSum] = @P__CheckSum AND [StatusCode] != @StatusCode_Discarded);
-	IF(@ExistingFile IS NOT NULL)
-	BEGIN
-		SET @P__Error = 'This file has already been imported. Duplicate files are not allowed.';
-		RETURN;
-	END
+                LogInfoJson(request, correlationInfo);
 
-	BEGIN --Insert Attachment
-	INSERT INTO [dbo].[t_Attachment]
-           ([Name]
-		   ,[Directory]
-           ,[CreatedDate]
-           ,[CreatedBy]
-           ,[LastModifiedDate]
-           ,[LastModifiedBy])
-     VALUES
-           (@P__Name
-		   ,@P__Directory
-           ,@CurrentDate
-           ,@P__User
-           ,@CurrentDate
-           ,@P__User)
-	END
+                await _bal.ProcessAlfaAttachment(request);
 
-	DECLARE @NewAttachmentId BIGINT=SCOPE_IDENTITY();
+                correlationInfo.Reserved = "ProcessAlfaAttachment requested with the following response";
 
-	BEGIN --Insert File Import
-	INSERT INTO [dbo].[t_File_Import]
-           ([FileId]
-           ,[AttachmentId]
-           ,[CurrencyCode]
-           ,[StatusCode]
-           ,[CheckSum]
-           ,[T24FileCheckSum]
-		   ,[Cycle]
-           ,[CreatedDate]
-           ,[CreatedBy]
-           ,[LastModifiedDate]
-           ,[LastModifiedBy])
-     VALUES
-           (@P__FileId
-           ,@NewAttachmentId
-           ,@P__CurrencyCode
-           ,@StatusCode_AwaitingT24FileUpload
-		   ,@P__CheckSum
-		   ,NULL
-           ,CAST(@P__Cycle AS date)
-           ,@CurrentDate
-           ,@P__User
-           ,@CurrentDate
-           ,@P__User)
-	
-	DECLARE @NewFileImportId BIGINT=SCOPE_IDENTITY();
+                LogInfoJson(response, correlationInfo);
 
-	INSERT INTO [dbo].[t_File_Import_Audit]
-           ([Id]
-		   ,[FileId]
-           ,[AttachmentId]
-           ,[CurrencyCode]
-           ,[StatusCode]
-           ,[CheckSum]
-           ,[T24FileCheckSum]
-		   ,[Cycle]
-           ,[CreatedDate]
-           ,[CreatedBy]
-           ,[LastModifiedDate]
-           ,[LastModifiedBy])
-	SELECT	
-			[Id]
-		   ,[FileId]
-           ,[AttachmentId]
-           ,[CurrencyCode]
-           ,[StatusCode]
-           ,[CheckSum]
-           ,[T24FileCheckSum]
-		   ,[Cycle]
-           ,[CreatedDate]
-           ,[CreatedBy]
-           ,[LastModifiedDate]
-           ,[LastModifiedBy]
-	FROM t_File_Import
-	WHERE Id=@NewFileImportId;
-	END	
+                return response;
+            }
+            catch (SGBLBadRequestException ex)
+            {
+                StringBuilder sb = new(_responseCodesDictionary["400"].Description);
 
-	EXEC [dbo].[usp_Edit_File_Import_Content_Alfa]
-			@NewFileImportId,
-			@P__FileImportContentAlfa,
-			@P__Error OUTPUT,
-			@P__User;
-	
-	if @P__Error IS NOT NULL		
-	BEGIN
-        RETURN;
-    END
+                sb.Replace("{0}", ex.Message);
 
-	--BEGIN --Insert File ImportContent / Audit
-	--INSERT INTO [dbo].[t_File_Import_Content_Alfa]
- --          ([FileImportId]
- --          ,[BankCode]
- --          ,[BankName]
- --          ,[BankBranch]
- --          ,[BankAccountNumber]
- --          ,[CustomerName]
- --          ,[PrimaryAccountNumber]
- --          ,[MsisdnPrimaryContact]
- --          ,[AccountBalance]
- --          ,[InvoiceDate]
- --          ,[AmountPaid]
- --          ,[SayrafaRate]
- --          ,[CreatedDate]
- --          ,[CreatedBy]
- --          ,[LastModifiedDate]
- --          ,[LastModifiedBy])
-	--SELECT 
-	--	   @NewFileImportId
-	--	  ,[BankCode]
-	--	  ,[BankName]
-	--	  ,[BankBranch]
-	--	  ,[BankAccountNumber]
-	--	  ,[CustomerName]
-	--	  ,[PrimaryAccountNumber]
-	--	  ,[MsisdnPrimaryContact]
-	--	  ,[AccountBalance]
-	--	  ,[InvoiceDate]
-	--	  ,[AmountPaid]
-	--	  ,[SayrafaRate]
-	--	  ,@CurrentDate
-	--	  ,@P__User
-	--	  ,@CurrentDate
-	--	  ,@P__User
-	--FROM @P__FileImportContentAlfa
+                response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
+                response.BaseResp.ReturnCode = _responseCodesDictionary["400"].Content;
+                response.BaseResp.ReturnDescription = sb.ToString();
 
-	--INSERT INTO [dbo].[t_File_Import_Content_Alfa_Audit]
- --          ([Id]
-	--	   ,[FileImportId]
- --          ,[BankCode]
- --          ,[BankName]
- --          ,[BankBranch]
- --          ,[BankAccountNumber]
- --          ,[CustomerName]
- --          ,[PrimaryAccountNumber]
- --          ,[MsisdnPrimaryContact]
- --          ,[AccountBalance]
- --          ,[InvoiceDate]
- --          ,[AmountPaid]
- --          ,[SayrafaRate]
- --          ,[CreatedDate]
- --          ,[CreatedBy]
- --          ,[LastModifiedDate]
- --          ,[LastModifiedBy])
-	--SELECT 
-	--	   [Id]
-	--	  ,[FileImportId]
-	--	  ,[BankCode]
-	--	  ,[BankName]
-	--	  ,[BankBranch]
-	--	  ,[BankAccountNumber]
-	--	  ,[CustomerName]
-	--	  ,[PrimaryAccountNumber]
-	--	  ,[MsisdnPrimaryContact]
-	--	  ,[AccountBalance]
-	--	  ,[InvoiceDate]
-	--	  ,[AmountPaid]
-	--	  ,[SayrafaRate]
-	--	  ,@CurrentDate
-	--	  ,@P__User
-	--	  ,@CurrentDate
-	--	  ,@P__User
-	--FROM [dbo].[t_File_Import_Content_Alfa] 
-	--WHERE FileImportId=@NewFileImportId;
-	--END
-END
+                correlationInfo.RDirection = RequestDirection.Response;
 
-USE [Alterna_Telecom]
-GO
-/****** Object:  StoredProcedure [dbo].[usp_Edit_File_Import_Content_Alfa]    Script Date: 05/02/2026 1:21:48 PM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-ALTER PROCEDURE [dbo].[usp_Edit_File_Import_Content_Alfa]
-	@NewFileImportId INT,
-	@P__FileImportContentAlfa [dbo].[TVP_File_Import_Content_Alfa] READONLY,
-	@P__Error NVARCHAR(4000) OUTPUT,
-	@P__User NVARCHAR(255)
-AS
-BEGIN
-    SET NOCOUNT ON;
+                correlationInfo.Reserved = ex.Message;
+                LogErrorJson(response, correlationInfo, ex);
 
-    DECLARE @CurrentDate DATETIME2(0) = GETDATE();
-    DECLARE @StatusCode NVARCHAR(50);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                StringBuilder sb = new(_responseCodesDictionary["500"].Description);
 
-    SET @P__Error = '';
+                sb.Replace("{0}", ex.Message);
 
-    -- Check if FileImport exists
-    IF NOT EXISTS (SELECT 1 FROM [dbo].[t_File_Import] WHERE Id = @NewFileImportId)
-    BEGIN
-        SET @P__Error = CONCAT('File Import with Id ', @NewFileImportId, ' does not exist.');
-        RETURN;
-    END
+                response.BaseResp.CorrelationId = request.BaseReq.CorrelationId;
+                response.BaseResp.ReturnCode = _responseCodesDictionary["500"].Content;
+                response.BaseResp.ReturnDescription = sb.ToString();
 
-    -- Check if status allows editing
-    SELECT @StatusCode = StatusCode 
-    FROM [dbo].[t_File_Import] 
-    WHERE Id = @NewFileImportId;
+                correlationInfo.RDirection = RequestDirection.Response;
 
-    IF @StatusCode NOT IN ('AwaitingT24FileReturned', 'Pending')
-    BEGIN
-        SET @P__Error = CONCAT('Cannot edit records. The file import status is "', @StatusCode, '" and cannot be modified.');
-        RETURN;
-    END
+                correlationInfo.Reserved = ex.Message;
+                LogErrorJson(response, correlationInfo, ex);
 
-    -- Validate that we have data to process
-    IF NOT EXISTS (SELECT 1 FROM @P__FileImportContentAlfa)
-    BEGIN
-        SET @P__Error = 'No data provided to update or insert.';
-        RETURN;
-    END
+                return response;
+            }
+        }
 
-    -- MERGE: Use MsisdnPrimaryContact + FileImportId as the business key
-    MERGE [dbo].[t_File_Import_Content_Alfa] AS TARGET
-    USING @P__FileImportContentAlfa AS SOURCE
-    ON (TARGET.[FileImportId] = @NewFileImportId 
-        AND TARGET.[MsisdnPrimaryContact] = SOURCE.[MsisdnPrimaryContact])
-    
-    -- UPDATE existing records 
-    WHEN MATCHED THEN 
-        UPDATE SET
-		-- Keep existing BankCode if SOURCE is 0 or NULL
+        #endregion
+		==========
 
-            TARGET.[BankCode] = CASE
-			WHEN SOURCE.[BankCode] = 0 OR SOURCE.[BankCode] IS NULL 
-			THEN TARGET.[Bankcode]
-			ELSE SOURCE.[BankCode]
-			END,
+Bal.cs
+======
+        public async Task ProcessAlfaAttachment(ProcessAlfaAttachmentRequest request)
+        {
+            string dataExportValidateFileUrl = $"{_globalSettings.DataExportUrl}/ValidateFile";
+            string archiveDate = $"{DateTime.Today:yyyyMMdd}";
+            string archivePath = Path.Combine(_globalSettings.ArchivePath, archiveDate);
 
-            TARGET.[BankName] = SOURCE.[BankName],
-            TARGET.[BankBranch] = SOURCE.[BankBranch],
-            TARGET.[BankAccountNumber] = SOURCE.[BankAccountNumber],
-            TARGET.[CustomerName] = SOURCE.[CustomerName],
-            TARGET.[ModifiedMsisdn] = SOURCE.[ModifiedMsisdn],
-			TARGET.[ManuallyMarkedAsPaid] = SOURCE.[ManuallyMarkedAsPaid],
-			TARGET.[PrimaryAccountNumber] = SOURCE.[PrimaryAccountNumber],
-            TARGET.[AccountBalance] = SOURCE.[AccountBalance],
-            TARGET.[InvoiceDate] = SOURCE.[InvoiceDate],
+            if (request.Attachment == null || request.Attachment.Length == 0)
+            {
+                throw new SGBLBadRequestException("Invalid attachment");
+            }
 
-			TARGET.[AmountPaid] = CASE
-			WHEN SOURCE.[AmountPaid] = 0 OR SOURCE.[AmountPaid] IS NULL 
-			THEN TARGET.[AmountPaid]
-			ELSE SOURCE.[AccountBalance]
-			END,
+            //get the file configurations
+            Common.Model.File fileConfig = await GetFileConfigurationByCode(nameof(FileConfigCodes.AlfaConfig));
 
-			TARGET.[SayrafaRate] = CASE
-			WHEN SOURCE.[SayrafaRate] = 0 OR SOURCE.[SayrafaRate] IS NULL 
-			THEN TARGET.[SayrafaRate]
-			ELSE SOURCE.[SayrafaRate]
-			END,
+            //
+            Common.Dto.FileInfo dataExportFileInfo = fileConfig.ToFileInfoDto();
 
-            TARGET.[LastModifiedDate] = @CurrentDate,
-            TARGET.[LastModifiedBy] = @P__User
-    
+            //calculate checksum
+            string checkSum = await Utils.GetFileChecksumAsync(request.Attachment);
+
+            //check if file checksum already exists
+            await CheckFileCheckSum(checkSum);
+
+            //archive the imported file
+            Utils.UploadFile(archivePath, request.Attachment);
+
+            //read data from excel using data export
+            byte[] fileBytes = await Utils.ToByteArrayAsync(request.Attachment);
+
+            string hex = Utils.ByteArrayToHexString(fileBytes);
+
+            dataExportFileInfo.FileBinary = hex;
+
+            DataExportValidateFileRequest dataExportValidateFileRequest = new()
+            {
+                CorrelationId = request.BaseReq.CorrelationId,
+                FileInfo = dataExportFileInfo
+            };
+
+            DataExportValidateFileResponse responseData = await PostAsync<DataExportValidateFileResponse>(dataExportValidateFileRequest,dataExportValidateFileUrl);
+
+            if (responseData is not { WebResp.StatusCode: HttpStatusCode.OK })
+            {
+                throw new SGBLBadGateWayException(string.Join(Environment.NewLine, responseData.WebResp.Errors));
+            }
+
+            List<AlfaClient> alfaClients = GetAlfaClientsFromParsedData(responseData.ParsedDataList, fileConfig!);
+
+            //insert alfa clients to database
+            await InsertAlfaClients(
+                fileConfig.Id,
+                request.CurrencyCode,
+                request.Attachment.FileName,
+                checkSum,
+                request.Cycle,
+                archiveDate,
+                alfaClients,
+                request.BaseReq.UserName);
+        }
+		=================
+
+		CustomCode.cs
+		==========
+		        public async Task<Common.Model.File> GetFileConfigurationByCode(string fileCode)
+        {
+            DapperDal dal = new DapperDal(_globalSettings.ConnString);
+
+            DynamicParameters paramsOne = new DynamicParameters();
+            paramsOne.Add("P__Code", fileCode);
+
+            Common.Model.File? fileConfig = await dal.QueryMultipleAsync(
+                "usp_Get_File_By_Code",
+                paramsOne,
+                CommandType.StoredProcedure,
+                async multi =>
+                {
+                    Common.Model.File? file = multi.ReadFirstOrDefault<Common.Model.File>();
+
+                    if (file != null)
+                    {
+                        IEnumerable<FileColumn> fileColumns = await multi.ReadAsync<FileColumn>();
+
+                        file.FileColumns = fileColumns.ToList();
+                    }
+
+                    return file;
+                });
+
+            if (fileConfig == null)
+            {
+                throw new SGBLBadRequestException("file config code did not match any configurations in the system");
+            }
+
+            if (fileConfig is { FileColumns: null } || fileConfig.FileColumns.Count == 0)
+            {
+                throw new SGBLBadRequestException("file configuration is missing the columns configuration");
+            }
+
+            List<int> columnIdList = fileConfig.FileColumns.Select(c => c.Id).ToList();
+
+            if (columnIdList.Count > 0)
+            {
+                string joinedColumns = string.Join(',', columnIdList);
+
+                DynamicParameters paramsTwo = new DynamicParameters();
+                paramsTwo.Add("P__ColumnIds", joinedColumns);
+
+                IEnumerable<FileColumnValidation> fileColumnValidations =
+                    await dal.ExecuteQueryAsync<FileColumnValidation>(
+                        "usp_Get_File_Columns_Validation_By_File_Column_List",
+                        paramsTwo,
+                        CommandType.StoredProcedure,
+                        DapperDal.CommandDirection.Select);
+
+                foreach (FileColumn fileColumn in fileConfig.FileColumns)
+                {
+                    fileColumn.FileColumnValidations =
+                        fileColumnValidations.Where(v => v.FileColumnId == fileColumn.Id).ToList();
+                }
+            }
+
+            return fileConfig;
+        }
+		======================
+
+		Mapper.cs
+		========
+		        public static Dto.FileInfo ToFileInfoDto(this Model.File model)
+        {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+
+            Dto.FileInfo fileInfo = new Dto.FileInfo()
+            {
+                FileType = (FileType)Int32.Parse(model.FileTypeCode),
+                Delimiter = model.Delimeter ?? String.Empty,
+                Encoding = (model.EncodingCode is not null) ? (EncodingEnum)Int32.Parse(model.EncodingCode) : EncodingEnum.UTF8, //Default,
+                ValidateHeader = false,
+                HeaderRowNumber = model.HeaderRow ?? 0,
+                ValidateHeaderContainsFields = model.ValidateHeaderContainsFields?.Split(',').ToList() ?? [],
+                ExcelPassword = model.Password
+            };
+
+            // Columns
+            foreach (Model.FileColumn fileColumn in model.FileColumns ?? [])
+            {
+                List<CustomDataValidation> customDataValidations = [];
+
+                foreach (Model.FileColumnValidation fileColumnValidation in fileColumn.FileColumnValidations ?? [])
+                {
+                    customDataValidations.Add(new()
+                    {
+                        InjestFilePropertyId = fileColumnValidation.IngestPropId,
+                    });
+                }
+
+                fileInfo.Columns.Add(new()
+                {
+                    ColumnNumber = fileColumn.Column ?? 0,
+                    FindFromHeader = fileColumn.FindFromHeader,
+                    HeaderColumnName = fileColumn.HeaderColumnName ?? String.Empty,
+                    StartRowNumber = fileColumn.StartRow,
+                    ReadEndCondition = (ReadEndCondition)Int32.Parse(fileColumn.ReadEndConditionCode),
+                    ReadEndConditionValue = fileColumn.ReadEndConditionValue ?? String.Empty,
+                    CustomDataValidation = customDataValidations,
+                });
+            }
+
+            return fileInfo;
+        }
+		=================
+
+		CustomCode.cs
+		========
+		        private List<AlfaClient> GetAlfaClientsFromParsedData(List<ParsedData> parsedDataList,
+            Common.Model.File fileConfig)
+        {
+            List<string> errors = new List<string>();
+            List<AlfaClient> alfaClients = new List<AlfaClient>();
+
+            // Resolve ParsedData per column (by index first, then header name)
+            ParsedData? ResolveParsedData(FileColumn column) =>
+                parsedDataList.FirstOrDefault(pd => pd.ColumnIndex == column.Column) ?? parsedDataList.FirstOrDefault(
+                    pd =>
+                        pd.ColumnName.Equals(column.HeaderColumnName, StringComparison.OrdinalIgnoreCase));
+
+            // Resolve FileColumns from configuration
+            FileColumn bankCodeColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Bank_Code));
+
+            FileColumn bankNameColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Bank_Name));
+
+            FileColumn bankBranchColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Bank_Branch));
+
+            FileColumn bankAccountNumberColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Bank_Account_Number));
+
+            FileColumn customerNameColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Customer_Name));
+
+            FileColumn primaryAccountNumberColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Primary_Account_Number));
+
+            FileColumn msisdnColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.MSISDN_Primary_Contact));
+
+            FileColumn accountBalanceColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Account_Balance));
+
+            FileColumn invoiceDateColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Invoice_Date));
+
+            FileColumn amountPaidColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Amount_Paid));
+
+            FileColumn sayrafaRateColumn = fileConfig.FileColumns!
+                .First(fc => fc.ColTypeCode.Trim() == nameof(ColumnType.Sayrafa_Rate));
+
+            // Resolve ParsedData
+            ParsedData? bankCodeParsedData = ResolveParsedData(bankCodeColumn);
+            ParsedData? bankNameParsedData = ResolveParsedData(bankNameColumn);
+            ParsedData? bankBranchParsedData = ResolveParsedData(bankBranchColumn);
+            ParsedData? bankAccountParsedData = ResolveParsedData(bankAccountNumberColumn);
+            ParsedData? customerNameParsedData = ResolveParsedData(customerNameColumn);
+            ParsedData? primaryAccountParsedData = ResolveParsedData(primaryAccountNumberColumn);
+            ParsedData? msisdnParsedData = ResolveParsedData(msisdnColumn);
+            ParsedData? balanceParsedData = ResolveParsedData(accountBalanceColumn);
+            ParsedData? invoiceDateParsedData = ResolveParsedData(invoiceDateColumn);
+            ParsedData? amountPaidParsedData = ResolveParsedData(amountPaidColumn);
+            ParsedData? sayrafaRateParsedData = ResolveParsedData(sayrafaRateColumn);
+
+            if (msisdnParsedData == null)
+            {
+                throw new Exception("MSISDN column not found in parsed data.");
+            }
+
+            if (balanceParsedData == null)
+            {
+                throw new Exception("Account Balance column not found in parsed data.");
+            }
+
+            // Build row-based dictionaries
+            Dictionary<int, string?> bankCodeByRow =
+                bankCodeParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> bankNameByRow =
+                bankNameParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> bankBranchByRow =
+                bankBranchParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> bankAccountByRow =
+                bankAccountParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> customerNameByRow =
+                customerNameParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> primaryAccountByRow =
+                primaryAccountParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> msisdnByRow =
+                msisdnParsedData.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim());
+
+            Dictionary<int, string?> balanceByRow =
+                balanceParsedData.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim());
+
+            Dictionary<int, string?> invoiceDateByRow =
+                invoiceDateParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> amountPaidByRow =
+                amountPaidParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            Dictionary<int, string?> sayrafaRateByRow =
+                sayrafaRateParsedData?.ColumnData.ToDictionary(x => x.RowNumber, x => x.Data?.Trim())
+                ?? new Dictionary<int, string?>();
+
+            // Union of all row numbers
+            List<int> rowNumbers =
+                msisdnByRow.Keys
+                    .Union(balanceByRow.Keys)
+                    .OrderBy(r => r)
+                    .ToList();
+
+            foreach (int rowNumber in rowNumbers)
+            {
+                msisdnByRow.TryGetValue(rowNumber, out string? msisdn);
+                balanceByRow.TryGetValue(rowNumber, out string? balanceRaw);
+
+                if (string.IsNullOrWhiteSpace(msisdn))
+                {
+                    throw new SGBLBadRequestException($"Row {rowNumber}: MSISDN is empty.");
+                }
+
+                if (!decimal.TryParse(balanceRaw, out decimal balance))
+                {
+                    throw new SGBLBadRequestException($"Row {rowNumber}: Invalid Account Balance '{balanceRaw}'.");
+                }
+
+                string? invoiceDateRaw = Utils.GetT24DateFormat(invoiceDateByRow.GetValueOrDefault(rowNumber)!);
+
+                if (!DateTime.TryParseExact(
+                        invoiceDateRaw,
+                        "yyyyMMdd",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out DateTime invoiceDate))
+                {
+                    throw new SGBLBadRequestException(
+                        $"Row {rowNumber}: Invalid Invoice Date '{invoiceDateRaw}'. Expected format MM/dd/yyyy.");
+                }
+
+                string? amountPaidRaw = amountPaidByRow.GetValueOrDefault(rowNumber);
+                decimal amountPaid = string.IsNullOrWhiteSpace(amountPaidRaw)
+                    ? 0
+                    : decimal.Parse(amountPaidRaw, CultureInfo.InvariantCulture);
+
+                string? sayrafaRateRaw = sayrafaRateByRow.GetValueOrDefault(rowNumber);
+                decimal sayrafaRate = string.IsNullOrWhiteSpace(sayrafaRateRaw)
+                    ? 0
+                    : decimal.Parse(sayrafaRateRaw, CultureInfo.InvariantCulture);
+
+                alfaClients.Add(new AlfaClient
+                {
+                    BankCode = int.Parse(bankCodeByRow.GetValueOrDefault(rowNumber) ?? "0"),
+                    BankName = bankNameByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+                    BankBranch = bankBranchByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+                    BankAccountNumber = bankAccountByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+                    CustomerName = customerNameByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+                    PrimaryAccountNumber = primaryAccountByRow.GetValueOrDefault(rowNumber) ?? string.Empty,
+                    MsisdnPrimaryContact = msisdn,
+                    AccountBalance = balance,
+                    InvoiceDate = invoiceDate,
+                    AmountPaid = amountPaid,
+                    SayrafaRate = sayrafaRate
+                });
+            }
+
+            if (errors.Any())
+            {
+                throw new Exception(string.Join(Environment.NewLine, errors));
+            }
+
+            return alfaClients;
+        }
+
+        #region InsertAlfaClients
+
+        public async Task InsertAlfaClients(
+            int fileConfigId,
+            CurrencyType currencyCode,
+            string attachmentName,
+            string checkSum,
+            DateTime cycle,
+            string directory,
+            List<AlfaClient> alfaClients,
+            string userName)
+        {
+            DapperDal dal = new DapperDal(_globalSettings.ConnString);
+
+            DynamicParameters parameters = new DynamicParameters();
+
+            parameters.Add("P__FileId", fileConfigId);
+            parameters.Add("P__CurrencyCode", currencyCode);
+            parameters.Add("P__Name", attachmentName);
+            parameters.Add("P__CheckSum", checkSum);
+            parameters.Add("P__Directory", directory);
+            parameters.Add("P__FileImportContentAlfa",
+                GetFileImportContentAlfaDt(alfaClients).AsTableValuedParameter());
+            parameters.Add("P__Cycle", cycle);
+            parameters.Add("P__User", userName);
+            parameters.Add("P__Error", direction: ParameterDirection.Output, size: 4000);
+
+            _ = await dal.ExecuteQueryAsync<dynamic>(
+                "usp_Bulk_Insert_File_Import_Content_Alfa",
+                parameters,
+                CommandType.StoredProcedure,
+                DapperDal.CommandDirection.Update);
+
+            string errorMessage = parameters.Get<string>("P__Error");
+
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                throw new SGBLBadRequestException(errorMessage);
+            }
+        }
+
+        #endregion
+		====================
 
 
-    -- INSERT new records (when MSISDN doesn't exist for this FileImportId)
-    WHEN NOT MATCHED BY TARGET THEN
-        INSERT (
-            [FileImportId],
-            [BankCode],
-            [BankName],
-            [BankBranch],
-            [BankAccountNumber],
-            [CustomerName],
-            [PrimaryAccountNumber],
-            [MsisdnPrimaryContact],
-			[ModifiedMsisdn],
-			[ManuallyMarkedAsPaid],
-            [AccountBalance],
-            [InvoiceDate],
-            [AmountPaid],
-            [SayrafaRate],
-            [CreatedDate],
-            [CreatedBy],
-            [LastModifiedDate],
-            [LastModifiedBy]
-        )
-        VALUES (
-            @NewFileImportId,
-            SOURCE.[BankCode],
-            SOURCE.[BankName],
-            SOURCE.[BankBranch],
-            SOURCE.[BankAccountNumber],
-            SOURCE.[CustomerName],
-            SOURCE.[PrimaryAccountNumber],
-            SOURCE.[MsisdnPrimaryContact],
-			SOURCE.[ModifiedMsisdn],
-			SOURCE.[ManuallyMarkedAsPaid],
-            SOURCE.[AccountBalance],
-            SOURCE.[InvoiceDate],
-            SOURCE.[AmountPaid],
-            SOURCE.[SayrafaRate],
-            @CurrentDate,
-            @P__User,
-            @CurrentDate,
-            @P__User
-        );
-
-    -- Insert into audit table
-    INSERT INTO [dbo].[t_File_Import_Content_Alfa_Audit]
-    (
-        [Id],
-        [FileImportId],
-        [BankCode],
-        [BankName],
-        [BankBranch],
-        [BankAccountNumber],
-        [CustomerName],
-        [PrimaryAccountNumber],
-        [MsisdnPrimaryContact],
-		[ModifiedMsisdn],
-		[ManuallyMarkedAsPaid],
-        [AccountBalance],
-        [InvoiceDate],
-        [AmountPaid],
-        [SayrafaRate],
-        [CreatedDate],
-        [CreatedBy],
-        [LastModifiedDate],
-        [LastModifiedBy]
-    )
-    SELECT 
-        [Id],
-        [FileImportId],
-        [BankCode],
-        [BankName],
-        [BankBranch],
-        [BankAccountNumber],
-        [CustomerName],
-        [PrimaryAccountNumber],
-        [MsisdnPrimaryContact],
-		[ModifiedMsisdn],
-		[ManuallyMarkedAsPaid],
-        [AccountBalance],
-        [InvoiceDate],
-        [AmountPaid],
-        [SayrafaRate],
-        [CreatedDate],          
-        [CreatedBy],      
-        [LastModifiedDate],  
-        [LastModifiedBy]        
-    FROM [dbo].[t_File_Import_Content_Alfa] 
-    WHERE FileImportId = @NewFileImportId;
-END
 
 
 
 
 
+
+		
