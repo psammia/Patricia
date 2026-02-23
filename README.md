@@ -1,42 +1,42 @@
 USE [Alterna.Archive.PRD2]
 GO
-/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes]    Script Date: 23/02/2026 9:50:03 AM ******/
+/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes]    Script Date: 23/02/2026 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER   PROCEDURE [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes] 
-	@P__Branch_Old_Boxes [dbo].[TVP_Branch_Old_Boxes] READONLY,
-	@P__User NVARCHAR(250),
-	@P__CanBeUsed BIT = 0
-AS	
+ALTER PROCEDURE [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes] 
+    @P__Branch_Old_Boxes [dbo].[TVP_Branch_Old_Boxes] READONLY,
+    @P__User NVARCHAR(250),
+    @P__CanBeUsed BIT = 0
+AS    
 BEGIN 
-    SET NOCOUNT ON
-	SELECT 1;  
+    SET NOCOUNT ON;
+    
     DECLARE @Now DATETIME = GETDATE(); 
     DECLARE @SystemUser NVARCHAR(250) = 'AlternaSystem'; 
 
     BEGIN TRY 
         BEGIN TRANSACTION; 
 
-		-- ========================================================================
-		-- Early Exit: Check if this data has already been processed
-		-- if ANY container from the input already exists, reject the entire batch
-		-- ========================================================================
-		IF EXISTS (
-			SELECT 1
-			FROM @P__Branch_Old_Boxes input 
-			INNER JOIN [dbo].[t_Container] cont
-			ON cont.[code] = input.[BoxRef]
-			AND cont.[CompanyCode] = input.[Code]
-		)
-		BEGIN
-		RAISERROR('This data has already been uploaded. One or more containers already exist in the system.',16,1);
-		ROLLBACK TRANSACTION;
-		RETURN; 
-		END
+        -- ========================================================================
+        -- Early Exit: Check if this data has already been processed
+        -- if ANY container from the input already exists, reject the entire batch
+        -- ========================================================================
+        IF EXISTS (
+            SELECT 1
+            FROM @P__Branch_Old_Boxes input 
+            INNER JOIN [dbo].[t_Container] cont
+                ON cont.[code] = input.[BoxRef]
+               AND cont.[CompanyCode] = input.[Code]
+        )
+        BEGIN
+            RAISERROR('This data has already been uploaded. One or more containers already exist in the system.', 16, 1);
+            ROLLBACK TRANSACTION;
+            RETURN; 
+        END
 
-  -- Insert new Company (only if Code doesn't already exist)
+        -- Insert new Company (only if Code doesn't already exist)
         INSERT INTO [dbo].[t_Company] 
         ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
         SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
@@ -102,7 +102,7 @@ BEGIN
         WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
         -- ========================================
-        -- MODIFIED: Insert new File Type - Uniqueness on Entity, Description, AND ArchivingPeriod
+        -- Insert new File Type - Uniqueness on Entity, Description, AND ArchivingPeriod
         -- ========================================
         DECLARE @NewFileTypes TABLE (
             Description NVARCHAR(250),
@@ -127,7 +127,7 @@ BEGIN
                 SELECT 1 FROM [dbo].[lkp_FileType] ft
                 WHERE ft.[Description] = input.[FileName]
                 AND ft.[Entity] = input.[Code]
-                AND ft.[ArchivingPeriod] = input.[ArchivingPeriod]  -- ADDED: Check ArchivingPeriod too
+                AND ft.[ArchivingPeriod] = input.[ArchivingPeriod]
             )
         )
         INSERT INTO @NewFileTypes (Description, Entity, ArchivingPeriod, NextCode)
@@ -164,7 +164,7 @@ BEGIN
         FROM @P__Branch_Old_Boxes input
         INNER JOIN [dbo].[lkp_FileType] ft ON ft.[Entity] = input.[Code] 
             AND ft.[Description] = input.[FileName]
-            AND ft.[ArchivingPeriod] = input.[ArchivingPeriod];  -- ADDED: Match on ArchivingPeriod too
+            AND ft.[ArchivingPeriod] = input.[ArchivingPeriod];
 
         -- Insert Files
         INSERT INTO [dbo].[t_File] 
@@ -220,19 +220,41 @@ BEGIN
             WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
         );
 
-        -- Insert new Sequence only if Owner doesn't already exist
+        -- ========================================
+        -- Insert new Sequence
+        -- UPDATED LOGIC:
+        -- 1. For each unique Code (Owner), take the BIGGEST LastIndex from input
+        -- 2. Extract the prefix from BoxRef (everything before the first dot + the dot)
+        -- 3. Only insert if Owner doesn't already exist
+        -- ========================================
+        WITH RankedSequences AS (
+            SELECT 
+                [Code] AS Owner,
+                -- Extract prefix from BoxRef: everything before the first dot, plus the dot
+                -- Example: "RCA.001.123" -> "RCA."
+                LEFT([BoxRef], CHARINDEX('.', [BoxRef])) AS Prefix,
+                [LastIndex],
+                [IsActive],
+                ROW_NUMBER() OVER (PARTITION BY [Code] ORDER BY [LastIndex] DESC) AS rn
+            FROM @P__Branch_Old_Boxes
+        )
         INSERT INTO [dbo].[t_Sequence] 
         ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        FROM @P__Branch_Old_Boxes input
-        WHERE NOT EXISTS (
+        SELECT 
+            Owner,
+            Prefix,
+            LastIndex,
+            NULL,
+            IsActive,
+            @SystemUser,
+            @Now,
+            @SystemUser,
+            @Now 
+        FROM RankedSequences
+        WHERE rn = 1  -- Only the row with the biggest LastIndex per Owner
+        AND NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Sequence] seq
-            WHERE seq.[Owner] = input.[Code]
-        )
-        AND input.[Code] NOT IN (
-            SELECT i2.[Code] 
-            FROM @P__Branch_Old_Boxes i2 
-            WHERE i2.RowId < input.RowId
+            WHERE seq.[Owner] = RankedSequences.Owner
         );
 
         -- ========================================
@@ -337,6 +359,3 @@ BEGIN
         RAISERROR (@ErrMsg, @ErrSeverity, 1); 
     END CATCH 
 END;
-
-
-
