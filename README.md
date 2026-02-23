@@ -1,3 +1,7 @@
+This data has already been uploaded. One or more containers already exist in the system.
+Transaction count after EXECUTE indicates a mismatching number of BEGIN and COMMIT statements. Previous count = 1, current count = 0.
+ID: 7304eab0-a1a6-4b40-a484-22269e3fafb2
+
 USE [Alterna.Archive.PRD2]
 GO
 /****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes]    Script Date: 23/02/2026 ******/
@@ -359,3 +363,4 @@ BEGIN
         RAISERROR (@ErrMsg, @ErrSeverity, 1); 
     END CATCH 
 END;
+
