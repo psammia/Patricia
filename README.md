@@ -1,11 +1,11 @@
 USE [Alterna.Archive.PRD2]
 GO
-/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes]    Script Date: 20/02/2026 10:58:47 AM ******/
+/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes]    Script Date: 23/02/2026 9:50:03 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER     PROCEDURE [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes] 
+ALTER   PROCEDURE [dbo].[usp_Insert_Into_All_Tables_Branch_OldBoxes] 
 	@P__Branch_Old_Boxes [dbo].[TVP_Branch_Old_Boxes] READONLY,
 	@P__User NVARCHAR(250),
 	@P__CanBeUsed BIT = 0
@@ -35,12 +35,11 @@ BEGIN
 		ROLLBACK TRANSACTION;
 		RETURN; 
 		END
-		 
 
-        -- Insert new Company (only if Code doesn't already exist)
+  -- Insert new Company (only if Code doesn't already exist)
         INSERT INTO [dbo].[t_Company] 
         ([Code],[CompanyName],[NameAddress],[Mnemonic],[DisplayDescription],[isBranch],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],1,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        SELECT DISTINCT [Code],[CompanyName],[CompanyName],[Mnemonic],[Code],0,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
         FROM @P__Branch_Old_Boxes input
         WHERE NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Company] comp 
@@ -121,7 +120,7 @@ BEGIN
         WITH UniqueNewFileTypes AS (
             SELECT DISTINCT
                    input.[FileName] as Description,
-                   'RCA' as Entity,
+                   input.[Code] as Entity,
                    input.[ArchivingPeriod]
             FROM @P__Branch_Old_Boxes input
             WHERE NOT EXISTS (
@@ -177,8 +176,8 @@ BEGIN
                ftc.FileTypeCode, 
                'FINAL', 
                input.Code, 
-			   input.FromDate, 
-               input.ToDate,  
+               input.FromDate, 
+               Input.ToDate, 
                input.AdditionalInfo, 
                0, 
                @SystemUser, 
@@ -221,50 +220,20 @@ BEGIN
             WHERE rel.[FileId] = f.FileId AND rel.[ContainerId] = c.ContainerId
         );
 
-        -- Insert new Sequence (largest one) only if Owner doesn't already exist
-
-		WITH RankedInputs AS (
-    SELECT 
-        [Code], 
-        [LastIndex], 
-        [IsActive],
-        ROW_NUMBER() OVER (PARTITION BY [Code] ORDER BY [LastIndex] DESC) as rn
-    FROM @P__Branch_Old_Boxes
-)
-INSERT INTO [dbo].[t_Sequence] 
-    ([Owner], [Prefix], [LastIndex], [Suffix], [IsActive], 
-     [CreatedBy], [CreatedDate], [LastModifiedBy], [LastModifiedDate]) 
-SELECT 
-    [Code], 
-    [Code] + '.', 
-    [LastIndex], 
-    NULL, 
-    [IsActive], 
-    @SystemUser, 
-    @Now, 
-    @SystemUser, 
-    @Now 
-FROM RankedInputs
-WHERE rn = 1 -- Only the row with the largest LastIndex per Code
-AND NOT EXISTS (
-    SELECT 1 FROM [dbo].[t_Sequence] seq
-    WHERE seq.[Owner] = RankedInputs.[Code]
-);
-        --INSERT INTO [dbo].[t_Sequence] 
-        --([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        --SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
-        --FROM @P__Branch_Old_Boxes input
-        --WHERE NOT EXISTS (
-        --    SELECT 1 FROM [dbo].[t_Sequence] seq
-        --    WHERE seq.[Owner] = input.[Code]
-        --)
-        --AND input.[Code] NOT IN (
-        --    SELECT i2.[Code] 
-        --    FROM @P__Branch_Old_Boxes i2 
-        --    WHERE i2.RowId < input.RowId
-        --);
-
-
+        -- Insert new Sequence only if Owner doesn't already exist
+        INSERT INTO [dbo].[t_Sequence] 
+        ([Owner],[Prefix],[LastIndex],[Suffix],[IsActive],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
+        SELECT DISTINCT [Code],[Code]+'.',[LastIndex],null,[IsActive],@SystemUser,@Now,@SystemUser,@Now 
+        FROM @P__Branch_Old_Boxes input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [dbo].[t_Sequence] seq
+            WHERE seq.[Owner] = input.[Code]
+        )
+        AND input.[Code] NOT IN (
+            SELECT i2.[Code] 
+            FROM @P__Branch_Old_Boxes i2 
+            WHERE i2.RowId < input.RowId
+        );
 
         -- ========================================
         -- Insert Container Status History
