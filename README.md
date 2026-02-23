@@ -1,3 +1,7 @@
+This data has already been uploaded. One or more containers already exist in the system.
+Transaction count after EXECUTE indicates a mismatching number of BEGIN and COMMIT statements. Previous count = 1, current count = 0.
+ID: 4aec9211-4512-4501-8883-f29b5ab07d80
+----------------------------------
 
 USE [Alterna.Archive.PRD2]
 GO
@@ -1100,6 +1104,7 @@ BEGIN
         RAISERROR (@ErrMsg, @ErrSeverity, 1); 
     END CATCH 
 END;
+
 
 
 
