@@ -1,7 +1,5 @@
-
 USE [Alterna.Archive.PRD2]
 GO
-/****** Object:  StoredProcedure [dbo].[usp_Insert_Into_All_Tables_CustomerFiles_OldBoxes]    Script Date: 24/02/2026 11:42:38 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -102,60 +100,7 @@ BEGIN
         )
         WHERE input.RowId NOT IN (SELECT RowId FROM @InsertedContainers);
 
-        -- ========================================
-        -- FIXED: Insert new File Type
-        -- For Branch category: Entity is always empty
-        -- Uniqueness: Category='Branch' + Description + ArchivingPeriod
-        -- ========================================
-        DECLARE @NewFileTypes TABLE (
-            Description NVARCHAR(250),
-            ArchivingPeriod INT,
-            NextCode INT
-        );
-        
-        DECLARE @MaxFileTypeCode INT;
-        SELECT @MaxFileTypeCode = ISNULL(MAX(CAST(Code AS INT)), 0) 
-        FROM [dbo].[lkp_FileType] 
-        WHERE ISNUMERIC(Code) = 1;
-        
-        -- Get distinct Description+ArchivingPeriod combinations that don't exist yet
-        WITH UniqueNewFileTypes AS (
-            SELECT DISTINCT
-                   input.[FileName] as Description,
-                   input.[ArchivingPeriod]
-            FROM @P__CustomerFiles_Old_Boxes input
-            WHERE NOT EXISTS (
-                SELECT 1 FROM [dbo].[lkp_FileType] ft
-                WHERE ft.[Category] = 'Branch'
-                  AND ft.[Description] = input.[FileName]
-                  AND ft.[ArchivingPeriod] = input.[ArchivingPeriod]
-            )
-        )
-        INSERT INTO @NewFileTypes (Description, ArchivingPeriod, NextCode)
-        SELECT Description, 
-               ArchivingPeriod,
-               @MaxFileTypeCode + ROW_NUMBER() OVER (ORDER BY Description, ArchivingPeriod) as NextCode
-        FROM UniqueNewFileTypes;
-
-        -- Insert new file types
-        INSERT INTO [dbo].[lkp_FileType] 
-        ([Code],[Entity],[Category],[Description],[HasDate],[IsCustomer],[ArchivingPeriod],[CanBeUsed],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
-        SELECT 
-            CAST(nft.NextCode AS NVARCHAR(50)) as Code,
-            '',  -- Entity is always empty for Branch category
-            'Branch' as Category,
-            'Client Folder',
-            0 as HasDate,
-            1 as IsCustomer,
-            nft.ArchivingPeriod,
-            @P__CanBeUsed,
-            @SystemUser,
-            @Now,
-            @SystemUser,
-            @Now
-        FROM @NewFileTypes nft;
-
-        -- FIXED: Get the FileTypeCode for each file by matching on Branch category
+        -- Get the FileTypeCode for each file by matching on Branch category
         DECLARE @FileTypeCodes TABLE (
             RowId INT,
             FileTypeCode NVARCHAR(50)
@@ -180,7 +125,7 @@ BEGIN
             ftc.FileTypeCode, 
             'FINAL', 
             input.Code, 
-            NUll, 
+            NULL, 
             NULL, 
             '', 
             0, 
@@ -226,15 +171,10 @@ BEGIN
 
         -- ========================================
         -- Insert new Sequence
-        -- 1. For each unique Code (Owner), take the BIGGEST LastIndex from input
-        -- 2. Extract the prefix from BoxRef (everything before the first dot + the dot)
-        -- 3. Only insert if Owner doesn't already exist
         -- ========================================
         WITH RankedSequences AS (
             SELECT 
                 [Code] AS Owner,
-                -- Extract prefix from BoxRef: everything before the first dot, plus the dot
-                -- Example: "RCA.001.123" -> "RCA."
                 LEFT([BoxRef], CHARINDEX('.', [BoxRef])) AS Prefix,
                 [LastIndex],
                 [IsActive],
@@ -254,7 +194,7 @@ BEGIN
             @SystemUser,
             @Now 
         FROM RankedSequences
-        WHERE rn = 1  -- Only the row with the biggest LastIndex per Owner
+        WHERE rn = 1
         AND NOT EXISTS (
             SELECT 1 FROM [dbo].[t_Sequence] seq
             WHERE seq.[Owner] = RankedSequences.Owner
@@ -290,7 +230,7 @@ BEGIN
             AND cs.[StatusCode] = 'SENT'
         );
 
-        -- 2. Insert RECEIVED status for containers with StatusCode RECEIVED, DESTROYED, or NOTFOUND
+        -- 2. Insert RECEIVED status
         INSERT INTO [dbo].[t_ContainerStatus] 
         ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
         SELECT DISTINCT 
@@ -311,7 +251,7 @@ BEGIN
             AND cs.[StatusCode] = 'RECEIVED'
         );
 
-        -- 3. Insert DESTROYED status for containers with StatusCode DESTROYED only
+        -- 3. Insert DESTROYED status
         INSERT INTO [dbo].[t_ContainerStatus] 
         ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
         SELECT DISTINCT 
@@ -332,7 +272,7 @@ BEGIN
             AND cs.[StatusCode] = 'DESTROYED'
         );
 
-        -- 4. Insert NOTFOUND status for containers with StatusCode NOTFOUND
+        -- 4. Insert NOTFOUND status
         INSERT INTO [dbo].[t_ContainerStatus] 
         ([ContainerId],[StatusCode],[HoldingEntityCode],[isCurrentStatus],[CreatedBy],[CreatedDate],[LastModifiedBy],[LastModifiedDate]) 
         SELECT DISTINCT 
@@ -364,5 +304,3 @@ BEGIN
         RAISERROR (@ErrMsg, @ErrSeverity, 1); 
     END CATCH 
 END;
-
-
